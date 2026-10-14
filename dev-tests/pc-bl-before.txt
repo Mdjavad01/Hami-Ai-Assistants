@@ -1,0 +1,8 @@
+notes BEFORE checks=62 fails=4
+   FAIL a busy product is refused by the queue not an error
+   FAIL the refusal cost no model call
+   FAIL the refusal stored no preview
+   FAIL BL-08: and the title comes from the product, not from nothing
+links BEFORE checks=25 fails=2
+   FAIL BL-10: a slug that merely contains about is not a service pageoffered=[518] g=524
+   FAIL BL-10: «ورودی و خروجی» is content, not «ورود»offered=[518] h=525

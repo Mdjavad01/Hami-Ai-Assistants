@@ -1,0 +1,5 @@
+input BEFORE checks=161 fails=3
+   FAIL vague_hits finds the hedges []
+   FAIL a plain body has no vague hits
+   FAIL and the reviewer is told about it []
+links BEFORE checks=26 fails=0

@@ -1,0 +1,402 @@
+/**
+ * Hami AI Assistant — frontend controller.
+ * Vanilla JS, no jQuery, no framework. History lives in sessionStorage with a
+ * hard size cap so a long conversation can never blow the storage quota.
+ */
+(function () {
+	'use strict';
+
+	var C = window.HAAI_CONFIG || {};
+	var I = C.i18n || {};
+	var MAX_HISTORY = Math.max(0, (C.history && C.history.max) || 6);
+	var STORE_KEY = 'haai_chat_v1';
+	var STORE_CAP = 12000; // characters of serialised history.
+
+	var root = document.querySelector('.haai-widget:not(.haai-widget--preview)');
+	if (!root || '1' === root.getAttribute('data-init')) {
+		return;
+	}
+	root.setAttribute('data-init', '1');
+
+	var messages = root.querySelector('.haai-messages');
+	var form = root.querySelector('.haai-form');
+	var input = root.querySelector('.haai-form__input');
+	var typing = root.querySelector('.haai-typing');
+	var errorBox = root.querySelector('.haai-error');
+	var sendBtn = root.querySelector('.haai-form__send');
+	var suggestBox = root.querySelector('.haai-suggest');
+	var hpField = root.querySelector('[data-haai-hp]');
+	var leadBox = root.querySelector('[data-haai-lead]');
+	var leadName = root.querySelector('[data-haai-lead-name]');
+	var leadPhone = root.querySelector('[data-haai-lead-phone]');
+
+	var history = [];
+	var token = null;
+	var pending = false;
+	var initialHTML = messages ? messages.innerHTML : '';
+	var leadSent = false;
+
+	/* ------------------------------------------------------------------
+	 * Helpers
+	 * ---------------------------------------------------------------- */
+
+	function on(el, ev, fn) {
+		if (el) el.addEventListener(ev, fn);
+	}
+
+	function scrollDown() {
+		if (messages) messages.scrollTop = messages.scrollHeight;
+	}
+
+	function autosize() {
+		if (!input) return;
+		input.style.height = 'auto';
+		input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+	}
+
+	function showError(text) {
+		if (!errorBox) return;
+		if (!text) {
+			errorBox.setAttribute('hidden', '');
+			errorBox.textContent = '';
+			return;
+		}
+		errorBox.textContent = text;
+		errorBox.removeAttribute('hidden');
+	}
+
+	function setTyping(on) {
+		if (!typing) return;
+		if (on) typing.removeAttribute('hidden');
+		else typing.setAttribute('hidden', '');
+	}
+
+	function addBubble(role, text) {
+		if (!messages) return null;
+		var wrap = document.createElement('div');
+		wrap.className = 'haai-msg haai-msg--' + (role === 'user' ? 'user' : 'bot');
+
+		var bubble = document.createElement('div');
+		bubble.className = 'haai-msg__bubble';
+		bubble.textContent = text;
+
+		if (role !== 'user') {
+			var copy = document.createElement('button');
+			copy.type = 'button';
+			copy.className = 'haai-msg__copy';
+			copy.textContent = I.copy || 'کپی';
+			copy.setAttribute('aria-label', I.copy || 'کپی');
+			copy.addEventListener('click', function () {
+				copyText(text).then(function () {
+					copy.classList.add('is-done');
+				});
+			});
+			bubble.appendChild(copy);
+		}
+
+		wrap.appendChild(bubble);
+		messages.appendChild(wrap);
+		scrollDown();
+		return wrap;
+	}
+
+	function copyText(text) {
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			return navigator.clipboard.writeText(text);
+		}
+		return new Promise(function (resolve) {
+			var ta = document.createElement('textarea');
+			ta.value = text;
+			ta.setAttribute('readonly', '');
+			ta.style.cssText = 'position:fixed;top:-9999px;opacity:0';
+			document.body.appendChild(ta);
+			ta.select();
+			try { document.execCommand('copy'); } catch (e) { /* older browsers */ }
+			document.body.removeChild(ta);
+			resolve();
+		});
+	}
+
+	/* ------------------------------------------------------------------
+	 * History (sessionStorage, capped)
+	 * ---------------------------------------------------------------- */
+
+	function loadHistory() {
+		try {
+			var raw = window.sessionStorage.getItem(STORE_KEY);
+			var parsed = raw ? JSON.parse(raw) : [];
+			history = Array.isArray(parsed) ? parsed.slice(-MAX_HISTORY * 2) : [];
+		} catch (e) {
+			history = [];
+		}
+	}
+
+	function saveHistory() {
+		history = history.slice(-MAX_HISTORY * 2);
+		try {
+			var raw = JSON.stringify(history);
+			if (raw.length > STORE_CAP) {
+				history = history.slice(Math.ceil(history.length / 2));
+				raw = JSON.stringify(history);
+			}
+			window.sessionStorage.setItem(STORE_KEY, raw);
+		} catch (e) {
+			/* Private mode or quota exceeded: keep going without persistence. */
+		}
+	}
+
+	function push(role, text) {
+		history.push({ role: role, content: text });
+		saveHistory();
+	}
+
+	function clearHistory() {
+		history = [];
+		try { window.sessionStorage.removeItem(STORE_KEY); } catch (e) { /* ignore */ }
+	}
+
+	/* ------------------------------------------------------------------
+	 * Token (never embedded in the cached page)
+	 * ---------------------------------------------------------------- */
+
+	function ensureToken() {
+		if (token) return Promise.resolve(token);
+		return fetch(C.tokenUrl + (C.tokenUrl.indexOf('?') === -1 ? '?' : '&') + 'url=' + encodeURIComponent(location.href), { credentials: 'same-origin' })
+			.then(function (r) { return r.json(); })
+			.then(function (d) {
+				token = d && d.token ? d.token : '';
+				return token;
+			});
+	}
+
+	/**
+	 * POST /chat with the current token. When the server answers 403
+	 * haai_bad_token (expired / invalidated mid-session) mint a fresh token
+	 * and replay the SAME request — exactly once, never in a loop.
+	 *
+	 * @param {object} payload Request body.
+	 * @param {boolean} retry  True on the first attempt only.
+	 */
+	function post(payload, retry) {
+		return ensureToken()
+			.then(function (t) {
+				payload.token = t;
+				return fetch(C.rest + '/chat', {
+					method: 'POST',
+					credentials: 'same-origin',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload)
+				}).then(function (r) {
+					return r.json().then(function (j) { return { status: r.status, body: j }; });
+				});
+			})
+			.then(function (res) {
+				var b = res.body || {};
+				if (retry && 403 === res.status && 'haai_bad_token' === b.code) {
+					token = null;
+					return post(payload, false);
+				}
+				return res;
+			});
+	}
+
+	/* ------------------------------------------------------------------
+	 * Lead capture
+	 * ---------------------------------------------------------------- */
+
+	function normalizeFaDigits(value) {
+		var map = { '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9', '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9' };
+		return String(value || '').replace(/[۰-۹٠-٩]/g, function (c) { return map[c] || c; }).replace(/[^\d+]/g, '');
+	}
+
+	function validateLead(requirement) {
+		var name = leadName ? leadName.value.trim() : '';
+		var phone = normalizeFaDigits(leadPhone ? leadPhone.value : '');
+		if (leadPhone) leadPhone.value = phone;
+
+		if ('required' !== requirement) {
+			return { lead_name: name, lead_phone: phone, lead_consent: '' };
+		}
+
+		var invalid = phone.replace(/^\+?98/, '').replace(/^0/, '');
+		if (invalid.length < 10) {
+			if (leadPhone) {
+				leadPhone.classList.add('is-invalid');
+				leadPhone.focus();
+			}
+			showError(I.leadPhone || 'شماره موبایل معتبر وارد کنید.');
+			return null;
+		}
+		if (leadPhone) leadPhone.classList.remove('is-invalid');
+		showError('');
+
+		return {
+			lead_name: name,
+			lead_phone: phone,
+			lead_consent: (C.lead && C.lead.consent) || ''
+		};
+	}
+
+	/* ------------------------------------------------------------------
+	 * Send
+	 * ---------------------------------------------------------------- */
+
+	function send(text) {
+		text = (text || '').trim();
+		if (!text || pending) return;
+
+		var requirement = (C.lead && C.lead.required) || 'off';
+		var lead = 'off' === requirement || leadSent ? null : validateLead(requirement);
+		if (lead === null) return;
+		if (lead && lead.lead_phone) leadSent = true;
+
+		pending = true;
+		showError('');
+		addBubble('user', text);
+		push('user', text);
+		if (input) {
+			input.value = '';
+			autosize();
+		}
+		if (suggestBox) suggestBox.setAttribute('hidden', '');
+		if (lead && (lead.lead_name || lead.lead_phone) && leadBox) leadBox.setAttribute('hidden', '');
+
+		if (I.typing !== false) setTyping(true);
+		if (sendBtn) sendBtn.disabled = true;
+
+		var payload = {
+			message: text,
+			history: history.slice(0, -1),
+			token: token,
+			url: location.href,
+			hp: hpField ? hpField.value : ''
+		};
+		if (lead) {
+			payload.lead_name = lead.lead_name;
+			payload.lead_phone = lead.lead_phone;
+			payload.lead_consent = lead.lead_consent;
+		}
+
+		post(payload, true)
+			.then(function (res) {
+				pending = false;
+				setTyping(false);
+				if (sendBtn) sendBtn.disabled = false;
+
+				var b = res.body || {};
+				if (b.ok) {
+					addBubble('bot', b.reply);
+					push('assistant', b.reply);
+					if (b.suggested && b.suggested.length) renderSuggest(b.suggested);
+					return;
+				}
+				token = null; // expired token: mint a fresh one next time.
+				showError(b.message || I.error || '');
+			})
+			.catch(function () {
+				pending = false;
+				setTyping(false);
+				if (sendBtn) sendBtn.disabled = false;
+				showError(I.error || '');
+			});
+	}
+
+	/* ------------------------------------------------------------------
+	 * Suggested questions
+	 * ---------------------------------------------------------------- */
+
+	function renderSuggest(list) {
+		if (!messages) return;
+		var old = messages.querySelector('.haai-suggest');
+		if (old) old.parentNode.removeChild(old);
+		if (!list || !list.length) return;
+
+		var box = document.createElement('div');
+		box.className = 'haai-suggest';
+		box.id = 'haai-suggest';
+		list.forEach(function (q) {
+			var b = document.createElement('button');
+			b.type = 'button';
+			b.className = 'haai-suggest__item';
+			b.setAttribute('data-haai-suggest', '');
+			b.textContent = q;
+			box.appendChild(b);
+		});
+		messages.appendChild(box);
+		suggestBox = box;
+		scrollDown();
+	}
+
+	/* ------------------------------------------------------------------
+	 * Wiring
+	 * ---------------------------------------------------------------- */
+
+	on(messages, 'click', function (e) {
+		var t = e.target.closest ? e.target.closest('[data-haai-suggest]') : null;
+		if (t) send(t.textContent);
+	});
+
+	on(form, 'submit', function (e) {
+		e.preventDefault();
+		send(input ? input.value : '');
+	});
+
+	on(input, 'input', autosize);
+
+	on(input, 'keydown', function (e) {
+		if ('Enter' === e.key && !e.shiftKey && !e.isComposing) {
+			e.preventDefault();
+			send(input.value);
+		}
+	});
+
+	on(leadPhone, 'input', function () {
+		leadPhone.classList.remove('is-invalid');
+	});
+
+	on(root.querySelector('[data-haai-restart]'), 'click', function () {
+		clearHistory();
+		token = null;
+		pending = false;
+		leadSent = false;
+		showError('');
+		setTyping(false);
+		if (messages) messages.innerHTML = initialHTML;
+		suggestBox = messages ? messages.querySelector('.haai-suggest') : null;
+		if (leadBox) leadBox.removeAttribute('hidden');
+		if (leadName) leadName.value = '';
+		if (leadPhone) {
+			leadPhone.value = '';
+			leadPhone.classList.remove('is-invalid');
+		}
+		if (input) input.focus();
+	});
+
+	on(root.querySelector('[data-haai-close]'), 'click', function () {
+		var panel = root.closest ? root.closest('.haai-float') : null;
+		if (panel) panel.setAttribute('hidden', '');
+		else root.setAttribute('hidden', '');
+		document.dispatchEvent(new CustomEvent('haai:close'));
+	});
+
+	// Restore the previous conversation so a page change keeps the thread.
+	loadHistory();
+	if (history.length && messages) {
+		history.slice(-MAX_HISTORY * 2).forEach(function (turn) {
+			if (turn && turn.role && turn.content) addBubble(turn.role, turn.content);
+		});
+	}
+
+	autosize();
+
+	// Public handle: loader.js and themes can hook into it.
+	window.HAAI_CHAT = {
+		root: root,
+		send: send,
+		focus: function () { if (input) input.focus(); },
+		isOpen: function () {
+			var p = root.closest ? root.closest('.haai-float') : null;
+			return p ? !p.hasAttribute('hidden') : !root.hasAttribute('hidden');
+		}
+	};
+})();

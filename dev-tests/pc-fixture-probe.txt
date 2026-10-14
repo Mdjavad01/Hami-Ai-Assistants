@@ -1,0 +1,15 @@
+taxonomy_exists(pa_جنس)=true
+term_id=43 taxonomy_exists(pa_%D8%AC%D9%86%D8%B3)=false
+--- get_attributes() ---
+  key=pa_%d8%ac%d9%86%d8%b3 | label=pa_جنس | taxonomy_exists=false | options=[43] | is_taxonomy=true
+--- product_facts() today ---
+  نام => پروب ورودی الف
+  قیمت => 5848414 &#xfdfc;
+  قیمت معمول => 5848414
+  موجودی => موجود
+  دسته‌بندی => Uncategorized
+  توضیح کوتاه => جنس : پلی استر
+  توضیح کامل => لورم ایپسوم متن ساختگی با تولید سادگی نامفهوم از صنعت چاپ و 
+  pa_جنس => 43
+currency=IRR symbol=&#xfdfc;
+fixture_product=174

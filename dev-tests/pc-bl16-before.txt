@@ -1,0 +1,4 @@
+BEFORE checks=28 fails=1
+   ok BL-16: a demo page matching only in its body is not offeredoffered=[628,634,635] i=636
+   FAIL BL-16: in the fallback the body-only demo page is vetoedoffered=[636]
+   ok BL-16: the fallback still keeps a title match offered=[628,634,635]

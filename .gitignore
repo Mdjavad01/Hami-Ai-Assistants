@@ -1,0 +1,8 @@
+# Repo-only ignores. Everything in .distignore (dev-tests/, tools/, docs) is
+# versioned on purpose; these are local artefacts.
+node_modules/
+.workbuddy-ai/
+*.log
+
+# Runtime log of the local mock provider: rewritten by every mock run, never reviewed.
+dev-tests/mock-api-log.jsonl

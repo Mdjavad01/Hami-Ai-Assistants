@@ -1,0 +1,5 @@
+COLS: id,module,model,operation,tokens_in,tokens_out,latency_ms,ok,error_code,user_id,created
+{"id":"33","module":"product-content","model":"qwen\/qwen3.8-27b","operation":"product-content","tokens_in":"484","tokens_out":"1093","latency_ms":"4236","ok":"1","error_code":"","user_id":"3","created":"2026-10-13 22:02:40"}
+{"id":"32","module":"product-content","model":"qwen\/qwen3.8-27b","operation":"product-content","tokens_in":"484","tokens_out":"1005","latency_ms":"3500","ok":"1","error_code":"","user_id":"3","created":"2026-10-13 21:56:30"}
+{"id":"31","module":"admin","model":"qwen\/qwen3.8-27b","operation":"chat","tokens_in":"1","tokens_out":"6","latency_ms":"964","ok":"1","error_code":"","user_id":"3","created":"2026-10-13 21:51:34"}
+{"id":"30","module":"product-content","model":"qwen\/qwen3.8-27b","operation":"product-content","tokens_in":"562","tokens_out":"1280","latency_ms":"4757","ok":"1","error_code":"","user_id":"3","created":"2026-10-13 07:39:05"}

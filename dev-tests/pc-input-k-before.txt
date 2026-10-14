@@ -1,0 +1,180 @@
+=== A. attributes arrive human, never as ids ===
+  ok   facts readable (evidence)                             [نام=تست الف — پروب ورودی | دسته‌بندی=Uncategorized | توضیح کوتاه=جنس : پلی استر | قیمت=﷼ 5,848,414.00 | قیمت معمول=﷼ 5,848,414.00 | موجودی=موجود | جنس=پلی استر]
+  ok   no fact value is a bare term id                       []
+  ok   no machine key leaks into the facts                   ["نام","دسته‌بندی","توضیح کوتاه","قیمت","قیمت معمول","موجودی","جنس"]
+  ok   a fact labelled «جنس» exists                     جنس
+  ok   its value is the term name, not the id                پلی استر
+  ok   encoded key decodes to a human label                  'جنس'
+  ok   latin key keeps WooCommerce label                     'color'
+  ok   double prefix is stripped                             
+  ok   garbage key yields no label                           
+  ok   unresolvable term id is dropped, never printed        
+  ok   plain text options survive                            
+
+=== B. price text is real text ===
+  ok   no HTML entity anywhere in the facts                  
+  ok   price fact carries the decoded currency unit          ﷼ 5,848,414.00
+  ok   price fact keeps the amount                           ﷼ 5,848,414.00
+  ok   regular price is formatted like the price             ﷼ 5,848,414.00
+
+=== C. demo / filler description never reaches the model ===
+  ok   lorem «توضیح کامل» is not sent             
+  ok   a review note says why                                ["توضیح کامل معتبر نیست (متن نمونه یا خیلی کوتاه)؛ به مدل داده نشد."]
+  ok   product_facts() takes a notes out-param               by-ref second arg
+  ok   honest long description is still sent                 کیف دوشی چرم طبیعی با آستر پارچه‌ای، بنده‌ی تنظیم‌شونده و جیب داخلی برای موبایل. دوخت دور تا دور کیف دو ردیف است و کفه‌ی کیف ضخیم‌تر از بدنه ساخته شده تا شکل خود را نگه دارد.
+  ok   no note is invented for a good product                []
+  ok   short description of the rich product survives        جنس : پلی استر
+
+=== D. the outbound prompt ===
+  ok   chain: brief produced                                 
+  ok   prompt was captured                                   
+  ok   prompt has no HTML entity                             
+  ok   prompt has no lorem description                       
+  ok   prompt has no machine attribute key                   
+  ok   prompt keeps the resolved feature                     
+  ok   preview carries the data note about the description   ["داده‌ی محصول کم است (7 حقیقت)؛ متن کوتاه‌تر از 1200 کلمه طبیعی است و برای بلندشدنش حشو نمی‌نویسیم.","توضیح کامل معتبر نیست (متن نمونه یا خیلی کوتاه)؛ به مدل داده نشد."]
+  ok   bench settings restored                               
+
+=== E. currency units ===
+  ok   IRT without a filter still has no entity in the facts &#x062A;&#x0648;&#x0645;&#x0627;&#x0646;
+  ok   IRT without a filter reads «تومان» as a word   تومان 4,152,720.00
+  ok   IRT without a filter keeps a unit and the amount      تومان 4,152,720.00
+  ok   filtered symbol (تومان) reaches the price text   تومان 4,152,720.00
+  ok   filtered price has no entity and no bidi mark         تومان 4,152,720.00
+  ok   filtered price keeps the amount                       تومان 4,152,720.00
+  ok   unit and amount stay separate words                   تومان 4,152,720.00
+  ok   persian digits survive plain_text                     ۴٬۱۵۲٬۷۲۰٫۵۰ تومان
+  ok   a price never gets a space inside its own digits      تومان 4,152,720.00
+  ok   a price keeps its thousands separator                 تومان 4,152,720.00
+  ok   no digit of the amount is lost                        تومان 4,152,720.00
+  ok   the fact list uses the filtered unit too              تومان 5,848,414.00
+  ok   an other currency keeps its own unit                  د.إ 100.00
+
+=== F. custom, multi-valued and variable attributes ===
+  ok   fixture: term «پلی استر» in pa_جنس        
+  ok   fixture: term «کرکی» in pa_جنس               
+  ok   variable fixture attributes dumped                    [نام=تست الف — کفش متغیر | دسته‌بندی=Uncategorized | توضیح کامل=کفش روزمره‌ی چرم با آستر پارچه‌ای و کفه‌ی لاستیکی. زیره دوزی‌شده است و کفش جیب داخلی برای بند اضافه دارد. سایزهای ۴۰ تا ۴۳ موجود است. | موجودی=ناموجود | جنس=پلی استر، کرکی | جنس آستر=کرکی، فومی | رنگ=قرمز، آبی]
+  ok   encoded `attribute_` key resolves to a label          
+  ok   attribute_ + percent-encoded key gets a human label   جنس
+  ok   attribute_ + percent-encoded key resolves term names  ["پلی استر"]
+  probe raw keys of the variable fixture: ["pa_%d8%ac%d9%86%d8%b3","%d8%ac%d9%86%d8%b3-%d8%a2%d8%b3%d8%aa%d8%b1","%d8%b1%d9%86%da%af"] (meta key was attribute_pa_%D8%AC%D9%86%D8%B3)
+  ok   multi-valued attribute lists both term names          پلی استر، کرکی
+  ok   multi-valued attribute lists no id                    پلی استر، کرکی
+  ok   local (non-taxonomy) attribute survives with its name کرکی، فومی
+  ok   local attribute has its own decoded label             
+  ok   a local multi-valued attribute reads as «قرمز، آبی»قرمز، آبی
+  ok   no note for a well-described variable product         []
+
+=== G. price/stock stay out unless asked ===
+  ok   no price or stock in the facts by default             ["نام","دسته‌بندی","توضیح کوتاه","جنس"]
+  ok   the readable data still goes through                  ["نام","دسته‌بندی","توضیح کوتاه","جنس"]
+  ok   the off prompt was really captured                    
+  ok   the prompt forbids price, stock and sale wording      
+  ok   no number reaches the prompt                          
+  ok   opting in brings the price back                       ["نام","دسته‌بندی","توضیح کوتاه","قیمت","قیمت معمول","موجودی","جنس"]
+  ok   the on prompt was really captured                     
+  ok   opting in drops the prohibition                       
+  ok   opting in puts the price in the prompt                
+  ok   the key has a default and it is off                   
+  ok   the key has a sanitize rule                           
+  ok   diagnose is clean with the new key                    []
+
+=== H. length, truncation and the one repair call ===
+  ok   count_words counts text, not tags                     3
+  ok   openai: finish_reason=length is truncation            
+  ok   openai: finish_reason=stop is whole                   
+  ok   gemini: finishReason=MAX_TOKENS is truncation         
+  ok   gemini: STOP is whole                                 
+  ok   claude: stop_reason=max_tokens is truncation          
+  ok   claude: end_turn is whole                             
+  ok   the prompt names the unit and the ±۱۵٪ band       زبان: فارسی لحن: صمیمی طول: حدود 1200 کلمه (بین 1020 تا 1380 کلمه). کمتر از 1020 ناقص است و بیشتر از 1380 حشو می‌شود. مخاطب: عموم خریداران نمونه‌ی همین لحن (فقط از نظر لحن، نه محتوا؛ کلمه‌هایش را تکرار نکن): «این کیف رو که بندازی رو دوش، همون روز اول برات آشناست.» «اگه جاش خالی بود، بگو کدام وسایلت رو توش می‌ذاری.» قواعد نوشتار فارسی: - جمله کوتاه و روان. فارسیِ ترجمه‌نما ننویس: «نشان‌دهنده‌ی …»، «تکنولوژی …»، «مورد استفاده قرار گیرد»؛ به‌جایشان «نشانه‌ی …»، «قابلیت …»، «به کار می‌رود». - نیم‌فاصله‌ی درست: «پلی‌استر»، «ماسک‌ها»، «قابل‌تنفس»، «می‌شود». - حشو و تعریف کلی که از داده نیامده ننویس؛ نام محصول را بیش از دو بار در هر ۳۰۰ کلمه تکرار نکن و به‌جایش «این محصول» بنویس. - برای ادعای محصول «احتمالاً»، «شاید» یا «تا حد زیادی» نمی‌آید؛ یا قطعی بگو یا ننویس. آمار، عدد، درصد، تاریخ، قیمت، نقل‌قول، نام کسی، منبع، مطالعه یا لینک از خود نساز. فقط همان اطلاعاتی را بنویس که در متن درخواست آمده؛ هر جا اطلاعات نداری، آن جمله یا بخش را ننویس و جای آن یادداشت بگذار که نیاز به داده‌ی واقعی دارد. هیچ ادعای برتری، تضمین یا رقم رقابتی بدون منبع نساز.
+  ok   the product list has no 2 200-word option             ["short","medium","long"]
+  ok   its longest option is 1200 words                      
+  ok   an unknown slug falls back to the middle              
+  ok   the label says ۱۲۰۰                               بلند (~۱۲۰۰ کلمه)
+  ok   a cut-off reply is marked truncated                   {"truncated":true,"words":18}
+  ok   exactly one continuation was asked for                2
+  ok   the continuation was appended                         <p>بند نخست کیف دوشی چرم است.</p>
+<p>بند دوم هم با بند تنظیم‌شونده و دوخت دو ردیف ادامه می‌یابد.</p>
+  ok   the cut is reported in the notes                      ["متن مدل به سقف توکن خورد؛ یک ادامه گرفته شد و به همین متن چسبانده شد."]
+  ok   one expansion call was made                           2
+  ok   the expansion prompt forbids new claims               به همان متن محصول چیزی اضافه می‌کنی که حدود 394 کلمه به هدف برسد؛ فقط با جزئیات همین داده‌ها (ویژگی‌ها، دسته، توضیح موجو
+  ok   the expanded text kept both parts                     <p>بند نخست کیف دوشی چرم است.</p>
+<p>کفه‌ی ضخیم و جیب داخلی موبایل را نگه می‌دارند.</p>
+  ok   words and target are reported for the UI              {"words":15,"target":400}
+  ok   no repair call when the data is thin                  1
+  ok   the reason is in the notes                            ["داده‌ی محصول کم است (4 حقیقت)؛ متن کوتاه‌تر از 400 کلمه طبیعی است و برای بلندشدنش حشو نمی‌نویسیم."]
+
+=== I. time budget, estimate, xlong default, flag reset ===
+  ok   a spent budget costs no extra call                    1
+  ok   the budget note is shown                              ["متن کوتاه ماند (به‌خاطر محدودیت زمان، ادامه یا بسط انجام نشد). برای متن بلندتر، پیش‌نمایش را دوباره بسازید."]
+  ok   the text it did get is kept                           <p>بند نخست کیف دوشی چرم است.</p>
+  ok   the queue path has no budget and still repairs        2
+  ok   a failed repair does not fail the brief               
+  ok   and it is reported honestly                           ["متن مدل به سقف توکن خورد و ادامه ممکن نشد؛ متن نصفه است و انتشارش را خودتان تصمیم بگیرید."]
+  ok   estimate is three calls per product                   12
+  ok   the product form falls one notch down                 
+  ok   and asks for 1200 words                               
+  ok   a junk slug still falls back to medium                
+  ok   the article default is untouched                      
+  ok   the brief built from xlong says 1200                  تو یک کارشناس سئو و محتوای فروشگاهی هستی. خروجی را فقط و فقط به‌صورت یک شیء JSON با کلیدهای زیر برگردان، بدون متن اضافه و بدون کد فنس: {"html":"...","seo_title":"...","seo_description":"...","slug":"...","excerpt":"...","faq":[{"q":"...","a":"..."}],"notes":["..."]} قانون‌ها: - html شامل h2/h3/p/ul/li/strong باشد؛ تگ h1 ممنوع. - seo_title حداکثر ۶۰ کاراکتر، seo_description حداکثر ۱۵۵ کاراکتر. - slug فقط حروف کوچک انگلیسی و خط تیره. - faq بین ۳ تا ۵ مورد باشد. - faq فقط سؤالهایی که پاسخشان عیناً در همین اطلاعات هست. سؤال قیمت، تخفیف، «چند تومان»، موجودی یا ارسال نساز. در پاسخ هیچ «احتمالاً»، «شاید» یا «معمولاً» نمی‌آید؛ اگر داده‌ای جواب سؤال را ندارد، آن سؤال را ننویس (حتی اگر فهرست خالی بماند). - کاربرد، نوع، مصرف یا «مناسب برای…» محصول را از روی نامش حدس نزن؛ فقط آنچه در اطلاعات آمده بنویس. اگر نام با دسته یا ویژگی‌ها نمی‌خواند (مثلاً نام «روغن» و دسته‌ی «ماسک»، یا ویژگی پارچه برای یک خوراکی)، همان را در notes بنویس و توضیح را با حدس پر نکن. - هرگز قیمت یا مشخصاتی که در اطلاعات نیامده اختراع نکن. - notes فقط برای یادداشت‌های بازبینی است: هر جا داده کم است یک آیتم کوتاه آنجا بنویس. در html، faq، seo_title، seo_description یا excerpt هیچ یادداشت، کروشه یا براکت نگذار — خروجی آن‌ها مستقیم روی صفحه‌ی محصول می‌نشیند. زبان: فارسی لحن: صمیمی طول: حدود 1200 کلمه (بین 1020 تا 1380 کلمه). کمتر از 1020 ناقص است و بیشتر از 1380 حشو می‌شود. مخاطب: عموم خریداران کلیدواژه‌هایی که باید طبیعی در متن بیایند: تست الف — پروب ورودی Uncategorized اولین این کلیدواژه‌ها باید در seo_title، در seo_description و در پاراگراف اول همین‌طور بیاید (بدون تکرار زورکی). نمونه‌ی همین لحن (فقط از نظر لحن، نه محتوا؛ کلمه‌هایش را تکرار نکن): «این کیف رو که بندازی رو دوش، همون روز اول برات آشناست.» «اگه جاش خالی بود، بگو کدام وسایلت رو توش می‌ذاری.» قواعد نوشتار فارسی: - جمله کوتاه و روان. فارسیِ ترجمه‌نما ننویس: «نشان‌دهنده‌ی …»، «تکنولوژی …»، «مورد استفاده قرار گیرد»؛ به‌جایشان «نشانه‌ی …»، «قابلیت …»، «به کار می‌رود». - نیم‌فاصله‌ی درست: «پلی‌استر»، «ماسک‌ها»، «قابل‌تنفس»، «می‌شود». - حشو و تعریف کلی که از داده نیامده ننویس؛ نام محصول را بیش از دو بار در هر ۳۰۰ کلمه تکرار نکن و به‌جایش «این محصول» بنویس. - برای ادعای محصول «احتمالاً»، «شاید» یا «تا حد زیادی» نمی‌آید؛ یا قطعی بگو یا ننویس. آمار، عدد، درصد، تاریخ، قیمت، نقل‌قول، نام کسی، منبع، مطالعه یا لینک از خود نساز. فقط همان اطلاعاتی را بنویس که در متن درخواست آمده؛ هر جا اطلاعات نداری، آن جمله یا بخش را ننویس و جای آن یادداشت بگذار که نیاز به داده‌ی واقعی دارد. هیچ ادعای برتری، تضمین یا رقم رقابتی بدون منبع نساز.
+  ok   the saved value itself is left alone                  
+  ok   a cut reply sets the flag                             
+  ok   a failed call leaves no stale flag                    سرویس AI موقتاً از دسترس خارج است. بعداً دوباره تلاش کنید. — down
+  ok   an empty or cached-shaped body leaves it false too    
+
+=== J. faq filter, tone examples, focus keyword ===
+  ok   filter drops a price question                         
+  ok   filter drops a stock question                         
+  ok   filter drops a hedged answer                          
+  ok   filter keeps a real question                          
+  ok   only the publishable question is left                 [{"q":"دوخت کیف چند ردیف است؟","a":"دو ردیف."}]
+  ok   each drop is reported                                 ["یک سؤال متداول حذف شد، چون درباره‌ی قیمت\/موجودی بود یا پاسخش قطعی نبود: «قیمت این محصول چقدر است؟»","یک سؤال متداول حذف شد، چون درباره‌ی قیمت\/موجودی بود یا پاسخش قطعی نبود: «آیا موجود است؟»","یک سؤال متداول حذف شد، چون درباره‌ی قیمت\/موجودی بود یا پاسخش قطعی نبود: «آستر کیف از چیست؟»"]
+  ok   tone friendly ships an example                        
+  ok   tone professional ships an example                    
+  ok   tone formal ships an example                          
+  ok   tone excited ships an example                         
+  ok   tone technical ships an example                       
+  ok   the five tones are five different samples             5
+  ok   the prompt bans translation-ese and says half-space   
+  ok   the keyword must reach title, meta and first paragraph
+  ok   the prompt forbids guessing the use from the name     تو یک کارشناس سئو و محتوای فروشگاهی هستی. خروجی را فقط و فقط به‌صورت یک شیء JSON با کلیدهای زیر برگردان، بدون متن اضافه و بدون کد فنس: {"html":"...","seo_title":"...","seo_description":"...","slug":".
+  ok   and sends the contradiction to notes                  
+  ok   derived keyword is name + category                    روغن اصل Syrup ماسک مو
+  ok   a category already in the name is not repeated        کفش چرم مردانه
+  ok   the generated prompt carries the derived keyword      تست الف — پروب ورودی Uncategorized
+  ok   the preview keeps it for the reviewer                 تست الف — پروب ورودی Uncategorized
+
+=== K. error detail is masked, truncated and never reaches a visitor ===
+  ok   401: brief failed                                     کلید API نامعتبر است یا مدل انتخابی در اکانت شما فعال نیست. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  FAIL 401: no credential in the message                     کلید API نامعتبر است یا مدل انتخابی در اکانت شما فعال نیست. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  ok   401: message stays short                              131
+  ok   401: Persian sentence first                           کلید API نامعتبر است یا مدل انتخابی در اکانت شما فعال نیست. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  ok   403: brief failed                                     دسترسی مجاز نیست. سطح اکانت یا کلید را بررسی کنید. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  FAIL 403: no credential in the message                     دسترسی مجاز نیست. سطح اکانت یا کلید را بررسی کنید. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  ok   403: message stays short                              122
+  ok   403: Persian sentence first                           دسترسی مجاز نیست. سطح اکانت یا کلید را بررسی کنید. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  ok   429: brief failed                                     سرویس موقتاً درخواست‌ها را محدود کرده است. چند لحظه بعد دوباره تلاش کنید. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  FAIL 429: no credential in the message                     سرویس موقتاً درخواست‌ها را محدود کرده است. چند لحظه بعد دوباره تلاش کنید. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  ok   429: message stays short                              145
+  ok   429: Persian sentence first                           سرویس موقتاً درخواست‌ها را محدود کرده است. چند لحظه بعد دوباره تلاش کنید. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  ok   500: brief failed                                     سرویس AI موقتاً از دسترس خارج است. بعداً دوباره تلاش کنید. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  FAIL 500: no credential in the message                     سرویس AI موقتاً از دسترس خارج است. بعداً دوباره تلاش کنید. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  ok   500: message stays short                              130
+  ok   500: Persian sentence first                           سرویس AI موقتاً از دسترس خارج است. بعداً دوباره تلاش کنید. — Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model
+  ok   chat answer produced                                  
+  FAIL visitor sees no provider text                         کلید API نامعتبر است یا مدل انتخابی در اکانت شما فعال نیست. — Incorrect API key provided: sk-live-ZZZ1234567890
+  FAIL visitor message is Persian and generic                کلید API نامعتبر است یا مدل انتخابی در اکانت شما فعال نیست. — Incorrect API key provided: sk-live-ZZZ1234567890
+  FAIL ipv6 loopback needs no key                            کلید API تنظیم نشده است. لطفاً در تب «ارائه‌دهنده AI» آن را وارد کنید.
+  FAIL lookalike host is not keyless                         
+  ok   bench settings restored after K                       
+  SKIP mask_secrets() unit checks (does not exist yet — legacy run)
+  ok   teardown: no fixture product left                     
+  ok   teardown: currency restored                           USD
+
+FAILURES: 8
+input BEFORE checks=162 fails=4
+   FAIL and forbids building a story out of a vague category
+   FAIL vague_hits finds the hedges []
+   FAIL a plain body has no vague hits
+   FAIL and the reviewer is told about it []

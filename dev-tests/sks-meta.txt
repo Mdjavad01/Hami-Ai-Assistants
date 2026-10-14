@@ -1,0 +1,5 @@
+{"pa_%d8%ac%d9%86%d8%b3":{"name":"pa_\u062c\u0646\u0633","value":"","position":0,"is_visible":1,"is_variation":0,"is_taxonomy":1},"pa_%da%a9%d8%b4%d9%88%d8%b1":{"name":"pa_\u06a9\u0634\u0648\u0631","value":"","position":1,"is_visible":1,"is_variation":0,"is_taxonomy":1}}
+
+terms pa_جنس=["\u067e\u0644\u06cc \u0627\u0633\u062a\u0631"]
+terms encoded=[]
+wc_var_names=["pa_%d8%ac%d9%86%d8%b3","pa_%da%a9%d8%b4%d9%88%d8%b1"]

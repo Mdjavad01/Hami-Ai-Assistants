@@ -1,0 +1,70 @@
+== mock on [::1]:8802 ==
+== bench: provider -> mock, one product without a preview ==
+target product: 106
+== running pc-e2e.cjs (product 106) ==
+  ok   login                                               
+    · rows on first page: 20
+    · total label: 39 محصول
+  ok   picker loaded with rows                             
+    · search "کفش" rows: 17
+  ok   search narrows the list                             
+  ok   filter panel opens                                  
+    · active-filter badge: 1
+  ok   filter badge counts the active filter               
+    · picked product: کفش چرم مردانه‌ی نردبان 3
+    · selection bar: 1 انتخاب شده
+  ok   selection is registered                             1 انتخاب شده
+  ok   product screen opened                               
+    · product id: 128
+
+--- scenario «edit»: add one question, delete the first ---
+  ok   preview generated                                   
+    · title counter: 33 / 60
+    · desc counter: 44 / 155
+  ok   title counter equals the real length                33 / 60
+  ok   desc counter equals the real length                 44 / 155
+    · word counter: 2 واژه
+  ok   word counter equals the real word count             2 واژه
+    · faq rows before → add → remove: 2 → 3 → 2
+  ok   FAQ row added                                       
+  ok   FAQ row removed                                     
+    · faq field names after removal: faq[0][q], faq[1][q]
+  ok   faq names are renumbered from zero                  faq[0][q],faq[1][q]
+    · apply notice: اعمال شد: متن، عنوان، اسلگ
+  ok   apply reported success                              اعمال شد: متن، عنوان، اسلگ
+  ok   preview gone after apply                            
+    · saved title: عنوان ویرایش‌شده E2E1791944963124
+    · saved slug: e2e-e2e1791944963124
+    · saved excerpt: توضیح ویرایش‌شده E2E1791944963124 برای سنجش.
+  ok   edited title applied                                عنوان ویرایش‌شده E2E1791944963124
+  ok   edited slug applied                                 e2e-e2e1791944963124
+  ok   edited meta became the excerpt                      
+  ok   edited body applied                                 
+  ok   FAQ heading written                                 
+  ok   the added question is in the product                
+  ok   the added answer is in the product                  
+  ok   the deleted question is gone                        
+  ok   the surviving model question is kept                
+
+--- scenario «keep»: the model FAQ must survive ---
+  ok   preview generated                                   
+    · faq rows left untouched: 2
+  ok   apply reported success                              
+  ok   both model questions survive                        
+  ok   FAQ heading present                                 
+
+--- scenario «remove»: no FAQ must be written ---
+  ok   preview generated                                   
+    · faq rows after deleting all: 0
+  ok   every FAQ row removed in the UI                     
+  ok   apply reported success                              
+    · content length: 136
+  ok   no FAQ heading in the product                       
+  ok   no model question in the product                    
+  ok   the body itself is still written                    <h2>چرا این محصول؟</h2>
+پاراگراف نمونه‌ی مدل برای تست سرتاسر
+
+E2E: 35 ok / 0 failed (of 35)
+== bench restored ==
+provider cleared
+mock stopped
