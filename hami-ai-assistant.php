@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.2
+ * Version:           2.1.3
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.2' );
+define( 'HAAI_VERSION', '2.1.3' );
 define( 'HAAI_DB_VERSION', '7' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
@@ -93,9 +93,11 @@ function haa_css_vars( $s ) {
         return '--haai-primary:' . $primary . ';'
                 . '--haai-on-accent:' . haa_contrast_text( $primary ) . ';'
                 // Derived tints keep the whole widget coherent with the two colours
-                // the admin picked: soft surface, focus ring, muted text, hairline.
+                // the admin picked: soft surface, focus ring, muted text, hairline,
+                // and the darker gradient stop used by header/launcher/send.
                 . ( $rgb ? '--haai-accent-soft:rgba(' . $rgb . ',.12);--haai-accent-ring:rgba(' . $rgb . ',.16);' : '' )
                 . ( $trgb ? '--haai-faint:rgba(' . $trgb . ',.62);--haai-line:rgba(' . $trgb . ',.09);' : '' )
+                . '--haai-accent-2:' . ( haa_shade_hex( $primary, 0.76 ) ?: '#3730a3' ) . ';'
                 . '--haai-bg:' . ( $a['bg_color'] ?? '#fff' ) . ';'
                 . '--haai-text:' . ( $a['text_color'] ?? '#1f2937' ) . ';'
                 . '--haai-bubble:' . ( $a['secondary_color'] ?? '#eef2ff' ) . ';'
@@ -124,6 +126,32 @@ function haa_hex_rgb( $hex ) {
                 return '';
         }
         return (string) hexdec( substr( $hex, 0, 2 ) ) . ',' . hexdec( substr( $hex, 2, 2 ) ) . ',' . hexdec( substr( $hex, 4, 2 ) );
+}
+
+/**
+ * Darkened copy of a hex colour, for gradient stops on launcher/header/send.
+ *
+ * Multiplies each channel by $factor (0..1). Returns '' for non-colours so
+ * callers can fall back to a sane static shade instead of printing broken CSS.
+ *
+ * @param string $hex    #rgb or #rrggbb.
+ * @param float  $factor Brightness multiplier (e.g. 0.76).
+ * @return string #rrggbb or ''.
+ */
+function haa_shade_hex( $hex, $factor ) {
+        $hex = ltrim( (string) $hex, '#' );
+        if ( 3 === strlen( $hex ) ) {
+                $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+        }
+        if ( 6 !== strlen( $hex ) || ! ctype_xdigit( $hex ) ) {
+                return '';
+        }
+        $out = '#';
+        for ( $i = 0; $i < 3; $i++ ) {
+                $channel = (int) round( hexdec( substr( $hex, $i * 2, 2 ) ) * (float) $factor );
+                $out    .= str_pad( (string) dechex( min( 255, max( 0, $channel ) ) ), 2, '0', STR_PAD_LEFT );
+        }
+        return $out;
 }
 
 /**
@@ -262,6 +290,9 @@ function haa_public_config() {
                         'size'    => (int) $a['button_size'],
                         'primary' => $a['primary_color'],
                         'icon'    => haa_fab_icon( $s ),
+                        // One gentle engagement nudge per session, shown by loader.js.
+                        // Filterable and empty-string disables it entirely.
+                        'teaser'  => apply_filters( 'haai_teaser_text', __( 'سلام! سوالی دارید؟ همین‌جا بپرسید.', 'hami-ai-assistant' ) ),
                 ),
                 'history'   => array( 'max' => (int) ( $b['max_history'] ?? 6 ) ),
                         'lead'      => array(
@@ -515,14 +546,24 @@ final class Haa_Plugin {
                 $bot  = (int) ( $s['general']['floating_bottom'] ?? 24 );
                 $bg   = (string) ( $s['appearance']['primary_color'] ?? '#4f46e5' );
                 $fg   = haa_contrast_text( $bg );
+                $bg2  = haa_shade_hex( $bg, 0.76 );
+                $grad = $bg2 ? 'linear-gradient(135deg,' . $bg . ',' . $bg2 . ')' : $bg;
 
                 return '.haai-fab{position:fixed;z-index:99998;display:flex;align-items:center;justify-content:center;'
                         . 'box-sizing:border-box;width:' . $size . 'px;height:' . $size . 'px;padding:0;line-height:0;border:0;border-radius:50%;cursor:pointer;'
                         . $side . ':calc(' . $off . 'px + env(safe-area-inset-' . $side . ',0px));'
                         . $far . ':auto;bottom:calc(' . $bot . 'px + env(safe-area-inset-bottom,0px));'
-                        . 'background:' . $bg . ';color:' . $fg . ';box-shadow:0 6px 20px rgba(0,0,0,.22)}'
-                        . '.haai-fab:focus-visible{outline:2px solid ' . $fg . ';outline-offset:2px}'
-                        . '.haai-fab[hidden]{display:none}';
+                        . 'background:' . $grad . ';color:' . $fg . ';box-shadow:0 10px 26px rgba(0,0,0,.26),0 2px 8px rgba(0,0,0,.16);transition:transform .2s cubic-bezier(.34,1.56,.64,1),box-shadow .2s}'
+                        . '.haai-fab:hover{transform:scale(1.07);box-shadow:0 14px 34px rgba(0,0,0,.3)}'
+                        . '.haai-fab:focus-visible{outline:2px solid ' . $fg . ';outline-offset:3px}'
+                        . '.haai-fab[hidden]{display:none}'
+                        // Teaser GEOMETRY only (settings-dependent); its visual style
+                        // lives in chatbot.css and arrives with the lazy sheet.
+                        . '.haai-teaser{position:fixed;z-index:99997;'
+                        . $side . ':calc(' . $off . 'px + env(safe-area-inset-' . $side . ',0px));'
+                        . $far . ':auto;bottom:calc(' . ( $bot + $size + 12 ) . 'px + env(safe-area-inset-bottom,0px));'
+                        . 'max-width:230px}'
+                        . '.haai-teaser[hidden]{display:none}';
         }
 
         /**

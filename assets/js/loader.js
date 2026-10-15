@@ -66,6 +66,7 @@
 	}
 
 	function open() {
+		hideTeaser(true);
 		panel.removeAttribute('hidden');
 		fab.setAttribute('aria-expanded', 'true');
 		if (window.HAAI_CHAT) window.HAAI_CHAT.focus();
@@ -87,8 +88,59 @@
 		fab.setAttribute('aria-expanded', 'false');
 	});
 
+	// Escape closes the panel while it is the thing on screen.
+	document.addEventListener('keydown', function (e) {
+		if ('Escape' === e.key && panel && !panel.hasAttribute('hidden')) close();
+	});
+
+	/* Teaser bubble — one gentle nudge per session, a few seconds after load,
+	 * until the visitor opens the chat once. Markup lives here; its geometry
+	 * ships in the launcher's critical CSS, its visual style in chatbot.css. */
+	var TEASER_KEY = 'haai_teaser_v1';
+	var teaser = null;
+	var teaserTimer = null;
+
+	function sessionSeen() {
+		try { return !!window.sessionStorage.getItem(TEASER_KEY); } catch (e) { return true; }
+	}
+	function sessionMark() {
+		try { window.sessionStorage.setItem(TEASER_KEY, '1'); } catch (e) { /* private mode */ }
+	}
+
+	function hideTeaser(persist) {
+		if (teaserTimer) { clearTimeout(teaserTimer); teaserTimer = null; }
+		if (teaser) {
+			var t = teaser;
+			teaser = null;
+			t.classList.remove('is-in');
+			setTimeout(function () { t.remove(); }, 350);
+		}
+		if (persist) sessionMark();
+	}
+
+	function showTeaser() {
+		if (sessionSeen() || !c.fab || !c.fab.teaser) return;
+		teaser = document.createElement('button');
+		teaser.type = 'button';
+		teaser.className = 'haai-teaser' + (c.fab.side === 'left' ? ' is-left' : '');
+		teaser.setAttribute('dir', 'rtl');
+		teaser.textContent = c.fab.teaser;
+		teaser.addEventListener('click', function () {
+			hideTeaser(true);
+			if (panel && panel.hasAttribute('hidden')) open();
+		});
+		document.body.appendChild(teaser);
+		(requestAnimationFrame || setTimeout)(function () {
+			if (teaser) teaser.classList.add('is-in');
+		});
+		sessionMark(); // shown once - never nag on every page view.
+		teaserTimer = setTimeout(function () { hideTeaser(false); }, 12000);
+	}
+
 	('requestIdleCallback' in window ? requestIdleCallback : function (fn) { setTimeout(fn, 1500); })(css);
 	['pointerenter', 'pointerdown', 'touchstart', 'focus'].forEach(function (ev) {
 		fab.addEventListener(ev, load);
 	});
+
+	setTimeout(showTeaser, 4000);
 })();

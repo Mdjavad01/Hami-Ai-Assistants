@@ -17,15 +17,16 @@ $s = Haa_Settings::get();
 
 $css = Haa_Plugin::fab_css( $s );
 ok( 'fab_css exists', '' !== $css );
-ok( 'fab_css <= 600 B', strlen( $css ) <= 600, strlen( $css ) . ' B' );
+ok( 'fab_css <= 900 B', strlen( $css ) <= 900, strlen( $css ) . ' B' ); // button fully styled + teaser geometry
 ok( 'fab_css has position:fixed', false !== strpos( $css, 'position:fixed' ) );
 ok( 'fab_css has z-index', false !== strpos( $css, 'z-index:99998' ) );
 ok( 'fab_css has size from settings', false !== strpos( $css, 'width:56px;height:56px' ) );
 ok( 'fab_css has right offset', false !== strpos( $css, 'right:calc(24px + env(safe-area-inset-right,0px))' ) );
 ok( 'fab_css clears the opposite side', false !== strpos( $css, 'left:auto' ) );
 ok( 'fab_css bottom + safe-area', false !== strpos( $css, 'bottom:calc(24px + env(safe-area-inset-bottom,0px))' ) );
-ok( 'fab_css bg from settings', false !== strpos( $css, 'background:#4f46e5' ) );
+ok( 'fab_css gradient from settings', false !== strpos( $css, 'linear-gradient(135deg,#4f46e5' ) );
 ok( 'fab_css balanced braces', substr_count( $css, '{' ) === substr_count( $css, '}' ) );
+ok( 'fab_css keeps teaser geometry', false !== strpos( $css, '.haai-teaser{position:fixed' ) && false !== strpos( $css, 'bottom:calc(92px' ) );
 
 // left side + custom geometry
 $s2 = $s;

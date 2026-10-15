@@ -700,7 +700,18 @@ body.haai-theme-dark .haai-wrap {
 
 .haai-pvform { display: grid; gap: var(--haai-sp-4); padding: var(--haai-sp-5); background: var(--haai-surface); border: 1px solid var(--haai-border); border-radius: var(--haai-r-lg); box-shadow: var(--haai-sh-1); }
 
-.haai-pvmeta { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--haai-sp-3) var(--haai-sp-4); }
+/* Three editable meta fields side by side. Two rules are load-bearing:
+   1) min-width:0 on the cells — WordPress core gives .regular-text a fixed
+      25em width and a grid cell's default min-width:auto lets that input
+      blow the track up, so the slug field escaped the card entirely.
+   2) width:100% on the inputs — every field stacks label-over-control and
+      fills its track, which is also the calmer, modern look. */
+.haai-pvmeta { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--haai-sp-3) var(--haai-sp-4); }
+.haai-pvmeta .haai-field { grid-template-columns: 1fr; gap: 6px; padding: 0; border-bottom: 0; min-width: 0; max-width: 100%; }
+.haai-pvmeta .haai-field__label { padding-top: 0; }
+.haai-pvmeta .regular-text, .haai-pvmeta .large-text { width: 100%; max-width: 100%; margin: 0; }
+/* The slug is a machine name: monospace, left-to-right even on an RTL page. */
+.haai-pvmeta input[name="slug"] { text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace; font-size: 13px; }
 
 .haai-count { margin: 2px 0 0; color: var(--haai-faint); font-size: 11px; }
 .haai-count.is-over { color: var(--haai-warn); font-weight: var(--haai-fw-strong); }
@@ -734,6 +745,7 @@ body.haai-theme-dark .haai-wrap {
 .haai-faq { display: grid; gap: var(--haai-sp-2); }
 .haai-faqrow { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, 1.6fr) auto; gap: var(--haai-sp-2); align-items: start; }
 .haai-faqrow input, .haai-faqrow textarea { width: 100%; margin: 0; }
+@media (max-width: 782px) { .haai-faqrow { grid-template-columns: 1fr; } }
 .haai-faq__add { margin: 0; }
 
 /* Review notes never become page text; they get their own panel so the admin
