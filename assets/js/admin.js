@@ -4,522 +4,590 @@
  * page pickers, dark mode for "auto".
  */
 (function () {
-	'use strict';
+        'use strict';
 
-	// "خودکار" arrives as body.haai-theme-auto from PHP; only the browser knows
-	// the OS preference, so the dark class is applied (and kept in sync) here
-	// instead of repeating the whole token set in a media query.
-	if (window.matchMedia) {
-		var dark = window.matchMedia('(prefers-color-scheme: dark)');
-		var syncDark = function () {
-			var b = document.body;
-			if (!b) return;
-			b.classList.toggle('haai-theme-dark', b.classList.contains('haai-theme-auto') && dark.matches);
-		};
-		syncDark();
-		if (dark.addEventListener) dark.addEventListener('change', syncDark);
-		else if (dark.addListener) dark.addListener(syncDark);
-	}
+        // "خودکار" arrives as body.haai-theme-auto from PHP; only the browser knows
+        // the OS preference, so the dark class is applied (and kept in sync) here
+        // instead of repeating the whole token set in a media query.
+        if (window.matchMedia) {
+                var dark = window.matchMedia('(prefers-color-scheme: dark)');
+                var syncDark = function () {
+                        var b = document.body;
+                        if (!b) return;
+                        b.classList.toggle('haai-theme-dark', b.classList.contains('haai-theme-auto') && dark.matches);
+                };
+                syncDark();
+                if (dark.addEventListener) dark.addEventListener('change', syncDark);
+                else if (dark.addListener) dark.addListener(syncDark);
+        }
 
-	var C = window.haaiAdmin || {};
-	var A = C.ajax || '';
+        var C = window.haaiAdmin || {};
+        var A = C.ajax || '';
 
-	function on(el, ev, fn) {
-		if (el) el.addEventListener(ev, fn);
-	}
+        function on(el, ev, fn) {
+                if (el) el.addEventListener(ev, fn);
+        }
 
-	function qs(sel, ctx) {
-		return (ctx || document).querySelector(sel);
-	}
+        function qs(sel, ctx) {
+                return (ctx || document).querySelector(sel);
+        }
 
-	function qsa(sel, ctx) {
-		return Array.prototype.slice.call((ctx || document).querySelectorAll(sel));
-	}
+        function qsa(sel, ctx) {
+                return Array.prototype.slice.call((ctx || document).querySelectorAll(sel));
+        }
 
-	function busy(btn, on) {
-		if (!btn) return;
-		btn.disabled = on;
-		btn.textContent = on ? (C.i18n && C.i18n.busy) || '…' : btn.getAttribute('data-label') || btn.textContent;
-	}
+        function busy(btn, on) {
+                if (!btn) return;
+                btn.disabled = on;
+                btn.textContent = on ? (C.i18n && C.i18n.busy) || '…' : btn.getAttribute('data-label') || btn.textContent;
+        }
 
-	function post(action, data) {
-		var body = new FormData();
-		body.append('action', action);
-		body.append('nonce', C.nonce || '');
-		Object.keys(data || {}).forEach(function (k) {
-			if (data[k] instanceof FileList) {
-				Array.prototype.forEach.call(data[k], function (f) { body.append(k, f); });
-			} else {
-				body.append(k, data[k]);
-			}
-		});
-		return fetch(A, { method: 'POST', credentials: 'same-origin', body: body })
-			.then(function (r) { return r.json(); });
-	}
+        function post(action, data) {
+                var body = new FormData();
+                body.append('action', action);
+                body.append('nonce', C.nonce || '');
+                Object.keys(data || {}).forEach(function (k) {
+                        if (data[k] instanceof FileList) {
+                                Array.prototype.forEach.call(data[k], function (f) { body.append(k, f); });
+                        } else {
+                                body.append(k, data[k]);
+                        }
+                });
+                return fetch(A, { method: 'POST', credentials: 'same-origin', body: body })
+                        .then(function (r) { return r.json(); });
+        }
 
-	function collectProvider() {
-		var out = {};
-		qsa('input[name^="provider["],select[name^="provider["],textarea[name^="provider["]').forEach(function (el) {
-			var key = el.name.replace(/^provider\[|\]$/g, '');
-			if (el.type === 'checkbox') {
-				out[key] = el.checked ? '1' : '';
-			} else if (el.type === 'radio') {
-				if (el.checked) out[key] = el.value;
-			} else {
-				out[key] = el.value;
-			}
-		});
-		return out;
-	}
+        function collectProvider() {
+                var out = {};
+                qsa('input[name^="provider["],select[name^="provider["],textarea[name^="provider["]').forEach(function (el) {
+                        var key = el.name.replace(/^provider\[|\]$/g, '');
+                        if (el.type === 'checkbox') {
+                                out[key] = el.checked ? '1' : '';
+                        } else if (el.type === 'radio') {
+                                if (el.checked) out[key] = el.value;
+                        } else {
+                                out[key] = el.value;
+                        }
+                });
+                return out;
+        }
 
-	/* ------------------------------------------------------------------
-	 * Media picker
-	 * ---------------------------------------------------------------- */
+        /* ------------------------------------------------------------------
+         * Media picker
+         * ---------------------------------------------------------------- */
 
-	qsa('[data-haai-media-pick]').forEach(function (btn) {
-		on(btn, 'click', function (e) {
-			e.preventDefault();
-			var wrap = btn.closest('[data-haai-media-wrap]');
-			var input = wrap ? wrap.parentNode.querySelector('[data-haai-media]') : null;
-			if (!input) return;
+        qsa('[data-haai-media-pick]').forEach(function (btn) {
+                on(btn, 'click', function (e) {
+                        e.preventDefault();
+                        var wrap = btn.closest('[data-haai-media-wrap]');
+                        var input = wrap ? wrap.parentNode.querySelector('[data-haai-media]') : null;
+                        if (!input) return;
 
-			var frame = wp.media({
-				title: 'انتخاب تصویر',
-				multiple: false,
-				library: { type: 'image' }
-			});
-			frame.on('select', function () {
-				var att = frame.state().get('selection').first().toJSON();
-				input.value = att.id;
-				if (wrap) {
-					var img = wrap.querySelector('img');
-					if (!img) {
-						img = document.createElement('img');
-						img.width = 48;
-						img.height = 48;
-						img.loading = 'lazy';
-						wrap.insertBefore(img, wrap.firstChild);
-					}
-					img.src = att.sizes && att.sizes.thumbnail ? att.sizes.thumbnail.url : att.url;
-				}
-			});
-			frame.open();
-		});
-	});
+                        var frame = wp.media({
+                                title: 'انتخاب تصویر',
+                                multiple: false,
+                                library: { type: 'image' }
+                        });
+                        frame.on('select', function () {
+                                var att = frame.state().get('selection').first().toJSON();
+                                input.value = att.id;
+                                if (wrap) {
+                                        var img = wrap.querySelector('img');
+                                        if (!img) {
+                                                img = document.createElement('img');
+                                                img.width = 48;
+                                                img.height = 48;
+                                                img.loading = 'lazy';
+                                                wrap.insertBefore(img, wrap.firstChild);
+                                        }
+                                        img.src = att.sizes && att.sizes.thumbnail ? att.sizes.thumbnail.url : att.url;
+                                }
+                        });
+                        frame.open();
+                });
+        });
 
-	qsa('[data-haai-media-clear]').forEach(function (btn) {
-		on(btn, 'click', function (e) {
-			e.preventDefault();
-			var wrap = btn.closest('[data-haai-media-wrap]');
-			var input = wrap ? wrap.parentNode.querySelector('[data-haai-media]') : null;
-			if (input) input.value = '0';
-			if (wrap) {
-				var img = wrap.querySelector('img');
-				if (img) img.parentNode.removeChild(img);
-			}
-		});
-	});
+        qsa('[data-haai-media-clear]').forEach(function (btn) {
+                on(btn, 'click', function (e) {
+                        e.preventDefault();
+                        var wrap = btn.closest('[data-haai-media-wrap]');
+                        var input = wrap ? wrap.parentNode.querySelector('[data-haai-media]') : null;
+                        if (input) input.value = '0';
+                        if (wrap) {
+                                var img = wrap.querySelector('img');
+                                if (img) img.parentNode.removeChild(img);
+                        }
+                });
+        });
 
-	/* ------------------------------------------------------------------
-	 * Provider: test connection + model list
-	 * ---------------------------------------------------------------- */
+        /* ------------------------------------------------------------------
+         * Provider: test connection + model list
+         * ---------------------------------------------------------------- */
 
-	// The admin PHP side expects provider[key] form keys, so this posts
-	// application/x-www-form-urlencoded instead of multipart.
-	function postProvider(action) {
-		var body = new URLSearchParams();
-		body.append('action', action);
-		body.append('nonce', C.nonce || '');
-		var p = collectProvider();
-		Object.keys(p).forEach(function (k) { body.append('provider[' + k + ']', p[k]); });
-		return fetch(A, {
-			method: 'POST',
-			credentials: 'same-origin',
-			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-			body: body.toString()
-		}).then(function (r) { return r.json(); });
-	}
+        // The admin PHP side expects provider[key] form keys, so this posts
+        // application/x-www-form-urlencoded instead of multipart.
+        function postProvider(action) {
+                var body = new URLSearchParams();
+                body.append('action', action);
+                body.append('nonce', C.nonce || '');
+                var p = collectProvider();
+                Object.keys(p).forEach(function (k) { body.append('provider[' + k + ']', p[k]); });
+                return fetch(A, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: body.toString()
+                }).then(function (r) { return r.json(); });
+        }
 
-	var testBtn = qs('[data-haai-test]');
-	on(testBtn, 'click', function (e) {
-		e.preventDefault();
-		if (!testBtn.getAttribute('data-label')) testBtn.setAttribute('data-label', testBtn.textContent);
-		busy(testBtn, true);
-		var result = qs('[data-haai-test-result]');
-		postProvider('haai_test_connection')
-			.then(function (d) {
-				busy(testBtn, false);
-				if (!result) return;
-				var failMsg = (d && (d.error || d.message)) || (C.i18n && C.i18n.fail) || 'Failed';
-				result.className = 'haai-test-result ' + (d && d.ok ? 'is-ok' : 'is-fail');
-				result.textContent = d && d.ok
-					? ((C.i18n && C.i18n.ok) || 'OK') + (d.latency ? ' — ' + d.latency + 'ms' : '') + (d.model ? ' — ' + d.model : '')
-					: failMsg;
-			})
-			.catch(function () {
-				busy(testBtn, false);
-				if (result) {
-					result.className = 'haai-test-result is-fail';
-					result.textContent = (C.i18n && C.i18n.fail) || 'Failed';
-				}
-			});
-	});
+        var testBtn = qs('[data-haai-test]');
+        on(testBtn, 'click', function (e) {
+                e.preventDefault();
+                if (!testBtn.getAttribute('data-label')) testBtn.setAttribute('data-label', testBtn.textContent);
+                busy(testBtn, true);
+                var result = qs('[data-haai-test-result]');
+                postProvider('haai_test_connection')
+                        .then(function (d) {
+                                busy(testBtn, false);
+                                if (!result) return;
+                                var failMsg = (d && (d.error || d.message)) || (C.i18n && C.i18n.fail) || 'Failed';
+                                result.className = 'haai-test-result ' + (d && d.ok ? 'is-ok' : 'is-fail');
+                                result.textContent = d && d.ok
+                                        ? ((C.i18n && C.i18n.ok) || 'OK') + (d.latency ? ' — ' + d.latency + 'ms' : '') + (d.model ? ' — ' + d.model : '')
+                                        : failMsg;
+                        })
+                        .catch(function () {
+                                busy(testBtn, false);
+                                if (result) {
+                                        result.className = 'haai-test-result is-fail';
+                                        result.textContent = (C.i18n && C.i18n.fail) || 'Failed';
+                                }
+                        });
+        });
 
-	var modelsBtn = qs('[data-haai-models]');
-	on(modelsBtn, 'click', function (e) {
-		e.preventDefault();
-		if (!modelsBtn.getAttribute('data-label')) modelsBtn.setAttribute('data-label', modelsBtn.textContent);
-		busy(modelsBtn, true);
+        var modelsBtn = qs('[data-haai-models]');
+        on(modelsBtn, 'click', function (e) {
+                e.preventDefault();
+                if (!modelsBtn.getAttribute('data-label')) modelsBtn.setAttribute('data-label', modelsBtn.textContent);
+                busy(modelsBtn, true);
 
-		postProvider('haai_fetch_models')
-			.then(function (d) {
-				busy(modelsBtn, false);
-				var sel = qs('select[name="provider[model]"]');
-				var list = qs('[data-haai-model-list]');
-				var result = qs('[data-haai-test-result]');
-				if (!d || !d.ok) {
-					// Previously a failed fetch left no trace on screen at all.
-					if (result) {
-						result.className = 'haai-test-result is-fail';
-						result.textContent = (d && d.error) || (C.i18n && C.i18n.fail) || 'Failed';
-					}
-					return;
-				}
-				if (!list) return;
-				list.innerHTML = '';
-				(d.models || []).slice(0, 60).forEach(function (m) {
-					var opt = document.createElement('option');
-					opt.value = m;
-					opt.textContent = m;
-					list.appendChild(opt);
-					if (sel && !sel.value) sel.value = m;
-				});
-			})
-			.catch(function () { busy(modelsBtn, false); });
-	});
+                postProvider('haai_fetch_models')
+                        .then(function (d) {
+                                busy(modelsBtn, false);
+                                var sel = qs('select[name="provider[model]"]');
+                                var list = qs('[data-haai-model-list]');
+                                var result = qs('[data-haai-test-result]');
+                                if (!d || !d.ok) {
+                                        // Previously a failed fetch left no trace on screen at all.
+                                        if (result) {
+                                                result.className = 'haai-test-result is-fail';
+                                                result.textContent = (d && d.error) || (C.i18n && C.i18n.fail) || 'Failed';
+                                        }
+                                        return;
+                                }
+                                if (!list) return;
+                                list.innerHTML = '';
+                                (d.models || []).slice(0, 60).forEach(function (m) {
+                                        var opt = document.createElement('option');
+                                        opt.value = m;
+                                        opt.textContent = m;
+                                        list.appendChild(opt);
+                                        if (sel && !sel.value) sel.value = m;
+                                });
+                        })
+                        .catch(function () { busy(modelsBtn, false); });
+        });
 
-	// Preset chips fill base_url + model without touching the key.
-	qsa('[data-haai-preset]').forEach(function (btn) {
-		on(btn, 'click', function (e) {
-			e.preventDefault();
-			var slug = btn.getAttribute('data-haai-preset');
-			var sel = qs('select[name="provider[provider]"]');
-			if (sel) sel.value = slug;
-			var base = qs('input[name="provider[base_url]"]');
-			var model = qs('input[name="provider[model]"]');
-			var opt = sel ? sel.options[sel.selectedIndex] : null;
-			// The presets carry their own base_url/model; the labels alone are
-			// not enough, so a tiny map lives on the button's data attributes.
-			if (base && btn.getAttribute('data-base')) base.value = btn.getAttribute('data-base');
-			if (model && btn.getAttribute('data-model')) model.value = btn.getAttribute('data-model');
-			if (opt) opt.selected = true;
-		});
-	});
+        // Preset chips fill base_url + model without touching the key.
+        qsa('[data-haai-preset]').forEach(function (btn) {
+                on(btn, 'click', function (e) {
+                        e.preventDefault();
+                        var slug = btn.getAttribute('data-haai-preset');
+                        var sel = qs('select[name="provider[provider]"]');
+                        if (sel) sel.value = slug;
+                        var base = qs('input[name="provider[base_url]"]');
+                        var model = qs('input[name="provider[model]"]');
+                        var opt = sel ? sel.options[sel.selectedIndex] : null;
+                        // The presets carry their own base_url/model; the labels alone are
+                        // not enough, so a tiny map lives on the button's data attributes.
+                        if (base && btn.getAttribute('data-base')) base.value = btn.getAttribute('data-base');
+                        if (model && btn.getAttribute('data-model')) model.value = btn.getAttribute('data-model');
+                        if (opt) opt.selected = true;
+                });
+        });
 
-	/* ------------------------------------------------------------------
-	 * Secret fields: never submit the mask by accident
-	 * ---------------------------------------------------------------- */
+        /* ------------------------------------------------------------------
+         * Secret fields: never submit the mask by accident
+         * ---------------------------------------------------------------- */
 
-	qsa('[data-haai-secret]').forEach(function (el) {
-		on(el, 'focus', function () {
-			if (el.value === 'haai-unchanged') el.value = '';
-			el.placeholder = '';
-		});
-		on(el, 'blur', function () {
-			if ('' === el.value) el.value = 'haai-unchanged';
-		});
-	});
+        qsa('[data-haai-secret]').forEach(function (el) {
+                on(el, 'focus', function () {
+                        if (el.value === 'haai-unchanged') el.value = '';
+                        el.placeholder = '';
+                });
+                on(el, 'blur', function () {
+                        if ('' === el.value) el.value = 'haai-unchanged';
+                });
+        });
 
-	/* ------------------------------------------------------------------
-	 * Search preview (semantic-search tab)
-	 * ---------------------------------------------------------------- */
+        /* ------------------------------------------------------------------
+         * Search preview (semantic-search tab)
+         * ---------------------------------------------------------------- */
 
-	var previewForm = qs('[data-haai-search-preview]');
-	on(previewForm, 'submit', function (e) {
-		e.preventDefault();
-		var input = qs('input[name="q"]', previewForm);
-		var out = qs('[data-haai-search-results]');
-		if (!input || !out) return;
+        var previewForm = qs('[data-haai-search-preview]');
+        on(previewForm, 'submit', function (e) {
+                e.preventDefault();
+                var input = qs('input[name="q"]', previewForm);
+                var out = qs('[data-haai-search-results]');
+                if (!input || !out) return;
 
-		post('haai_search_preview', { q: input.value })
-			.then(function (d) {
-				out.innerHTML = '';
-				if (!d || !d.ok || !d.hits || !d.hits.length) {
-					out.innerHTML = '<li>نتیجه‌ای پیدا نشد.</li>';
-					return;
-				}
-				d.hits.forEach(function (h) {
-					var li = document.createElement('li');
-					var t = document.createElement('span');
-					t.className = 'haai-hit-title';
-					t.textContent = h.title || '(بدون عنوان)';
-					var x = document.createElement('span');
-					x.className = 'haai-hit-excerpt';
-					x.textContent = (h.content || '').slice(0, 220);
-					li.appendChild(t);
-					li.appendChild(x);
-					out.appendChild(li);
-				});
-			})
-			.catch(function () { out.innerHTML = '<li>خطا در اجرا.</li>'; });
-	});
+                post('haai_search_preview', { q: input.value })
+                        .then(function (d) {
+                                out.innerHTML = '';
+                                if (!d || !d.ok || !d.hits || !d.hits.length) {
+                                        out.innerHTML = '<li>نتیجه‌ای پیدا نشد.</li>';
+                                        return;
+                                }
+                                d.hits.forEach(function (h) {
+                                        var li = document.createElement('li');
+                                        var t = document.createElement('span');
+                                        t.className = 'haai-hit-title';
+                                        t.textContent = h.title || '(بدون عنوان)';
+                                        var x = document.createElement('span');
+                                        x.className = 'haai-hit-excerpt';
+                                        x.textContent = (h.content || '').slice(0, 220);
+                                        li.appendChild(t);
+                                        li.appendChild(x);
+                                        out.appendChild(li);
+                                });
+                        })
+                        .catch(function () { out.innerHTML = '<li>خطا در اجرا.</li>'; });
+        });
 
-	/* ------------------------------------------------------------------
-	 * Appearance: live preview
-	 *
-	 * The preview is server-rendered from the saved settings; this only paints
-	 * the values currently in the form on top of it, as inline custom
-	 * properties on the preview container. It writes no input and submits
-	 * nothing, so saving stays the only way to change a setting.
-	 * ---------------------------------------------------------------- */
+        /* ------------------------------------------------------------------
+         * Appearance: live preview
+         *
+         * The preview is server-rendered from the saved settings; this only paints
+         * the values currently in the form on top of it, as inline custom
+         * properties on the preview container. It writes no input and submits
+         * nothing, so saving stays the only way to change a setting.
+         * ---------------------------------------------------------------- */
 
-	var preview = qs('[data-haai-preview]');
-	if (preview) {
-		var paintVars = {
-			primary_color: ['--haai-primary', ''],
-			bg_color: ['--haai-bg', ''],
-			text_color: ['--haai-text', ''],
-			secondary_color: ['--haai-bubble', ''],
-			border_radius: ['--haai-radius', 'px'],
-			font_size: ['--haai-fs', 'px'],
-			button_size: ['--haai-btn-size', 'px']
-		};
-		var families = { vazirmatn: '"Vazirmatn"', iransans: '"IRANSans"', dana: '"Dana"', yekan: '"YekanBakh"' };
-		var widget = qs('.haai-widget', preview);
+        var preview = qs('[data-haai-preview]');
+        if (preview) {
+                var paintVars = {
+                        primary_color: ['--haai-primary', ''],
+                        bg_color: ['--haai-bg', ''],
+                        text_color: ['--haai-text', ''],
+                        secondary_color: ['--haai-bubble', ''],
+                        border_radius: ['--haai-radius', 'px'],
+                        font_size: ['--haai-fs', 'px'],
+                        button_size: ['--haai-btn-size', 'px']
+                };
+                var families = { vazirmatn: '"Vazirmatn"', iransans: '"IRANSans"', dana: '"Dana"', yekan: '"YekanBakh"' };
+                var widget = qs('.haai-widget', preview);
 
-		// Same rule as haa_contrast_text(): pale accents get dark text.
-		function readableOn(hex) {
-			var s = String(hex).replace('#', '');
-			if (s.length === 3) { s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2]; }
-			if (!/^[0-9a-fA-F]{6}$/.test(s)) return '#ffffff';
-			var c = [0, 1, 2].map(function (i) {
-				var v = parseInt(s.substr(i * 2, 2), 16) / 255;
-				return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-			});
-			return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) > 0.19 ? '#12141a' : '#ffffff';
-		}
+                // Same rule as haa_contrast_text(): pale accents get dark text.
+                function readableOn(hex) {
+                        var s = String(hex).replace('#', '');
+                        if (s.length === 3) { s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2]; }
+                        if (!/^[0-9a-fA-F]{6}$/.test(s)) return '#ffffff';
+                        var c = [0, 1, 2].map(function (i) {
+                                var v = parseInt(s.substr(i * 2, 2), 16) / 255;
+                                return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+                        });
+                        return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) > 0.19 ? '#12141a' : '#ffffff';
+                }
 
-		function valueOf(name) {
-			var el = qs('[name="appearance[' + name + ']"]');
-			return el ? el.value : '';
-		}
+                function valueOf(name) {
+                        var el = qs('[name="appearance[' + name + ']"]');
+                        return el ? el.value : '';
+                }
 
-		function syncPreview() {
-			Object.keys(paintVars).forEach(function (name) {
-				var v = valueOf(name);
-				if ('' === v) return;
-				preview.style.setProperty(paintVars[name][0], v + paintVars[name][1]);
-			});
+                function syncPreview() {
+                        Object.keys(paintVars).forEach(function (name) {
+                                var v = valueOf(name);
+                                if ('' === v) return;
+                                preview.style.setProperty(paintVars[name][0], v + paintVars[name][1]);
+                        });
 
-			var accent = valueOf('primary_color');
-			if (accent) preview.style.setProperty('--haai-on-accent', readableOn(accent));
+                        var accent = valueOf('primary_color');
+                        if (accent) preview.style.setProperty('--haai-on-accent', readableOn(accent));
 
-			var font = valueOf('font');
-			if (font) {
-				preview.style.setProperty(
-					'--haai-font',
-					(families[font] ? families[font] + ',' : '') + 'Tahoma,"Segoe UI",system-ui,sans-serif'
-				);
-			}
+                        var font = valueOf('font');
+                        if (font) {
+                                preview.style.setProperty(
+                                        '--haai-font',
+                                        (families[font] ? families[font] + ',' : '') + 'Tahoma,"Segoe UI",system-ui,sans-serif'
+                                );
+                        }
 
-			if (widget) widget.setAttribute('data-theme', valueOf('theme_mode') || 'light');
+                        if (widget) widget.setAttribute('data-theme', valueOf('theme_mode') || 'light');
 
-			var bubble = qs('.haai-msg--bot .haai-msg__bubble', preview);
-			if (bubble) bubble.textContent = valueOf('welcome_message');
+                        var bubble = qs('.haai-msg--bot .haai-msg__bubble', preview);
+                        if (bubble) bubble.textContent = valueOf('welcome_message');
 
-			var ta = qs('.haai-form__input', preview);
-			if (ta) ta.setAttribute('placeholder', valueOf('placeholder'));
-		}
+                        var ta = qs('.haai-form__input', preview);
+                        if (ta) ta.setAttribute('placeholder', valueOf('placeholder'));
+                }
 
-		qsa('[name^="appearance["]').forEach(function (el) {
-			on(el, 'input', syncPreview);
-			on(el, 'change', syncPreview);
-		});
-		syncPreview();
-	}
+                qsa('[name^="appearance["]').forEach(function (el) {
+                        on(el, 'input', syncPreview);
+                        on(el, 'change', syncPreview);
+                });
+                syncPreview();
+        }
 
-	/* ------------------------------------------------------------------
-	 * Page pickers: AJAX search, chips, and revealing only the picker that
-	 * the chosen page rule uses.
-	 * ---------------------------------------------------------------- */
+        /* ------------------------------------------------------------------
+         * Page pickers: AJAX search, chips, and revealing only the picker that
+         * the chosen page rule uses.
+         * ---------------------------------------------------------------- */
 
-	var MAX_PAGES = 500; // Mirrors the cap in Haa_Settings::sanitize_id_list().
+        var MAX_PAGES = 500; // Mirrors the cap in Haa_Settings::sanitize_id_list().
 
-	function pickerChips(root) {
-		return qsa('[data-haai-picker-chosen] input[type="hidden"]', root).length;
-	}
+        function pickerChips(root) {
+                return qsa('[data-haai-picker-chosen] input[type="hidden"]', root).length;
+        }
 
-	function pickerRefresh(root) {
-		var count = pickerChips(root);
-		var note = qs('[data-haai-picker-count]', root);
-		if (note) note.textContent = count ? count + ' / ' + MAX_PAGES : '';
-		var empty = qs('[data-haai-picker-chosen] .description', root);
-		if (empty && count) empty.parentNode.removeChild(empty);
-	}
+        function pickerRefresh(root) {
+                var count = pickerChips(root);
+                var note = qs('[data-haai-picker-count]', root);
+                if (note) note.textContent = count ? count + ' / ' + MAX_PAGES : '';
+                var empty = qs('[data-haai-picker-chosen] .description', root);
+                if (empty && count) empty.parentNode.removeChild(empty);
+        }
 
-	qsa('[data-haai-picker]').forEach(function (root) {
-		var name = root.getAttribute('data-haai-picker');
-		var url = root.getAttribute('data-haai-search');
-		var box = qs('[data-haai-picker-q]', root);
-		var out = qs('[data-haai-picker-results]', root);
-		var chosen = qs('[data-haai-picker-chosen]', root);
-		if (!box || !out || !url) return;
+        qsa('[data-haai-picker]').forEach(function (root) {
+                var name = root.getAttribute('data-haai-picker');
+                var url = root.getAttribute('data-haai-search');
+                var box = qs('[data-haai-picker-q]', root);
+                var out = qs('[data-haai-picker-results]', root);
+                var chosen = qs('[data-haai-picker-chosen]', root);
+                if (!box || !out || !url) return;
 
-		var timer = null;
+                var timer = null;
 
-		function addChip(id, title) {
-			if (pickerChips(root) >= MAX_PAGES) return;
-			var chip = document.createElement('span');
-			chip.className = 'haai-chip haai-chip--on';
-			var input = document.createElement('input');
-			input.type = 'hidden';
-			input.name = name + '[]';
-			input.value = id;
-			chip.appendChild(input);
-			chip.appendChild(document.createTextNode(' ' + title + ' (#' + id + ') '));
-			var x = document.createElement('button');
-			x.type = 'button';
-			x.className = 'haai-chip__x';
-			x.setAttribute('data-haai-picker-drop', '');
-			x.setAttribute('aria-label', 'حذف');
-			x.innerHTML = '&times;';
-			chip.appendChild(x);
-			chosen.appendChild(chip);
-			pickerRefresh(root);
-		}
+                function addChip(id, title) {
+                        if (pickerChips(root) >= MAX_PAGES) return;
+                        var chip = document.createElement('span');
+                        chip.className = 'haai-chip haai-chip--on';
+                        var input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = name + '[]';
+                        input.value = id;
+                        chip.appendChild(input);
+                        chip.appendChild(document.createTextNode(' ' + title + ' (#' + id + ') '));
+                        var x = document.createElement('button');
+                        x.type = 'button';
+                        x.className = 'haai-chip__x';
+                        x.setAttribute('data-haai-picker-drop', '');
+                        x.setAttribute('aria-label', 'حذف');
+                        x.innerHTML = '&times;';
+                        chip.appendChild(x);
+                        chosen.appendChild(chip);
+                        pickerRefresh(root);
+                }
 
-		function search() {
-			var q = box.value.trim();
-			var sep = url.indexOf('?') === -1 ? '?' : '&';
-			fetch(url + sep + 'q=' + encodeURIComponent(q), { credentials: 'same-origin' })
-				.then(function (r) { return r.json(); })
-				.then(function (d) {
-					out.innerHTML = '';
-					var rows = (d && d.results) || [];
-					if (!rows.length) {
-						var none = document.createElement('li');
-						none.textContent = 'نتیجه‌ای نبود.';
-						out.appendChild(none);
-					}
-					rows.forEach(function (row) {
-						var li = document.createElement('li');
-						var b = document.createElement('button');
-						b.type = 'button';
-						b.textContent = row.title + ' — ' + row.type;
-						b.setAttribute('data-haai-pick', row.id);
-						b.setAttribute('data-title', row.title);
-						li.appendChild(b);
-						out.appendChild(li);
-					});
-					out.hidden = false;
-				})
-				.catch(function () { out.hidden = true; });
-		}
+                function search() {
+                        var q = box.value.trim();
+                        var sep = url.indexOf('?') === -1 ? '?' : '&';
+                        fetch(url + sep + 'q=' + encodeURIComponent(q), { credentials: 'same-origin' })
+                                .then(function (r) { return r.json(); })
+                                .then(function (d) {
+                                        out.innerHTML = '';
+                                        var rows = (d && d.results) || [];
+                                        if (!rows.length) {
+                                                var none = document.createElement('li');
+                                                none.textContent = 'نتیجه‌ای نبود.';
+                                                out.appendChild(none);
+                                        }
+                                        rows.forEach(function (row) {
+                                                var li = document.createElement('li');
+                                                var b = document.createElement('button');
+                                                b.type = 'button';
+                                                b.textContent = row.title + ' — ' + row.type;
+                                                b.setAttribute('data-haai-pick', row.id);
+                                                b.setAttribute('data-title', row.title);
+                                                li.appendChild(b);
+                                                out.appendChild(li);
+                                        });
+                                        out.hidden = false;
+                                })
+                                .catch(function () { out.hidden = true; });
+                }
 
-		on(box, 'input', function () {
-			if (timer) clearTimeout(timer);
-			timer = setTimeout(search, 350);
-		});
-		on(box, 'focus', function () { if (box.value.trim()) search(); });
+                on(box, 'input', function () {
+                        if (timer) clearTimeout(timer);
+                        timer = setTimeout(search, 350);
+                });
+                on(box, 'focus', function () { if (box.value.trim()) search(); });
 
-		// One click delegate for adding and removing, so re-rendered chips
-		// need no rebinding.
-		on(root, 'click', function (e) {
-			var pick = e.target.closest ? e.target.closest('[data-haai-pick]') : null;
-			if (pick) { addChip(pick.getAttribute('data-haai-pick'), pick.getAttribute('data-title')); return; }
-			var drop = e.target.closest ? e.target.closest('[data-haai-picker-drop]') : null;
-			if (drop && drop.parentNode) {
-				drop.parentNode.parentNode.removeChild(drop.parentNode);
-				pickerRefresh(root);
-			}
-		});
+                // One click delegate for adding and removing, so re-rendered chips
+                // need no rebinding.
+                on(root, 'click', function (e) {
+                        var pick = e.target.closest ? e.target.closest('[data-haai-pick]') : null;
+                        if (pick) { addChip(pick.getAttribute('data-haai-pick'), pick.getAttribute('data-title')); return; }
+                        var drop = e.target.closest ? e.target.closest('[data-haai-picker-drop]') : null;
+                        if (drop && drop.parentNode) {
+                                drop.parentNode.parentNode.removeChild(drop.parentNode);
+                                pickerRefresh(root);
+                        }
+                });
 
-		pickerRefresh(root);
-	});
+                pickerRefresh(root);
+        });
 
-	// Only the picker belonging to the chosen rule stays visible. 'any' means
-	// "both list-building rules", which is the case for the special pages.
-	function showMode() {
-		var sel = qs('[data-haai-pages-mode]:checked');
-		var mode = sel ? sel.value : 'all';
-		qsa('[data-haai-show]').forEach(function (el) {
-			var want = el.getAttribute('data-haai-show');
-			if ('any' === want) { el.hidden = 'all' === mode; return; }
-			el.hidden = want !== mode;
-		});
-	}
-	if (qs('[data-haai-pages-mode]')) {
-		qsa('[data-haai-pages-mode]').forEach(function (el) { on(el, 'change', showMode); });
-		showMode();
-	}
+        // Only the picker belonging to the chosen rule stays visible. 'any' means
+        // "both list-building rules", which is the case for the special pages.
+        function showMode() {
+                var sel = qs('[data-haai-pages-mode]:checked');
+                var mode = sel ? sel.value : 'all';
+                qsa('[data-haai-show]').forEach(function (el) {
+                        var want = el.getAttribute('data-haai-show');
+                        if ('any' === want) { el.hidden = 'all' === mode; return; }
+                        el.hidden = want !== mode;
+                });
+        }
+        if (qs('[data-haai-pages-mode]')) {
+                qsa('[data-haai-pages-mode]').forEach(function (el) { on(el, 'change', showMode); });
+                showMode();
+        }
 
-	/* Product picker (product-content screen) lives in product-picker.js,
-	   enqueued on that screen alone. Nothing here must touch its markup, or two
-	   handlers would race on the same search input. */
+        /* Product picker (product-content screen) lives in product-picker.js,
+           enqueued on that screen alone. Nothing here must touch its markup, or two
+           handlers would race on the same search input. */
 
-	/* ------------------------------------------------------------------
-	 * Topic planner: live cost estimate for the chosen subjects.
-	 * The server repeats this check before it queues anything; this only
-	 * tells the admin what they are about to ask for.
-	 * ---------------------------------------------------------------- */
+        /* ------------------------------------------------------------------
+         * Topic planner: live cost estimate for the chosen subjects.
+         * The server repeats this check before it queues anything; this only
+         * tells the admin what they are about to ask for.
+         * ---------------------------------------------------------------- */
 
-	var planForm = qs('[data-haai-plan-form]');
-	if (planForm) {
-		var planOut = qs('[data-haai-plan-estimate]', planForm);
-		var planBtn = qs('[data-haai-plan-submit]', planForm);
-		var planImg = qs('[data-haai-plan-image]', planForm);
-		var perArticle = parseInt(planForm.getAttribute('data-per-article') || '0', 10);
+        var planForm = qs('[data-haai-plan-form]');
+        if (planForm) {
+                var planOut = qs('[data-haai-plan-estimate]', planForm);
+                var planBtn = qs('[data-haai-plan-submit]', planForm);
+                var planImg = qs('[data-haai-plan-image]', planForm);
+                var perArticle = parseInt(planForm.getAttribute('data-per-article') || '0', 10);
 
-		function planCount() {
-			return qsa('#haai-plan-queue input[name="ids[]"]:checked').length;
-		}
+                function planCount() {
+                        return qsa('#haai-plan-queue input[name="ids[]"]:checked').length;
+                }
 
-		function planSync() {
-			var n = planCount();
-			var dbl = planImg && planImg.checked ? 2 : 1;
-			if (planBtn) planBtn.disabled = n === 0;
-			if (!planOut) return;
-			planOut.textContent = n
-				? n + ' موضوع — تخمین: ' + (n * dbl) + ' درخواست و ' + (n * perArticle * dbl).toLocaleString('fa-IR') + ' توکن'
-				: 'برای برآورد هزینه، موضوعی را انتخاب کنید.';
-		}
+                function planSync() {
+                        var n = planCount();
+                        var dbl = planImg && planImg.checked ? 2 : 1;
+                        if (planBtn) planBtn.disabled = n === 0;
+                        if (!planOut) return;
+                        planOut.textContent = n
+                                ? n + ' موضوع — تخمین: ' + (n * dbl) + ' درخواست و ' + (n * perArticle * dbl).toLocaleString('fa-IR') + ' توکن'
+                                : 'برای برآورد هزینه، موضوعی را انتخاب کنید.';
+                }
 
-		// The checkboxes live in the table and point at this form with the HTML
-		// `form` attribute, so listen on the document and filter.
-		on(document, 'change', function (e) {
-			if (e.target && e.target.matches && e.target.matches('#haai-plan-queue input[name="ids[]"], [data-haai-plan-image]')) planSync();
-		});
-		planSync();
-	}
+                // The checkboxes live in the table and point at this form with the HTML
+                // `form` attribute, so listen on the document and filter.
+                on(document, 'change', function (e) {
+                        if (e.target && e.target.matches && e.target.matches('#haai-plan-queue input[name="ids[]"], [data-haai-plan-image]')) planSync();
+                });
+                planSync();
+        }
 
-	/* ------------------------------------------------------------------
-	 * Reset confirmation
-	 * ---------------------------------------------------------------- */
+        /* ------------------------------------------------------------------
+         * Reset confirmation
+         * ---------------------------------------------------------------- */
 
-	qsa('[data-haai-confirm]').forEach(function (el) {
-		on(el, 'submit', function (e) {
-			if (!window.confirm((C.i18n && C.i18n.confirm) || '')) e.preventDefault();
-		});
-	});
+        qsa('[data-haai-confirm]').forEach(function (el) {
+                on(el, 'submit', function (e) {
+                        if (!window.confirm((C.i18n && C.i18n.confirm) || '')) e.preventDefault();
+                });
+        });
 
-	/* ------------------------------------------------------------------
-	 * Typed confirmation for the settings reset (A2)
-	 *
-	 * The button unlocks only when the typed word matches, so a stray click
-	 * cannot wipe a working install. The server checks the same word on its
-	 * own — this is the polite version of that gate, never the gate itself.
-	 * ---------------------------------------------------------------- */
+        /* ------------------------------------------------------------------
+         * Typed confirmation for the settings reset (A2)
+         *
+         * The button unlocks only when the typed word matches, so a stray click
+         * cannot wipe a working install. The server checks the same word on its
+         * own — this is the polite version of that gate, never the gate itself.
+         * ---------------------------------------------------------------- */
 
-	qsa('[data-haai-reset-word]').forEach(function (form) {
-		var want = form.getAttribute('data-haai-reset-word') || '';
-		var btn = form.querySelector('[data-haai-reset-submit]');
-		var inp = form.querySelector('input[name="confirm_word"]');
-		if (!btn || !inp) return;
-		var sync = function () { btn.disabled = inp.value.trim() !== want; };
-		on(inp, 'input', sync);
-		on(form, 'submit', function (e) {
-			if (inp.value.trim() !== want) e.preventDefault();
-		});
-		sync();
-	});
+        qsa('[data-haai-reset-word]').forEach(function (form) {
+                var want = form.getAttribute('data-haai-reset-word') || '';
+                var btn = form.querySelector('[data-haai-reset-submit]');
+                var inp = form.querySelector('input[name="confirm_word"]');
+                if (!btn || !inp) return;
+                var sync = function () { btn.disabled = inp.value.trim() !== want; };
+                on(inp, 'input', sync);
+                on(form, 'submit', function (e) {
+                        if (inp.value.trim() !== want) e.preventDefault();
+                });
+                sync();
+        });
+
+        /* ------------------------------------------------------------------
+         * Keyword research panel (article-writer screen)
+         *
+         * One AJAX call returns the combined, deduped suggestions; the admin
+         * ticks rows and the same form POSTs them into the planner.
+         * ---------------------------------------------------------------- */
+
+        (function () {
+                var root = document.getElementById('haai-kw');
+                if (!root) return;
+                var run = document.getElementById('haai-kw-run');
+                var seed = document.getElementById('haai-kw-seed');
+                var status = document.getElementById('haai-kw-status');
+                var form = document.getElementById('haai-kw-form');
+                var rows = document.getElementById('haai-kw-rows');
+                var SRC = { suggest: 'گوگل ساجست', serp: 'نتایج جستجو', snapshot: 'تحلیل رقبا', ai: 'مدل', planner: 'برنامه‌ریز' };
+
+                function say(msg) {
+                        if (!status) return;
+                        if (!msg) { status.hidden = true; status.textContent = ''; return; }
+                        status.hidden = false;
+                        status.textContent = msg;
+                }
+
+                function row(r) {
+                        var label = document.createElement('label');
+                        label.className = 'haai-kw__row';
+                        var cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.name = 'kw[]';
+                        cb.value = r.keyword;
+                        var text = document.createElement('span');
+                        text.className = 'haai-kw__text';
+                        text.textContent = r.keyword;
+                        var tag = document.createElement('span');
+                        tag.className = 'haai-badge haai-kw__src';
+                        tag.textContent = SRC[r.source] || r.source;
+                        label.appendChild(cb);
+                        label.appendChild(text);
+                        label.appendChild(tag);
+                        return label;
+                }
+
+                function search() {
+                        var q = (seed.value || '').trim();
+                        if (q.length < 3) { seed.focus(); return; }
+                        run.disabled = true;
+                        say('در حال گرفتن پیشنهادها… این کار تا یک دقیقه ممکن است طول بکشد.');
+                        rows.innerHTML = '';
+                        form.hidden = true;
+                        post('haai_kw_research', { seed: q })
+                                .then(function (d) {
+                                        if (!d || !d.ok) throw new Error((d && d.error) || (C.i18n && C.i18n.fail) || 'خطا');
+                                        if (!d.rows || !d.rows.length) { say('پیشنهادی پیدا نشد؛ موضوع دیگری امتحان کنید.'); return; }
+                                        say(d.error ? 'یادداشت: ' + d.error : '');
+                                        d.rows.forEach(row);
+                                        form.hidden = false;
+                                })
+                                .catch(function (e) { say(e.message || 'خطا'); })
+                                .then(function () { run.disabled = false; });
+                }
+
+                on(run, 'click', search);
+                on(seed, 'keydown', function (e) {
+                        if (e.key === 'Enter') { e.preventDefault(); search(); }
+                });
+        })();
 })();
