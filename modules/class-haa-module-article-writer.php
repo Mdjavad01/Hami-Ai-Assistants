@@ -1601,7 +1601,25 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 }
 
                 $seed = isset( $_POST['seed'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['seed'] ) ) : '';
-                wp_send_json( Haa_Keywords::research( $seed ) );
+
+                // Nothing in here may ever answer with a bare HTML fatal page: the
+                // panel parses JSON, so any Throwable becomes a readable JSON error.
+                try {
+                        $r = Haa_Keywords::research( $seed );
+                } catch ( Throwable $t ) {
+                        $r = array(
+                                'ok'    => false,
+                                'error' => sprintf(
+                                        /* translators: 1: error message, 2: file:line. */
+                                        __( 'خطای داخلی: %1$s (%2$s)', 'hami-ai-assistant' ),
+                                        $t->getMessage(),
+                                        basename( $t->getFile() ) . ':' . $t->getLine()
+                                ),
+                                'rows'  => array(),
+                        );
+                }
+
+                wp_send_json( is_array( $r ) ? $r : array( 'ok' => false, 'error' => '', 'rows' => array() ) );
         }
 
         /**

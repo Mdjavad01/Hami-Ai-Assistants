@@ -1077,12 +1077,30 @@ final class Haa_Module_Product_Content implements Haa_Module_Interface {
 
                 $max = isset( $row['max_price'] ) ? trim( (string) $row['max_price'] ) : '';
                 if ( '' !== $max && is_numeric( $max ) && (float) $max > (float) $min ) {
-                        return function_exists( 'wc_format_price_range' )
-                                ? wp_strip_all_tags( (string) wc_format_price_range( $min, $max ) )
-                                : $min . ' – ' . $max;
+                        return self::clean_price_text(
+                                function_exists( 'wc_format_price_range' )
+                                        ? (string) wc_format_price_range( $min, $max )
+                                        : $min . ' – ' . $max
+                        );
                 }
 
-                return function_exists( 'wc_price' ) ? wp_strip_all_tags( (string) wc_price( $min ) ) : $min;
+                return self::clean_price_text( function_exists( 'wc_price' ) ? (string) wc_price( $min ) : $min );
+        }
+
+        /**
+         * Price text must be plain, readable Persian before it reaches the JS
+         * layer: currency plugins and themes may hand wc_price() back with HTML
+         * entities (numeric &#x…; soup or &nbsp;), which — escaped once more by
+         * the table renderer — would be printed literally in the cell.
+         *
+         * @param string $s Raw price markup/text.
+         * @return string
+         */
+        private static function clean_price_text( $s ) {
+                $s = html_entity_decode( (string) $s, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+                $s = wp_strip_all_tags( $s );
+                $s = str_replace( array( "\xC2\xA0", "\xE2\x80\x87", "\xE2\x80\xAF" ), ' ', $s ); // NBSP variants.
+                return trim( preg_replace( '/\s+/u', ' ', $s ) );
         }
 
         /**

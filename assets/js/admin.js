@@ -54,7 +54,21 @@
                         }
                 });
                 return fetch(A, { method: 'POST', credentials: 'same-origin', body: body })
-                        .then(function (r) { return r.json(); });
+                        .then(function (r) {
+                                return r.text().then(function (t) {
+                                        var d = null;
+                                        try { d = JSON.parse(t); } catch (e) { d = null; }
+                                        if (d && typeof d === 'object') return d;
+                                        // An HTML/blank reply (fatal page, login page, proxy
+                                        // banner) is turned into one readable Persian error
+                                        // instead of a cryptic "Unexpected token" crash.
+                                        var excerpt = String(t || '').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+                                                .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+                                                .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                                        throw new Error('پاسخ سرور JSON نبود' + (r.status ? ' (HTTP ' + r.status + ')' : '')
+                                                + (excerpt ? ': ' + excerpt.slice(0, 160) : ''));
+                                });
+                        });
         }
 
         function collectProvider() {

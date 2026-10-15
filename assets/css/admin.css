@@ -637,6 +637,13 @@ body.haai-theme-dark .haai-wrap {
 .haai-prodtable tbody tr.is-open td:first-child { box-shadow: inset 3px 0 0 var(--haai-accent); }
 .haai-prodtable tbody tr.is-selected { background: var(--haai-accent-soft); }
 .haai-prodtable .haai-badge { max-width: 150px; white-space: normal; line-height: 1.6; }
+/* SKU: GUID-like codes never wrap or stretch the table; hover shows the full code. */
+.haai-mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
+.haai-col-sku { width: 160px; max-width: 160px; }
+.haai-prodtable .haai-sku { display: block; max-width: 160px; overflow: hidden; color: var(--haai-muted); font-family: var(--haai-font-mono, ui-monospace, monospace); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: plaintext; }
+/* Price: one compact line — a squeezed column used to wrap it into vertical soup. */
+.haai-col-price { white-space: nowrap; }
+.haai-prodtable .haai-price { display: inline-block; max-width: 190px; overflow: hidden; font-variant-numeric: tabular-nums; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
 .haai-row-check { display: inline-flex; align-items: center; justify-content: center; }
 .haai-dim { color: var(--haai-faint); }
 
