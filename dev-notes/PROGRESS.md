@@ -1,5 +1,29 @@
 # وضعیت پیشرفت (هر ایجنت بعد از هر گام باید این فایل را به‌روز کند)
 
+## نسخه ۲.۱.۰ — بازسازی ظاهر، رفع باگ، پژوهش هوشمند و پنل کلمه کلیدی (۲۰۲۶-۱۰-۱۵) ✅
+
+**فایل‌های تغییرکرده (خلاصه):**
+- `includes/class-haa-pipeline.php:168-170,1406-1412` — **رفع باگ ترتیب آرگومان `mark_published`** (قبلاً `($post_id,$topic)` صدا زده می‌شد در حالی که امضا `($topic_id,$post_id)` است؛ مسیر `approve()` می‌توانست تاپیک اشتباه را ببندد).
+- `modules/class-haa-module-chatbot.php` — حذف `purge_sessions()` مرده (مسیر تمیزکاری روزانه از `Haa_DB::purge_old_sessions` استفاده می‌کند).
+- `includes/class-haa-util.php` — طول‌های جدید `deep` (~۳۰۰۰) و `max` (~۴۵۰۰) در `lengths()`/`length_words()`.
+- `includes/class-haa-pipeline.php` — `SECTION_MAX_TOKENS=3000` و `META_MAX_TOKENS=2500` برای فراخوان‌ها؛ `CARRY_CHARS=900`؛ `LINK_POOL=16`؛ سقف بخش ۱۴→۱۶؛ `cost_of` به‌روز.
+- `includes/class-haa-settings.php` — `article.target_words` تا ۵۰۰۰، `article.max_sections` تا ۱۶، `article.link_cap` تا ۱۶؛ دو کلید جدید `research.fallback_ai` (پیش‌فرض ۱) و `research.suggest_enabled` (پیش‌فرض ۱) در قرارداد سه‌گانه (defaults + sanitize_map + فیلد UI + فهرست ماژول).
+- `includes/class-haa-api.php` — متد عمومی `Haa_API::proxy_args()` (پروکسی ارائه‌دهنده برای **هر** درخواست خروجی) + پشتیبانی `grounding` در آداپتر Gemini (`tools: google_search`).
+- `includes/class-haa-research.php` — درخواست‌های پژوهش از پراکسی عبور می‌کنند؛ `ai_ready()`/`ai_research()` (پژوهش رقبا با جستجوی زنده‌ی Gemini)؛ fallback خودکار در `analyze()` و `brief()` هنگام قطع دسترسی؛ snapshot کلیدهای `mode` و `ai_keywords` را حمل می‌کند.
+- `includes/class-haa-keywords.php` (**جدید**) — موتور پیشنهاد کلمه کلیدی: گوگل ساجست (با پراکسی) + SERP (در صورت اتصال) + کلیدواژه‌های snapshot + یک فراخوان مدل (روی Gemini زمین‌گیرشده) + موضوعات پیشنهادی برنامه‌ریز؛ dedupe با نرمال‌سازی فارسی، حداکثر ۴۰ ردیف.
+- `modules/class-haa-module-article-writer.php` — هندلر `wp_ajax_haai_kw_research` + `admin_post_haai_kw_queue` + پنل «پیشنهاد کلمه کلیدی» در صفحه؛ مسیر تک‌فراخوان `max_tokens=3800` + یک ادامه‌ی خودکار هنگام بریدگی خروجی.
+- `assets/js/admin.js` — ماژول AJAX پنل کلمه کلیدی (بلاک قبلی reset-word دست‌نخورده بازگردانده شد).
+- `assets/css/admin.css` — **بازسازی کامل** (طراحی SaaS روشن مدرن: canvas سرد، کارت سفید، سایه نرم، تب سگمنت‌شده، savebar چسبان با blur، حالت دارک خودکار) + کلاس‌های پنل کلمه کلیدی؛ پوشش کامل سلکتورها.
+- `assets/css/chatbot.css` — **بازسازی کامل** (مینیمال تمیز: هدر سفید با خط مو، حباب خنثی برای ربات/رنگی برای کاربر، ورودی با حلقه‌ی فوکوس نرم، اسکرول‌بار باریک، dot وضعیت) + dot جدید در `templates/chat-widget.php`.
+- `hami-ai-assistant.php` — نسخه ۲.۱.۰. `dev-tests/tmp-wp-stubs.php` — stub هم‌تراز با API جدید (`proxy_args`).
+- `README.md`، `dev-notes/*`، `docs.md` — به‌روز.
+
+**گیت این گام:** `php -l` همه‌ی فایل‌های PHP صفر خطا · ۱۴ سویییت استاب همگی `FAILURES: 0` · ممیزی CSS «PROBLEMS: 0 | unused: 0» (admin ۲۴۸/۲۲۹، widget ۴۰/۳۸) · minify بازسازی (ویجت: JS ۴۰۱۷B و CSS ۲۶۱۵B در min+gzip — زیر سقف ۸/۴KB).
+
+**رفع صریح درخواست کاربر:** ۱) باگ‌ها ۲) بازسازی ظاهر پنل ادمین از نو ۳) مدرن‌سازی ظاهر چت ۴) تحلیل رقبا که عملاً کار نمی‌کرد (پراکسی + پژوهش هوشمند Gemini + خطای فارسی روشن) ۵) پنل پیشنهاد کلمه کلیدی ۶) لینک‌سازی داخلی قوی‌تر (LINK_POOL ۱۶) ۷) مقاله‌ی بلند (تا ۵۰۰۰ کلمه).
+
+**تست‌نشده (صریح):** اجرای واقعی روی وردپرس با کلید Gemini (پژوهش هوشمند و تولید مقاله‌ی ۴۵۰۰ کلمه‌ای)؛ Playwright e2e (محیط XAMPP/ویندوز در دسترس نیست)؛ `wp i18n make-pot` (رشته‌های جدید ~۱۵ msgid اضافه کرده‌اند؛ pot در اولین فرصت بازتولید شود)؛ سوییت‌های بنچ واقعی (`wp-audit-*`، e2eهای `.cjs`).
+
 ## بسته‌بندی برای تست/آپلود (۲۰۲۶-۱۰-۱۴) ✅
 
 - **خروجی:** `D:\work-webs\0 Build\Hami-Chat-AI\dist\hami-ai-assistant-2.0.0.zip` — **۵۱ فایل، ۳۸۹KB**، sha256=`361ABF2ACD49D84A…`، با پوشه‌ی میانی `hami-ai-assistant/` (شرط دیدن‌شدن به‌عنوان افزونه در پیشخوان).

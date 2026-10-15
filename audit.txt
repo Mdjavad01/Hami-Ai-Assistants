@@ -1,4 +1,4 @@
-admin : 240 classes used | 221 defined
-widget: 39 classes used | 37 defined
+admin : 248 classes used | 229 defined
+widget: 40 classes used | 38 defined
 
 PROBLEMS: 0 | unused: 0
