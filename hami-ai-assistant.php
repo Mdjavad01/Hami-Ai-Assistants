@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.1
+ * Version:           2.1.2
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.1' );
+define( 'HAAI_VERSION', '2.1.2' );
 define( 'HAAI_DB_VERSION', '7' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
@@ -87,8 +87,15 @@ function haa_css_vars( $s ) {
         $px = function ( $v ) {
                 return (int) $v . 'px';
         };
-        return '--haai-primary:' . ( $a['primary_color'] ?? '#4f46e5' ) . ';'
-                . '--haai-on-accent:' . haa_contrast_text( $a['primary_color'] ?? '#4f46e5' ) . ';'
+        $primary = (string) ( $a['primary_color'] ?? '#4f46e5' );
+        $rgb  = haa_hex_rgb( $primary );
+        $trgb = haa_hex_rgb( (string) ( $a['text_color'] ?? '#1f2937' ) );
+        return '--haai-primary:' . $primary . ';'
+                . '--haai-on-accent:' . haa_contrast_text( $primary ) . ';'
+                // Derived tints keep the whole widget coherent with the two colours
+                // the admin picked: soft surface, focus ring, muted text, hairline.
+                . ( $rgb ? '--haai-accent-soft:rgba(' . $rgb . ',.12);--haai-accent-ring:rgba(' . $rgb . ',.16);' : '' )
+                . ( $trgb ? '--haai-faint:rgba(' . $trgb . ',.62);--haai-line:rgba(' . $trgb . ',.09);' : '' )
                 . '--haai-bg:' . ( $a['bg_color'] ?? '#fff' ) . ';'
                 . '--haai-text:' . ( $a['text_color'] ?? '#1f2937' ) . ';'
                 . '--haai-bubble:' . ( $a['secondary_color'] ?? '#eef2ff' ) . ';'
@@ -96,6 +103,27 @@ function haa_css_vars( $s ) {
                 . '--haai-fs:' . $px( $a['font_size'] ?? 14 ) . ';'
                 . '--haai-btn-size:' . $px( $a['button_size'] ?? 56 ) . ';'
                 . '--haai-font:' . haa_font_stack( $a['font'] ?? 'system' ) . ';';
+}
+
+/**
+ * "R,G,B" channels of a hex colour, or '' when the value is not a colour.
+ *
+ * Used only to compose rgba() tints (accent-soft, focus ring, hairline) in
+ * haa_css_vars(); an empty return simply leaves the stylesheet defaults in
+ * place instead of printing a broken declaration.
+ *
+ * @param string $hex #rgb or #rrggbb.
+ * @return string "r,g,b" or ''.
+ */
+function haa_hex_rgb( $hex ) {
+        $hex = ltrim( (string) $hex, '#' );
+        if ( 3 === strlen( $hex ) ) {
+                $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+        }
+        if ( 6 !== strlen( $hex ) || ! ctype_xdigit( $hex ) ) {
+                return '';
+        }
+        return (string) hexdec( substr( $hex, 0, 2 ) ) . ',' . hexdec( substr( $hex, 2, 2 ) ) . ',' . hexdec( substr( $hex, 4, 2 ) );
 }
 
 /**

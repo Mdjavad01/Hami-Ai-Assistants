@@ -51,7 +51,7 @@
 	function autosize() {
 		if (!input) return;
 		input.style.height = 'auto';
-		input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+		input.style.height = Math.min(input.scrollHeight, 110) + 'px';
 	}
 
 	function showError(text) {

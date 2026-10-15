@@ -46,9 +46,8 @@ function haa_render_widget( $args = array() ) {
         <div class="haai-widget<?php echo $args['inline'] ? ' haai-widget--inline' : ''; ?><?php echo esc_attr( $extra_class ); ?>"<?php echo $id_attr; // phpcs:ignore WordPress.Security.EscapeOutput ?> data-theme="<?php echo esc_attr( $mode ); ?>" data-init="0"<?php echo $style; // phpcs:ignore WordPress.Security.EscapeOutput ?>>
                 <div class="haai-widget__head">
                         <div class="haai-widget__title">
-                                <span class="haai-widget__avatar" aria-hidden="true"><?php echo haa_avatar_svg( $s ); /* phpcs:ignore WordPress.Security.EscapeOutput */ ?></span>
+                                <span class="haai-widget__avatar" aria-hidden="true"><?php echo haa_avatar_svg( $s ); /* phpcs:ignore WordPress.Security.EscapeOutput */ ?><span class="haai-widget__status"></span></span>
                                 <span class="haai-widget__name"><?php echo esc_html( get_bloginfo( 'name' ) ); ?></span>
-                                <span class="haai-widget__status" aria-hidden="true"></span>
                         </div>
                         <div class="haai-widget__tools">
                                 <button type="button" class="haai-btn haai-btn--restart" data-haai-restart aria-label="<?php esc_attr_e( 'شروع مجدد گفتگو', 'hami-ai-assistant' ); ?>" title="<?php esc_attr_e( 'شروع مجدد', 'hami-ai-assistant' ); ?>">
