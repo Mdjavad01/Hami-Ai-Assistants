@@ -218,7 +218,7 @@ final class Haa_Module_Product_Content implements Haa_Module_Interface {
                 $preview = $pid ? get_transient( self::PREVIEW . $pid ) : false;
                 $preview = is_array( $preview ) ? $preview : null;
                 ?>
-                <div class="wrap haai-wrap">
+                <div class="wrap haai-wrap haai-wrap--wide">
                         <?php Haa_Admin::page_header( __( 'محتوای محصول', 'hami-ai-assistant' ) ); ?>
 
                         <?php
@@ -346,8 +346,9 @@ final class Haa_Module_Product_Content implements Haa_Module_Interface {
                                                 <label class="haai-field__label" for="haai-pv-slug"><?php esc_html_e( 'اسلگ', 'hami-ai-assistant' ); ?></label>
                                                 <div class="haai-field__control">
                                                         <input type="text" id="haai-pv-slug" class="regular-text" name="slug" dir="ltr"
-                                                                value="<?php echo esc_attr( $preview['slug'] ?? '' ); ?>">
-                                                        <p class="description"><?php esc_html_e( 'خالی بگذارید تا اسلگ پیشنهادی مدل حفظ شود؛ فقط حروف لاتین، شماره و خط تیره.', 'hami-ai-assistant' ); ?></p>
+                                                                value=""
+                                                                placeholder="<?php echo esc_attr( $preview['slug'] ?? '' ); ?>">
+                                                        <p class="description"><?php esc_html_e( 'خالی بماند = اسلگ فعلی محصول و آدرس صفحه حفظ می‌شود (بدون ریدایرکت). اسلگ پیشنهادی مدل در جای‌نگه‌دار نمایش داده شده؛ فقط اگر خودتان بنویسید آدرس عوض می‌شود. حروف لاتین، شماره و خط تیره.', 'hami-ai-assistant' ); ?></p>
                                                 </div>
                                         </div>
                                 </div>
@@ -1832,12 +1833,12 @@ final class Haa_Module_Product_Content implements Haa_Module_Interface {
                         }
                 }
 
-                // An emptied slug field means "keep the model's slug".
+                // An emptied slug field means "keep the product's current slug": the
+                // brief's slug is cleared so Haa_Seo::write() skips post_name
+                // entirely — the URL never changes, so no redirect is needed.
                 if ( isset( $_POST['slug'] ) ) {
                         $slug = Haa_Util::slugify( (string) wp_unslash( $_POST['slug'] ) );
-                        if ( '' !== $slug ) {
-                                $preview['slug'] = $slug;
-                        }
+                        $preview['slug'] = $slug;
                 }
 
                 if ( isset( $_POST['html'] ) ) {

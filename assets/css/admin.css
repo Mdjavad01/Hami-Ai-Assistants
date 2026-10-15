@@ -107,6 +107,11 @@
 .haai-wrap *::before,
 .haai-wrap *::after { box-sizing: border-box; }
 
+/* Data-heavy module screens (product-content picker) run edge to edge of the
+   admin content area: the 1080px reading cap squeezes the product table into
+   a needless horizontal scrollbar on laptops. */
+.haai-wrap--wide { max-width: 100%; }
+
 /* ============================================================
    2. Dark tokens
    Keyed to a body class from theme_mode; "auto" adds it in admin.js (the OS
@@ -583,7 +588,8 @@ body.haai-theme-dark .haai-wrap {
 .haai-prodpicker { display: grid; gap: var(--haai-sp-4); }
 .haai-prodpicker__current { display: flex; flex-wrap: wrap; align-items: center; gap: var(--haai-sp-2); margin: 0; }
 
-/* Tree beside the list; stacked when the screen narrows. */
+/* Tree beside the list; stacked when the screen narrows (1180 — a laptop with
+   the admin menu open must not push the product table into a scrollbar). */
 .haai-picker2 { display: grid; grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); gap: var(--haai-sp-4); align-items: start; }
 
 .haai-picker2__side { display: flex; flex-direction: column; gap: var(--haai-sp-2); padding: var(--haai-sp-3); background: var(--haai-surface); border: 1px solid var(--haai-border); border-radius: var(--haai-r-md); box-shadow: var(--haai-sh-1); }
@@ -624,26 +630,28 @@ body.haai-theme-dark .haai-wrap {
 .haai-selectionbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--haai-sp-3); margin: 0 0 var(--haai-sp-2); padding: var(--haai-sp-2) var(--haai-sp-4); background: var(--haai-accent-soft); border: 1px solid transparent; border-radius: var(--haai-r-md); font-size: 13px; }
 .haai-selectionbar__count { font-weight: var(--haai-fw-strong); color: var(--haai-accent); }
 
-.haai-prodtable td, .haai-prodtable th { vertical-align: middle; }
+.haai-prodtable td, .haai-prodtable th { vertical-align: middle; padding-block: 10px; }
 .haai-col-check { width: 34px; text-align: center; }
 .haai-prod-thumb { border-radius: var(--haai-r-sm); object-fit: cover; background: var(--haai-surface-2); }
 .haai-prod-thumb.is-none { display: block; width: 44px; height: 44px; border: 1px dashed var(--haai-border-strong); }
-.haai-prod-title { min-width: 240px; }
+/* No forced column widths: every cell may shrink, content wraps instead of
+   stretching the table past its container (the horizontal-scroll killer). */
+.haai-prod-title { min-width: 0; }
 .haai-prod-title a { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-weight: var(--haai-fw-strong); color: var(--haai-ink); text-decoration: none; }
 .haai-prod-title a:hover { color: var(--haai-accent); }
 .haai-prod-meta { display: block; color: var(--haai-faint); font-size: 11px; }
-.haai-prod-desc { display: block; max-width: 340px; overflow: hidden; color: var(--haai-muted); font-size: var(--haai-fs-meta); text-overflow: ellipsis; white-space: nowrap; }
+.haai-prod-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--haai-muted); font-size: var(--haai-fs-meta); line-height: 1.7; }
 .haai-prodtable tbody tr.is-open { background: var(--haai-accent-soft); }
 .haai-prodtable tbody tr.is-open td:first-child { box-shadow: inset 3px 0 0 var(--haai-accent); }
 .haai-prodtable tbody tr.is-selected { background: var(--haai-accent-soft); }
 .haai-prodtable .haai-badge { max-width: 150px; white-space: normal; line-height: 1.6; }
 /* SKU: GUID-like codes never wrap or stretch the table; hover shows the full code. */
 .haai-mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
-.haai-col-sku { width: 160px; max-width: 160px; }
-.haai-prodtable .haai-sku { display: block; max-width: 160px; overflow: hidden; color: var(--haai-muted); font-family: var(--haai-font-mono, ui-monospace, monospace); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: plaintext; }
+.haai-col-sku { width: 130px; max-width: 130px; }
+.haai-prodtable .haai-sku { display: block; max-width: 100%; overflow: hidden; color: var(--haai-muted); font-family: var(--haai-font-mono, ui-monospace, monospace); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: plaintext; }
 /* Price: one compact line — a squeezed column used to wrap it into vertical soup. */
 .haai-col-price { white-space: nowrap; }
-.haai-prodtable .haai-price { display: inline-block; max-width: 190px; overflow: hidden; font-variant-numeric: tabular-nums; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
+.haai-prodtable .haai-price { display: inline-block; max-width: 150px; overflow: hidden; font-variant-numeric: tabular-nums; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
 .haai-row-check { display: inline-flex; align-items: center; justify-content: center; }
 .haai-dim { color: var(--haai-faint); }
 
@@ -929,6 +937,11 @@ body.haai-theme-dark .haai-wrap {
 
 @media (max-width: 960px) {
         .haai-wrap { --haai-label-w: 180px; }
+}
+
+@media (max-width: 1180px) {
+        /* The category tree moves above the table early: the table then gets the
+           full content width and never needs a horizontal scrollbar. */
         .haai-picker2 { grid-template-columns: 1fr; }
         .haai-tree { max-height: 240px; }
 }

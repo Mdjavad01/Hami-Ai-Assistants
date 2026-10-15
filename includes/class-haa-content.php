@@ -1026,10 +1026,15 @@ final class Haa_Content {
                         // Fresh install or the index switched off (Haa_Pipeline::link_targets
                         // reaches this as its documented fallback). Still keyed to the
                         // keyword and ordered by relevance — never `rand`, never without a
-                        // hint, and the same blacklist applies.
+                        // hint, and the same blacklist applies. Products join the pool too:
+                        // on a shop, the article's own catalogue is the best link target.
+                        $types = array( 'post', 'page' );
+                        if ( haa_is_woo() ) {
+                                $types[] = 'product';
+                        }
                         $found = get_posts(
                                 array(
-                                        'post_type'           => array( 'post', 'page' ),
+                                        'post_type'           => $types,
                                         'post_status'         => 'publish',
                                         'posts_per_page'      => $count * 3,
                                         'post__not_in'        => array( (int) $exclude_id ),
@@ -1059,7 +1064,81 @@ final class Haa_Content {
                         }
                 }
 
+                // Category hubs close the list: on a shop they are the strongest
+                // archives the site owns, and the topic words decide which ones fit.
+                $missing = $count - count( $out );
+                if ( $missing > 0 ) {
+                        foreach ( self::category_link_hints( $hint, $missing ) as $cat ) {
+                                $out[] = $cat;
+                        }
+                }
+
                 return $out;
+        }
+
+        /**
+         * Product-category archives whose name shares a real word with the hint.
+         *
+         * Categories are the strongest hub pages a shop owns, yet no search ever
+         * returned them: only posts live in the index. This matches term names
+         * against the article's topic words and returns the strongest overlaps,
+         * so the writer can link a «روغن آرگان» article to the actual «روغن
+         * آرگان» category. Ids are negative term ids — they can never collide
+         * with a post id downstream.
+         *
+         * @param string $hint  Keyword (+title) to match against.
+         * @param int    $limit Max links.
+         * @return array<int,array{id:int,title:string,url:string}>
+         */
+        public static function category_link_hints( $hint, $limit = 3 ) {
+                $hint  = trim( (string) $hint );
+                $limit = max( 0, min( 6, (int) $limit ) );
+                if ( '' === $hint || ! $limit || ! haa_is_woo() ) {
+                        return array();
+                }
+
+                $words = (array) Haa_Search::tokenize( Haa_Util::cut( $hint, 120 ) );
+                if ( ! $words ) {
+                        return array();
+                }
+
+                $terms = get_terms(
+                        array(
+                                'taxonomy'   => 'product_cat',
+                                'hide_empty' => true,
+                                'number'     => 200,
+                        )
+                );
+                if ( is_wp_error( $terms ) || ! $terms ) {
+                        return array();
+                }
+
+                $matched = array();
+                foreach ( (array) $terms as $term ) {
+                        $shared = array_intersect( $words, (array) Haa_Search::tokenize( (string) $term->name ) );
+                        if ( ! $shared ) {
+                                continue;
+                        }
+                        $link = (string) get_term_link( $term );
+                        if ( is_wp_error( $link ) || '' === $link ) {
+                                continue;
+                        }
+                        $matched[] = array(
+                                'id'    => -(int) $term->term_id,
+                                'title' => (string) $term->name,
+                                'url'   => $link,
+                                'hits'  => count( $shared ),
+                        );
+                }
+
+                usort(
+                        $matched,
+                        static function ( $a, $b ) {
+                                return $b['hits'] <=> $a['hits'];
+                        }
+                );
+
+                return array_slice( $matched, 0, $limit );
         }
 
         /**

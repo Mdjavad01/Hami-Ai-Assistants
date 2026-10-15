@@ -294,6 +294,9 @@
                         bg_color: ['--haai-bg', ''],
                         text_color: ['--haai-text', ''],
                         secondary_color: ['--haai-bubble', ''],
+                        dark_bg: ['--haai-dark-bg', ''],
+                        dark_text: ['--haai-dark-text', ''],
+                        dark_bubble: ['--haai-dark-bubble', ''],
                         border_radius: ['--haai-radius', 'px'],
                         font_size: ['--haai-fs', 'px'],
                         button_size: ['--haai-btn-size', 'px']
@@ -552,7 +555,7 @@
                 var status = document.getElementById('haai-kw-status');
                 var form = document.getElementById('haai-kw-form');
                 var rows = document.getElementById('haai-kw-rows');
-                var SRC = { suggest: 'گوگل ساجست', serp: 'نتایج جستجو', snapshot: 'تحلیل رقبا', ai: 'مدل', planner: 'برنامه‌ریز' };
+                var SRC = { suggest: 'گوگل ساجست', serp: 'نتایج جستجو', snapshot: 'تحلیل رقبا', ai: 'مدل', local: 'پیشنهاد خودکار', planner: 'برنامه‌ریز' };
 
                 function say(msg) {
                         if (!status) return;

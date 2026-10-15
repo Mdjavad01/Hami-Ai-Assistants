@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.3
+ * Version:           2.1.4
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.3' );
+define( 'HAAI_VERSION', '2.1.4' );
 define( 'HAAI_DB_VERSION', '7' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
@@ -90,6 +90,10 @@ function haa_css_vars( $s ) {
         $primary = (string) ( $a['primary_color'] ?? '#4f46e5' );
         $rgb  = haa_hex_rgb( $primary );
         $trgb = haa_hex_rgb( (string) ( $a['text_color'] ?? '#1f2937' ) );
+        // The dark palette is its own set of settings (Appearance tab), so a
+        // store owner tunes both modes instead of inheriting hardcoded colours.
+        // Hairline and muted text are derived from the dark ink colour.
+        $drgb = haa_hex_rgb( (string) ( $a['dark_text'] ?? '#e9ebf3' ) );
         return '--haai-primary:' . $primary . ';'
                 . '--haai-on-accent:' . haa_contrast_text( $primary ) . ';'
                 // Derived tints keep the whole widget coherent with the two colours
@@ -101,6 +105,10 @@ function haa_css_vars( $s ) {
                 . '--haai-bg:' . ( $a['bg_color'] ?? '#fff' ) . ';'
                 . '--haai-text:' . ( $a['text_color'] ?? '#1f2937' ) . ';'
                 . '--haai-bubble:' . ( $a['secondary_color'] ?? '#eef2ff' ) . ';'
+                . '--haai-dark-bg:' . ( $a['dark_bg'] ?? '#171a23' ) . ';'
+                . '--haai-dark-text:' . ( $a['dark_text'] ?? '#e9ebf3' ) . ';'
+                . '--haai-dark-bubble:' . ( $a['dark_bubble'] ?? '#242a37' ) . ';'
+                . ( $drgb ? '--haai-dark-line:rgba(' . $drgb . ',.10);--haai-dark-faint:rgba(' . $drgb . ',.58);' : '' )
                 . '--haai-radius:' . $px( $a['border_radius'] ?? 16 ) . ';'
                 . '--haai-fs:' . $px( $a['font_size'] ?? 14 ) . ';'
                 . '--haai-btn-size:' . $px( $a['button_size'] ?? 56 ) . ';'

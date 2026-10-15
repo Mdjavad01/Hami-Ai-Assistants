@@ -675,6 +675,17 @@ final class Haa_Pipeline {
                         $found = Haa_Content::internal_links( (int) ( $topic['post_id'] ?? 0 ), (string) ( $topic['keyword'] ?? '' ) );
                 }
 
+                // Category archives join the pool right after the two strongest hits:
+                // an article about a product family should link to that family's hub
+                // even when the index is full of single posts. Topic words decide.
+                $cats = Haa_Content::category_link_hints(
+                        trim( (string) ( $topic['keyword'] ?? '' ) . ' ' . (string) ( $topic['title'] ?? '' ) ),
+                        2
+                );
+                if ( $cats ) {
+                        array_splice( $found, min( 2, count( $found ) ), 0, $cats );
+                }
+
                 return $found;
         }
 

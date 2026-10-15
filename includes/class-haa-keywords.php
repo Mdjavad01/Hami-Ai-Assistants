@@ -24,6 +24,27 @@ final class Haa_Keywords {
         const MODIFIERS = array( 'چگونه', 'بهترین', 'قیمت', 'آموزش', 'چیست', 'خرید', 'راهنمای', 'مقایسه', 'ارزان', 'مراحل' );
 
         /**
+         * Deterministic long-tail templates for the last-resort source. When
+         * Google Suggest is unreachable (no proxy), no SERP service is set, the
+         * snapshot is empty and the model call fails, the panel still shows a
+         * usable list built from the seed itself — labelled «پیشنهاد خودکار».
+         */
+        const LOCAL_TEMPLATES = array(
+                'چگونه %s انتخاب کنیم',
+                'بهترین %s',
+                'قیمت %s',
+                'خرید %s',
+                'آموزش %s',
+                '%s چیست',
+                'راهنمای خرید %s',
+                'مقایسه %s',
+                'ارزان‌ترین %s',
+                '%s اصل',
+                'بهترین مارک %s',
+                '%s با بهترین قیمت',
+        );
+
+        /**
          * Full research for one seed: combine every available source.
          *
          * @param string $seed Topic or keyword typed by the admin.
@@ -109,11 +130,43 @@ final class Haa_Keywords {
 
                 $rows = self::dedupe( $rows, $seed );
 
+                // Never an empty panel: when the live sources together produced
+                // almost nothing, the seed itself expands into long-tail patterns.
+                if ( count( $rows ) < 8 ) {
+                        $rows = self::dedupe( array_merge( $rows, self::local_rows( $seed ) ), $seed );
+                }
+
                 return array(
                         'ok'    => true,
                         'error' => isset( $ai_error ) ? $ai_error : '',
                         'rows'  => $rows,
                 );
+        }
+
+        /**
+         * Seed × template long-tails, the fallback nobody needs a network for.
+         *
+         * @param string $seed Topic.
+         * @return array<int,array{keyword:string,source:string,intent:string,note:string}>
+         */
+        private static function local_rows( $seed ) {
+                $seed = trim( (string) $seed );
+                $out  = array();
+                if ( '' === $seed ) {
+                        return $out;
+                }
+                foreach ( self::LOCAL_TEMPLATES as $tpl ) {
+                        $k = trim( sprintf( $tpl, $seed ) );
+                        if ( mb_strlen( $k ) >= 4 ) {
+                                $out[] = array(
+                                        'keyword' => $k,
+                                        'source'  => 'local',
+                                        'intent'  => self::guess_intent( $k ),
+                                        'note'    => '',
+                                );
+                        }
+                }
+                return $out;
         }
 
         /**
@@ -165,6 +218,11 @@ final class Haa_Keywords {
          * The model's keyword ideas. Grounded on Gemini (real search), plain
          * knowledge elsewhere.
          *
+         * Resilience: a grounded call that errors or comes back unreadable is
+         * retried once without the tool, and an answer without keywords becomes
+         * a WP_Error carrying a snippet — the panel must be able to say WHY the
+         * list is short instead of silently showing three planner leftovers.
+         *
          * @param string $seed Topic.
          * @return array<int,string>|WP_Error
          */
@@ -180,18 +238,35 @@ final class Haa_Keywords {
                 $user = __( 'موضوع:', 'hami-ai-assistant' ) . ' ' . $seed . "\n"
                         . __( 'حالا کلیدواژه‌ها را بده.', 'hami-ai-assistant' );
 
-                $raw = ( new Haa_API() )->chat(
+                $opts = array(
+                        'module'     => 'article-writer',
+                        'operation'  => 'keywords',
+                        'max_tokens' => 1800,
+                        'grounding'  => $ground,
+                );
+
+                $api = new Haa_API();
+                $raw = $api->chat(
                         array(
                                 array( 'role' => 'system', 'content' => $system ),
                                 array( 'role' => 'user', 'content' => $user ),
                         ),
-                        array(
-                                'module'     => 'article-writer',
-                                'operation'  => 'keywords',
-                                'max_tokens' => 1800,
-                                'grounding'  => $ground,
-                        )
+                        $opts
                 );
+                if ( is_wp_error( $raw ) && $ground ) {
+                        // The search tool itself can be the failing part (tool
+                        // timeouts, provider-side grounding limits). One plain retry
+                        // costs one call and answers the question «is it the model
+                        // or the tool?» in production.
+                        $opts['grounding'] = false;
+                        $raw               = $api->chat(
+                                array(
+                                        array( 'role' => 'system', 'content' => $system ),
+                                        array( 'role' => 'user', 'content' => $user ),
+                                ),
+                                $opts
+                        );
+                }
                 if ( is_wp_error( $raw ) ) {
                         return $raw;
                 }
@@ -207,6 +282,16 @@ final class Haa_Keywords {
                         if ( mb_strlen( $k ) >= 4 ) {
                                 $list[] = $k;
                         }
+                }
+                if ( ! $list ) {
+                        return new WP_Error(
+                                'haai_kw_parse',
+                                sprintf(
+                                        /* translators: %s: first bytes of the model answer. */
+                                        __( 'پاسخ مدل کلیدواژه‌ای نداشت. نمونه پاسخ: %s', 'hami-ai-assistant' ),
+                                        Haa_Util::cut( wp_strip_all_tags( (string) $raw ), 120 )
+                                )
+                        );
                 }
                 return array_values( array_unique( $list ) );
         }
@@ -239,8 +324,8 @@ final class Haa_Keywords {
                 $seen = array( Haa_Search::normalize_text( (string) $seed ) => true );
                 $out  = array();
 
-                // Source priority: suggest > serp > snapshot > ai > planner.
-                $rank = array( 'suggest' => 0, 'serp' => 1, 'snapshot' => 2, 'ai' => 3, 'planner' => 4 );
+                // Source priority: suggest > serp > snapshot > ai > local > planner.
+                $rank = array( 'suggest' => 0, 'serp' => 1, 'snapshot' => 2, 'ai' => 3, 'local' => 4, 'planner' => 5 );
                 usort(
                         $rows,
                         static function ( $a, $b ) use ( $rank ) {

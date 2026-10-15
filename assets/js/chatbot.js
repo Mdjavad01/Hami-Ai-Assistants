@@ -30,6 +30,13 @@
 	var leadName = root.querySelector('[data-haai-lead-name]');
 	var leadPhone = root.querySelector('[data-haai-lead-phone]');
 
+	// The operator avatar travels with every bot bubble. It is cloned from
+	// the template's typing indicator once, so the SVG (or the custom icon
+	// <img>) lives in exactly one place - no duplicate path in this file.
+		var AVATAR_HTML = (typing && typing.querySelector('.haai-msg__avatar'))
+				? typing.querySelector('.haai-msg__avatar').outerHTML
+				: '';
+
 	var history = [];
 	var token = null;
 	var pending = false;
@@ -75,6 +82,9 @@
 		if (!messages) return null;
 		var wrap = document.createElement('div');
 		wrap.className = 'haai-msg haai-msg--' + (role === 'user' ? 'user' : 'bot');
+		if (role !== 'user' && AVATAR_HTML) {
+			wrap.insertAdjacentHTML('beforeend', AVATAR_HTML);
+		}
 
 		var bubble = document.createElement('div');
 		bubble.className = 'haai-msg__bubble';

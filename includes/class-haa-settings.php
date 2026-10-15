@@ -103,6 +103,9 @@ final class Haa_Settings {
                                 'text_color'      => '#1f2937',
                                 'bg_color'        => '#ffffff',
                                 'theme_mode'      => 'light',
+                                'dark_bg'         => '#171a23',
+                                'dark_text'       => '#e9ebf3',
+                                'dark_bubble'     => '#242a37',
                                 'font'            => 'vazirmatn',
                                 'font_size'       => 14,
                                 'border_radius'   => 16,
@@ -984,6 +987,9 @@ final class Haa_Settings {
                         'appearance.text_color'      => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
                         'appearance.bg_color'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
                         'appearance.theme_mode'      => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'light', 'dark', 'auto' ) ),
+                        'appearance.dark_bg'         => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
+                        'appearance.dark_text'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
+                        'appearance.dark_bubble'     => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
                         'appearance.font'            => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'system', 'vazirmatn', 'iransans', 'dana', 'yekan' ) ),
                         'appearance.font_size'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 11, 'max' => 20 ),
                         'appearance.border_radius'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 0, 'max' => 32 ),
@@ -1885,7 +1891,7 @@ final class Haa_Settings {
                 $core = array(
                         'general'   => array( 'general.enabled', 'general.display_mode', 'general.floating_position', 'general.floating_bottom', 'general.floating_side', 'general.show_devices', 'general.show_roles', 'general.show_on_post_types', 'general.pages_mode', 'general.special_pages', 'general.show_on_pages', 'general.exclude_pages' ),
                         'provider'  => array( 'provider.provider', 'provider.api_key', 'provider.base_url', 'provider.model', 'provider.embedding_model', 'provider.image_model', 'provider.timeout', 'provider.max_tokens', 'provider.allow_localhost', 'provider.adapter', 'provider.temperature', 'provider.retries', 'provider.proxy_host', 'provider.proxy_port', 'provider.proxy_username', 'provider.proxy_password' ),
-                        'appearance'=> array( 'appearance.primary_color', 'appearance.secondary_color', 'appearance.bg_color', 'appearance.text_color', 'appearance.theme_mode', 'appearance.font', 'appearance.font_size', 'appearance.border_radius', 'appearance.button_size', 'appearance.welcome_message', 'appearance.placeholder', 'appearance.custom_icon', 'appearance.custom_css' ),
+                        'appearance'=> array( 'appearance.primary_color', 'appearance.secondary_color', 'appearance.bg_color', 'appearance.text_color', 'appearance.theme_mode', 'appearance.dark_bg', 'appearance.dark_text', 'appearance.dark_bubble', 'appearance.font', 'appearance.font_size', 'appearance.border_radius', 'appearance.button_size', 'appearance.welcome_message', 'appearance.placeholder', 'appearance.custom_icon', 'appearance.custom_css' ),
                         'advanced'  => array( 'advanced.enable_rag', 'advanced.kb_enabled', 'advanced.kb_post_types', 'advanced.kb_chunk_words', 'advanced.kb_overlap_words', 'advanced.kb_categories', 'advanced.kb_max_file_kb', 'advanced.enable_cache', 'advanced.cache_ttl', 'advanced.rate_limit_count', 'advanced.rate_limit_minutes', 'advanced.token_ttl_minutes', 'advanced.max_message_chars', 'advanced.daily_request_cap', 'advanced.daily_cap_message', 'advanced.daily_user_cap', 'advanced.daily_user_cap_message', 'advanced.log_conversations', 'advanced.log_retention_days', 'advanced.usage_retention', 'advanced.guest_access', 'advanced.login_required_message', 'advanced.ip_header' ),
                 );
                 foreach ( $core as $tab_keys ) {

@@ -270,7 +270,7 @@ $merged = Haa_Module_Product_Content::merge_edits(
 nok( 'posted html is clean', ! n_has( $merged['html'] ), $merged['html'] );
 nok( 'posted title is clean', ! n_has( $merged['seo_title'] ), $merged['seo_title'] );
 nok( 'posted faq row is clean', ! n_has( $merged['faq'][0]['a'] ), wp_json_encode( $merged['faq'], JSON_UNESCAPED_UNICODE ) );
-nok( 'the model slug survived an empty field', 'model-slug' === $merged['slug'] );
+nok( 'an empty slug field keeps the current URL (no slug write)', '' === $merged['slug'] );
 nok( 'all pasted notes are collected', count( $merged['notes'] ) >= 4, wp_json_encode( $merged['notes'], JSON_UNESCAPED_UNICODE ) );
 nok( 'the data note is still there', in_array( 'یادداشت داده', $merged['notes'], true ) );
 $_POST = array();

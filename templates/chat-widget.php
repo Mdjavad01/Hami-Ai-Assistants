@@ -70,7 +70,9 @@ function haa_render_widget( $args = array() ) {
                         <?php
                         $welcome = isset( $s['appearance']['welcome_message'] ) ? $s['appearance']['welcome_message'] : '';
                         if ( '' !== $welcome ) {
-                                echo '<div class="haai-msg haai-msg--bot"><div class="haai-msg__bubble">' . wp_kses( wpautop( $welcome ), array( 'p' => array(), 'br' => array(), 'strong' => array(), 'em' => array(), 'a' => array( 'href' => true, 'title' => true, 'rel' => true, 'target' => true ) ) ) . '</div></div>';
+                                // The operator avatar opens the thread; the JS clones this
+                                // exact structure for every later bot bubble.
+                                echo '<div class="haai-msg haai-msg--bot"><span class="haai-msg__avatar" aria-hidden="true">' . haa_avatar_svg( $s ) . '</span><div class="haai-msg__bubble">' . wp_kses( wpautop( $welcome ), array( 'p' => array(), 'br' => array(), 'strong' => array(), 'em' => array(), 'a' => array( 'href' => true, 'title' => true, 'rel' => true, 'target' => true ) ) ) . '</div></div>';
                         }
                         $suggested = Haa_Settings::suggested_questions();
                         if ( ! empty( $suggested ) && ! $p ) {
@@ -84,7 +86,8 @@ function haa_render_widget( $args = array() ) {
                 </div>
 
                 <div class="haai-typing"<?php echo $p ? '' : ' id="haai-typing"'; // phpcs:ignore WordPress.Security.EscapeOutput ?> hidden aria-hidden="true">
-                        <span></span><span></span><span></span>
+                        <span class="haai-msg__avatar"><?php echo haa_avatar_svg( $s ); // phpcs:ignore WordPress.Security.EscapeOutput ?></span>
+                        <span class="haai-typing__dots"><span></span><span></span><span></span></span>
                 </div>
 
                 <div class="haai-error"<?php echo $p ? '' : ' id="haai-error"'; // phpcs:ignore WordPress.Security.EscapeOutput ?> hidden role="alert"></div>

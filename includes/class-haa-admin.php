@@ -1132,8 +1132,12 @@ final class Haa_Admin {
 		if ( 'appearance' === $tab ) {
 			return array(
 				'colors' => array(
-					'label' => __( 'رنگ‌ها', 'hami-ai-assistant' ),
-					'match' => array( 'primary_color', 'secondary_color', 'bg_color', 'text_color', 'theme_mode' ),
+					'label' => __( 'رنگ‌ها (حالت روشن)', 'hami-ai-assistant' ),
+					'match' => array( 'primary_color', 'secondary_color', 'bg_color', 'text_color' ),
+				),
+				'dark'   => array(
+					'label' => __( 'حالت تیره (دارک)', 'hami-ai-assistant' ),
+					'match' => array( 'theme_mode', 'dark_bg', 'dark_text', 'dark_bubble' ),
 				),
 				'type'   => array(
 					'label' => __( 'فونت و اندازه', 'hami-ai-assistant' ),
@@ -1351,6 +1355,9 @@ final class Haa_Admin {
 			$fields[] = array( 'key' => 'appearance.bg_color', 'type' => 'color', 'label' => __( 'رنگ پس‌زمینه', 'hami-ai-assistant' ) );
 			$fields[] = array( 'key' => 'appearance.text_color', 'type' => 'color', 'label' => __( 'رنگ متن', 'hami-ai-assistant' ) );
 			$fields[] = array( 'key' => 'appearance.theme_mode', 'type' => 'select', 'label' => __( 'حالت رنگی', 'hami-ai-assistant' ), 'choices' => array( 'light' => __( 'روشن', 'hami-ai-assistant' ), 'dark' => __( 'تیره', 'hami-ai-assistant' ), 'auto' => __( 'خودکار', 'hami-ai-assistant' ) ) );
+			$fields[] = array( 'key' => 'appearance.dark_bg', 'type' => 'color', 'label' => __( 'پس‌زمینه (حالت تیره)', 'hami-ai-assistant' ), 'hint' => __( 'وقتی حالت رنگی روی «تیره» یا «خودکار» است، ویجت با این رنگ‌ها ساخته می‌شود.', 'hami-ai-assistant' ) );
+			$fields[] = array( 'key' => 'appearance.dark_bubble', 'type' => 'color', 'label' => __( 'حباب پاسخ (حالت تیره)', 'hami-ai-assistant' ) );
+			$fields[] = array( 'key' => 'appearance.dark_text', 'type' => 'color', 'label' => __( 'متن (حالت تیره)', 'hami-ai-assistant' ) );
 			$fields[] = array( 'key' => 'appearance.font', 'type' => 'select', 'label' => __( 'فونت', 'hami-ai-assistant' ), 'choices' => array( 'system' => __( 'فونت سیستم', 'hami-ai-assistant' ), 'vazirmatn' => 'Vazirmatn', 'iransans' => 'IRANSans', 'dana' => 'Dana', 'yekan' => 'Yekan Bakh' ) );
 			$fields[] = array( 'key' => 'appearance.font_size', 'type' => 'number', 'label' => __( 'اندازه فونت (px)', 'hami-ai-assistant' ), 'min' => 11, 'max' => 20 );
 			$fields[] = array( 'key' => 'appearance.border_radius', 'type' => 'number', 'label' => __( 'گردی گوشه (px)', 'hami-ai-assistant' ), 'min' => 0, 'max' => 32 );
