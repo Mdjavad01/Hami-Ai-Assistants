@@ -299,6 +299,7 @@ final class Haa_API {
                                 'adapter'  => 'openai',
                                 'base_url' => 'https://api.openai.com/v1',
                                 'model'    => 'gpt-4o-mini',
+                                'note'     => 'OpenAI معمولاً از سرورهای ایران در دسترس نیست — اگر تست اتصال خطای مهلت/قطع اتصال داد، پراکسی یا رله (مثل OpenRouter) لازم است.',
                         ),
                         'openrouter' => array(
                                 'label'    => 'OpenRouter',
@@ -318,6 +319,7 @@ final class Haa_API {
                                 'adapter'  => 'openai',
                                 'base_url' => 'https://api.x.ai/v1',
                                 'model'    => 'grok-2-latest',
+                                'note'     => 'Grok (x.ai) معمولاً از سرورهای ایران در دسترس نیست (خود xAI هم ایران را سرویس نمی‌دهد) — پراکسی یا رله لازم است.',
                         ),
                         'deepseek'   => array(
                                 'label'    => 'DeepSeek',
@@ -354,12 +356,14 @@ final class Haa_API {
                                 'adapter'  => 'gemini',
                                 'base_url' => 'https://generativelanguage.googleapis.com/v1beta',
                                 'model'    => 'gemini-1.5-flash',
+                                'note'     => 'Gemini معمولاً از سرورهای ایران در دسترس نیست (خطای «مهلت اتصال» نشانه‌ی فیلتر بودن است، نه کندی) — پراکسی تنظیم کنید یا از رله‌ای که فرمت Gemini دارد استفاده کنید.',
                         ),
                         'claude'     => array(
                                 'label'    => 'Anthropic Claude',
                                 'adapter'  => 'claude',
                                 'base_url' => 'https://api.anthropic.com/v1',
                                 'model'    => 'claude-3-5-haiku-latest',
+                                'note'     => 'Claude معمولاً از سرورهای ایران در دسترس نیست — پراکسی یا رله (مثل OpenRouter) لازم است.',
                         ),
                         'custom'     => array(
                                 'label'    => 'سفارشی (Relay / Worker)',
@@ -979,6 +983,11 @@ final class Haa_API {
                         $this->cfg = $cfg;
                 }
 
+                // A probe is diagnostic: waiting the full configured timeout (up to
+                // 300s) on a filtered/unreachable endpoint is hostile UX. Cap the
+                // probe at 90s — a chat "ping" that needs longer is broken anyway.
+                $this->cfg['timeout'] = min( 90, max( 5, (int) $this->cfg['timeout'] ) );
+
                 $started = microtime( true );
                 $reply   = $this->chat(
                         array( array( 'role' => 'user', 'content' => 'ping' ) ),
@@ -1414,7 +1423,16 @@ final class Haa_API {
                 }
 
                 if ( $is_timeout ) {
-                        return new WP_Error( 'haai_timeout', __( 'مهلت اتصال به سرویس AI تمام شد. دوباره بزنید؛ اگر تکرار شد، «مهلت پاسخ» را در تب «ارائه‌دهنده AI» بیشتر کنید.', 'hami-ai-assistant' ) );
+                        // The seconds make "increase the timeout" actionable; the second
+                        // sentence is honest about the case where increasing it cannot
+                        // help — filtered endpoints (Google/OpenAI/Claude/xAI from
+                        // Iranian IPs) hang silently until any timeout expires.
+                        $waited = max( 5, (int) $this->cfg['timeout'] );
+                        return new WP_Error( 'haai_timeout', sprintf(
+                                /* translators: %d: seconds waited */
+                                __( 'مهلت اتصال به سرویس AI تمام شد (%1$d ثانیه پاسخی نرسید). یک‌بار دیگر بزنید؛ اگر تکرار شد «مهلت پاسخ» را در تب «ارائه‌دهنده AI» بیشتر کنید. اگر باز هم نشد، احتمالاً این سرویس از سرور شما در دسترس نیست (Google، OpenAI، Claude و xAI از IP ایران معمولاً فیلتر هستند) — پراکسی را در همین تب تنظیم کنید یا Base URL را روی یک رله مثل OpenRouter بگذارید.', 'hami-ai-assistant' ),
+                                $waited
+                        ) );
                 }
                 if ( $is_dns ) {
                         return new WP_Error( 'haai_dns', __( 'دامنه سرویس AI پیدا نشد. احتمالاً هاست شما دسترسی مستقیم ندارد — Base URL رله یا پراکسی تنظیم کنید و دوباره بزنید.', 'hami-ai-assistant' ) );

@@ -692,6 +692,20 @@ body.haai-theme-dark .haai-wrap {
         overflow-wrap: anywhere;
 }
 
+/* Live "testing…" counter while the probe waits on a slow/filtered endpoint. */
+.haai-test-result.is-waiting {
+        display: block;
+        background: var(--haai-warn-soft);
+        border-color: transparent;
+        border-inline-start-color: var(--haai-warn);
+        color: var(--haai-warn);
+        font-variant-numeric: tabular-nums;
+}
+
+/* Reachability note shown when a filtered-from-Iran preset chip is clicked. */
+.haai-preset-note { color: var(--haai-warn); overflow-wrap: anywhere; }
+.haai-preset-note[hidden] { display: none; }
+
 .haai-empty { display: flex; flex-direction: column; align-items: center; gap: var(--haai-sp-2); padding: var(--haai-sp-6) var(--haai-sp-4); margin: var(--haai-sp-3) 0; background: var(--haai-surface-2); border: 1px dashed var(--haai-border-strong); border-radius: var(--haai-r-md); text-align: center; color: var(--haai-muted); }
 .haai-empty svg { color: var(--haai-faint); }
 .haai-empty__title { font-size: var(--haai-fs-title); font-weight: var(--haai-fw-strong); color: var(--haai-ink); }

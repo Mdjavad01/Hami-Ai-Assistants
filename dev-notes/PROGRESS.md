@@ -1,5 +1,23 @@
 # وضعیت پیشرفت (هر ایجنت بعد از هر گام باید این فایل را به‌روز کند)
 
+## نسخه ۲.۱.۵ — تشخیص خطای مهلت اتصال (Gemini/Grok) + ارتفاع ۲/۵ خطی فیلد چت (۲۰۲۶-۱۰-۱۶) ✅
+
+**گزارش کاربر:** «تست اتصال» روی جمینای و گراک پیام «مهلت اتصال به سرویس AI تمام شد…» می‌دهد؛ فیلد ورودی چت (`haai-form__input`) ارتفاعش بیشتر از نیاز است — باید ۲ خط باشد و حداکثر ۵ خط با اسکرول.
+
+**تغییرات:**
+- `includes/class-haa-api.php` — پیام `haai_timeout` حالا ثانیه‌های واقعی انتظار را می‌گوید و راهنمای واقعی می‌دهد: اگر با افزایش «مهلت پاسخ» تکرار شد، سرویس از سرور فیلتر است (Google/OpenAI/Claude/xAI از IP ایران) → پراکسی یا رله. `test_connection()` مهلت پراپ را روی ۹۰ ثانیه سقف می‌زند (تنظیم ۳۰۰ ثانیه‌ی ادمین دیگر تست را ساعت‌ها معطل نمی‌کند؛ فراخوانی واقعی ماژول‌ها مهلت کامل خودشان را دارند). `presets()` برای openai/xai/gemini/claude کلید `note` گرفت.
+- `includes/class-haa-admin.php` — چیپ‌های preset حامل `data-note`/`title` شدند؛ پاراگراف `[data-haai-preset-note]` زیر چیپ‌ها؛ کلید i18n `testing`.
+- `assets/js/admin.js` — تیکر زنده در تست اتصال و دریافت مدل‌ها («در حال آزمایش اتصال… (N ثانیه)»)، پاک‌سازی مطمئن با `stopTicker` در then/catch؛ نمایش/مخفی‌سازی یادداشت preset با کلیک چیپ.
+- `assets/css/admin.css` — `.haai-test-result.is-waiting` (پالت warn، اعداد tabular) و `.haai-preset-note`.
+- `assets/js/chatbot.js` — `autosize()` بازنویسی شد: محدوده‌ی min/max از استایل زنده (line-height/padding/border) ساخته می‌شود؛ حالت پایه ۲ خط، سقف ۵ خط، بعدش `overflow-y:auto`. `min-height`/`max-height` اینلاین می‌شود تا CSS قالب‌های خارجی نتواند فیلد را باد کند. کلاس `is-multiline` بالای ۲ خط.
+- `assets/css/chatbot.css` — قاعده به `.haai-widget .haai-form__input` ارتقا یافت: `min-height:calc(3em + 25px)` / `max-height:calc(7.5em + 25px)` (۲/۵ خط با همان padding/border؛ فونت ۱۶px موبایل هم رعایت می‌شود) + `.is-multiline { border-radius:20px }`.
+- `languages/hami-ai-assistant.pot` — msgid تایم‌اوت جدید + «در حال آزمایش اتصال…» + refs به‌روز.
+- نسخه ۲.۱.۵ (هدر + HAAI_VERSION)؛ README؛ docs.md (هدر + بخش ۱۹ + ۹.۲)؛ BACKLOG BL-30.
+
+**گیت این گام:** `php -l` صفر خطا · ۱۳ سوئیت استاب `FAILURES: 0` · ممیزی CSS «PROBLEMS: 0 | unused: 0» · `node --check` تمیز · بودجه‌ها در docs.md ۹.۲.
+
+**تست‌نشده (صریح):** رفتار واقعی تایم‌اوت روی هاستی که Gemini/Grok برایش فیلتر است (پیام جدید باید دیده شود)؛ ارتفاع ۲/۵ خطی روی موبایل واقعی.
+
 ## نسخه ۲.۱.۲ — بازطراحی مدرن ویجت چت (کامپوزر جمع‌وجور + تم کامل از پیشخوان) (۲۰۲۶-۱۰-۱۵) ✅
 
 **تغییرات UX/UI ویجت (درخواست کاربر: «فیلد کاربر زیادی بزرگه»):**

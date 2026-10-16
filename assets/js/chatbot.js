@@ -57,8 +57,24 @@
 
 	function autosize() {
 		if (!input) return;
+		// Rest = 2 lines, cap = 5 lines, beyond that the field scrolls. Bounds
+		// come from the live computed styles so the mobile 16px font and any
+		// admin-configured size keep the same line counts; the inline min/max
+		// also fence off theme CSS that inflates textareas site-wide.
+		var cs = getComputedStyle(input);
+		var lh = parseFloat(cs.lineHeight);
+		if (!lh || isNaN(lh)) lh = (parseFloat(cs.fontSize) || 14) * 1.5;
+		var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+		var bord = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+		var minH = Math.round(lh * 2 + pad + bord);
+		var maxH = Math.round(lh * 5 + pad + bord);
+		input.style.minHeight = minH + 'px';
+		input.style.maxHeight = maxH + 'px';
 		input.style.height = 'auto';
-		input.style.height = Math.min(input.scrollHeight, 110) + 'px';
+		var natural = input.scrollHeight + bord;
+		input.style.height = Math.min(Math.max(natural, minH), maxH) + 'px';
+		input.style.overflowY = natural > maxH ? 'auto' : 'hidden';
+		input.classList.toggle('is-multiline', natural > minH + lh / 2);
 	}
 
 	function showError(text) {

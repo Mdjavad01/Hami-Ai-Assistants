@@ -281,6 +281,10 @@ msgid "در حال انجام…"
 msgstr ""
 
 #: includes/class-haa-admin.php:164
+msgid "در حال آزمایش اتصال…"
+msgstr ""
+
+#: includes/class-haa-admin.php:164
 msgid "انجام شد"
 msgstr ""
 
@@ -1182,15 +1186,15 @@ msgstr ""
 msgid "آدرس سرویس به بازه IP خصوصی اشاره دارد و مجاز نیست."
 msgstr ""
 
-#: includes/class-haa-api.php:1390
+#: includes/class-haa-api.php:1428
 msgid "پراکسی تنظیم‌شده پاسخ نداد. آدرس و پورت پراکسی (و نام کاربری/رمز آن) را در تب «ارائه‌دهنده AI» بررسی کنید، یا موقتاً آن را خالی بگذارید و دوباره بزنید."
 msgstr ""
 
-#: includes/class-haa-api.php:1394
-msgid "مهلت اتصال به سرویس AI تمام شد. دوباره بزنید؛ اگر تکرار شد، «مهلت پاسخ» را در تب «ارائه‌دهنده AI» بیشتر کنید."
+#: includes/class-haa-api.php:1433
+msgid "مهلت اتصال به سرویس AI تمام شد (%1$d ثانیه پاسخی نرسید). یک‌بار دیگر بزنید؛ اگر تکرار شد «مهلت پاسخ» را در تب «ارائه‌دهنده AI» بیشتر کنید. اگر باز هم نشد، احتمالاً این سرویس از سرور شما در دسترس نیست (Google، OpenAI، Claude و xAI از IP ایران معمولاً فیلتر هستند) — پراکسی را در همین تب تنظیم کنید یا Base URL را روی یک رله مثل OpenRouter بگذارید."
 msgstr ""
 
-#: includes/class-haa-api.php:1397
+#: includes/class-haa-api.php:1438
 msgid "دامنه سرویس AI پیدا نشد. احتمالاً هاست شما دسترسی مستقیم ندارد — Base URL رله یا پراکسی تنظیم کنید و دوباره بزنید."
 msgstr ""
 

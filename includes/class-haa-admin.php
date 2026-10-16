@@ -161,6 +161,7 @@ final class Haa_Admin {
 					'copied'  => __( 'کپی شد', 'hami-ai-assistant' ),
 					'confirm' => __( 'مطمئنید؟ این کار برگشت‌پذیر نیست.', 'hami-ai-assistant' ),
 					'busy'    => __( 'در حال انجام…', 'hami-ai-assistant' ),
+					'testing' => __( 'در حال آزمایش اتصال…', 'hami-ai-assistant' ),
 					'ok'      => __( 'انجام شد', 'hami-ai-assistant' ),
 					'fail'    => __( 'ناموفق', 'hami-ai-assistant' ),
 				),
@@ -1427,11 +1428,14 @@ final class Haa_Admin {
 					<?php foreach ( Haa_API::presets() as $slug => $p ) : ?>
 						<button type="button" class="button" data-haai-preset="<?php echo esc_attr( $slug ); ?>"
 							data-base="<?php echo esc_attr( $p['base_url'] ); ?>"
-							data-model="<?php echo esc_attr( $p['model'] ); ?>">
+							data-model="<?php echo esc_attr( $p['model'] ); ?>"
+							<?php echo empty( $p['note'] ) ? '' : 'data-note="' . esc_attr( $p['note'] ) . '"'; // phpcs:ignore WordPress.Security.EscapeOutput ?>
+							<?php echo ! empty( $p['note'] ) ? 'title="' . esc_attr( $p['note'] ) . '"' : ''; // phpcs:ignore WordPress.Security.EscapeOutput ?>>
 							<?php echo esc_html( $p['label'] ); ?>
 						</button>
 					<?php endforeach; ?>
 				</div>
+				<p class="description haai-preset-note" data-haai-preset-note hidden></p>
 			</section>
 			<?php
 		}

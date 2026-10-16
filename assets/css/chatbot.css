@@ -186,7 +186,8 @@ avatar. Markup ships in the template (welcome/typing) and is cloned by the JS. *
 
 /* .haai-form */
 .haai-form { display:flex; align-items:flex-end; gap:8px; padding:10px 12px; border-top:1px solid var(--haai-line); flex:0 0 auto }
-.haai-form__input { flex:1 1 auto; resize:none; min-height:44px; max-height:110px; padding:11px 15px; border:1.5px solid transparent; border-radius:999px; background:var(--haai-bubble); color:var(--haai-text); font:inherit; line-height:1.5; transition:border-color .15s ease,box-shadow .15s ease,background .15s ease }
+.haai-widget .haai-form__input { flex:1 1 auto; resize:none; overflow-y:auto; min-height:calc(3em + 25px); max-height:calc(7.5em + 25px); padding:11px 15px; border:1.5px solid transparent; border-radius:999px; background:var(--haai-bubble); color:var(--haai-text); font:inherit; line-height:1.5; transition:border-color .15s ease,box-shadow .15s ease,background .15s ease }
+.haai-widget .haai-form__input.is-multiline { border-radius:20px }
 .haai-form__input:focus { outline:none; border-color:var(--haai-primary,#4f46e5); background:var(--haai-bg); box-shadow:0 0 0 3px var(--haai-accent-ring) }
 /* Touch devices zoom into any focused field under 16px — keep the pill
 single-line height there by lifting only its font size. */
