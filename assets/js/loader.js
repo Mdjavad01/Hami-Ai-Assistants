@@ -69,12 +69,14 @@
 		hideTeaser(true);
 		panel.removeAttribute('hidden');
 		fab.setAttribute('aria-expanded', 'true');
+		fab.classList.add('is-open'); // off while the panel covers it (sheet/glass).
 		if (window.HAAI_CHAT) window.HAAI_CHAT.focus();
 	}
 
 	function close() {
 		panel.setAttribute('hidden', '');
 		fab.setAttribute('aria-expanded', 'false');
+		fab.classList.remove('is-open');
 	}
 
 	fab.addEventListener('click', function () {
@@ -86,6 +88,7 @@
 
 	document.addEventListener('haai:close', function () {
 		fab.setAttribute('aria-expanded', 'false');
+		fab.classList.remove('is-open');
 	});
 
 	// Escape closes the panel while it is the thing on screen.

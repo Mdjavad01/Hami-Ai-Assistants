@@ -135,7 +135,7 @@ function haa_render_widget( $args = array() ) {
                                 placeholder="<?php echo esc_attr( isset( $s['appearance']['placeholder'] ) ? $s['appearance']['placeholder'] : __( 'سوالت رو بپرس…', 'hami-ai-assistant' ) ); ?>"
                                 aria-label="<?php esc_attr_e( 'پیام شما', 'hami-ai-assistant' ); ?>"></textarea>
                         <button type="<?php echo $p ? 'button' : 'submit'; ?>" class="haai-form__send" aria-label="<?php esc_attr_e( 'ارسال', 'hami-ai-assistant' ); ?>">
-                                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9.13 15.14 8.77 20.3c.49 0 .7-.21.96-.46l2.3-2.2 4.76 3.49c.87.48 1.49.23 1.72-.8l3.12-14.62c.28-1.29-.46-1.8-1.32-1.48L2.94 9.13c-1.27.49-1.25 1.2-.22 1.51l4.5 1.4 10.43-6.57c.49-.3.94-.13.57.19L9.13 15.14z" fill="currentColor"/></svg>
+                                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l4.59 4.58L19 11l-7-7-7 7z" fill="currentColor"/></svg>
                         </button>
                 <?php echo $p ? '</div>' : '</form>'; // phpcs:ignore WordPress.Security.EscapeOutput ?>
 

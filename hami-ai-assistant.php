@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.6
+ * Version:           2.1.7
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.6' );
+define( 'HAAI_VERSION', '2.1.7' );
 define( 'HAAI_DB_VERSION', '7' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
@@ -217,7 +217,10 @@ function haa_font_stack( $family ) {
                 'yekan'     => '"YekanBakh"',
         );
         $lead = isset( $named[ $family ] ) ? $named[ $family ] . ',' : '';
-        return $lead . 'Tahoma,"Segoe UI",system-ui,-apple-system,sans-serif';
+        // system-ui first: the iOS-style base wants SF Arabic on Apple devices
+        // and the platform's native face everywhere else; Tahoma stays as the
+        // classic Persian fallback for older Windows stacks.
+        return $lead . 'system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif';
 }
 
 /**
@@ -297,8 +300,12 @@ function haa_public_config() {
                         'leadPhone' => __( 'شماره موبایل معتبر وارد کنید.', 'hami-ai-assistant' ),
                 ),
                 'rest'      => esc_url_raw( rest_url( HAAI_REST_NS ) ),
-                'tokenUrl'  => esc_url_raw( rest_url( HAAI_REST_NS . '/token' ) ),
-                'widgetUrl' => esc_url_raw( rest_url( HAAI_REST_NS . '/widget' ) ),
+                // Version query on both GET endpoints: page-cache/CDN layers that
+                // cache REST GETs would otherwise keep serving the previous
+                // release's widget HTML (missing icons, old markup) until their
+                // own TTL expires. Bumping the plugin version busts them for free.
+                'tokenUrl'  => esc_url_raw( rest_url( HAAI_REST_NS . '/token' ) ) . '?v=' . rawurlencode( HAAI_VERSION ),
+                'widgetUrl' => esc_url_raw( rest_url( HAAI_REST_NS . '/widget' ) ) . '?v=' . rawurlencode( HAAI_VERSION ),
                 'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
                 'css'       => HAAI_URL . haa_asset_path( 'assets/css/chatbot.css' ) . '?ver=' . HAAI_VERSION,
                 'js'        => HAAI_URL . haa_asset_path( 'assets/js/chatbot.js' ) . '?ver=' . HAAI_VERSION,

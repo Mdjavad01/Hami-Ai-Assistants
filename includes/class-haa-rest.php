@@ -108,12 +108,14 @@ final class Haa_REST {
 		$ttl   = self::token_ttl();
 		$next  = self::next_token_state( $now, $ttl );
 
-		return rest_ensure_response(
+		$res = rest_ensure_response(
 			array(
 				'token'   => self::sign( $sid, $next['exp'], $next['renewed'] ),
 				'expires' => max( 0, $next['exp'] - $now ),
 			)
 		);
+		$res->header( 'Cache-Control', 'no-store, must-revalidate, max-age=0' );
+		return $res;
 	}
 
 	/**
@@ -229,13 +231,19 @@ final class Haa_REST {
 		);
 		$html = ob_get_clean();
 
-		return rest_ensure_response(
+		$res = rest_ensure_response(
 			array(
 				'ok'   => true,
 				'html' => $html,
 				'css'  => haa_inline_css( Haa_Settings::get() ),
 			)
 		);
+		// The widget HTML follows live settings and must never sit in a page
+		// cache: a cached copy keeps shipping the old release's markup (icons,
+		// texts) even after an update. The ?v= query in the config busts the URL
+		// key on upgrades; this header tells caches not to store it at all.
+		$res->header( 'Cache-Control', 'no-store, must-revalidate, max-age=0' );
+		return $res;
 	}
 
 	/**
