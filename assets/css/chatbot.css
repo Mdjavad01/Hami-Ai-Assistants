@@ -25,7 +25,7 @@
 the glass skin it would otherwise shine through the translucent surface. */
 .haai-fab.is-open { visibility:hidden }
 .haai-fab::after { content:""; position:absolute; inset:-2px; border-radius:50%; box-shadow:0 0 0 0 var(--haai-accent-ring); animation:haai-pulse 2.6s ease-out infinite; pointer-events:none }
-.haai-fab:hover,.haai-fab:focus-visible { transform:scale(1.07); box-shadow:0 14px 34px rgba(15,18,34,.3),0 3px 10px rgba(15,18,34,.18) }
+.haai-fab:hover,.haai-fab:focus-visible { transform:scale(1.07); background:linear-gradient(135deg,var(--haai-primary,#4f46e5),var(--haai-accent-2,#3730a3))!important; color:var(--haai-on-accent,#fff)!important; filter:brightness(.96) saturate(1.1)!important; box-shadow:0 14px 34px rgba(15,18,34,.3),0 3px 10px rgba(15,18,34,.18) }
 .haai-fab:focus-visible { outline:2px solid var(--haai-primary,#4f46e5); outline-offset:3px }
 .haai-fab[hidden] { display:none }
 @keyframes haai-pulse {
@@ -192,10 +192,15 @@ single-line height there by lifting only its font size. */
 @media (pointer:coarse) {
         .haai-form__input { font-size:max(var(--haai-fs,14px),16px) }
 }
-.haai-form__send { display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; margin-bottom:2px; border:0; border-radius:50%; background:var(--haai-primary,#4f46e5); color:var(--haai-on-accent,#fff); cursor:pointer; flex:0 0 auto; box-shadow:0 4px 12px var(--haai-accent-ring); transition:opacity .15s ease,transform .15s ease,box-shadow .15s ease }
-.haai-form__send:hover,.haai-form__send:focus-visible { box-shadow:0 6px 16px var(--haai-accent-ring); transform:scale(1.05) }
+.haai-form__send { display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; margin-bottom:2px; border:0; border-radius:50%; background:var(--haai-primary,#4f46e5); color:var(--haai-on-accent,#fff); cursor:pointer; flex:0 0 auto; opacity:.62; box-shadow:0 4px 12px var(--haai-accent-ring); transition:opacity .15s ease,transform .15s ease,box-shadow .15s ease,filter .15s ease }
+.haai-form__send:hover,.haai-form__send:focus-visible { background:var(--haai-primary,#4f46e5)!important; color:var(--haai-on-accent,#fff)!important; filter:brightness(.95)!important; box-shadow:0 6px 16px var(--haai-accent-ring); transform:scale(1.05) }
 .haai-form__send:active { transform:scale(.92) }
-.haai-form__send[disabled] { opacity:.45; cursor:not-allowed }
+.haai-form__send[disabled]:not(.is-busy) { opacity:.45; cursor:not-allowed }
+.haai-form__send.is-ready { opacity:1 }
+.haai-form__send.is-busy { opacity:1; cursor:progress }
+.haai-form__send.is-busy svg { display:none }
+.haai-form__send.is-busy::before { content:""; width:16px; height:16px; border-radius:50%; border:2px solid rgba(255,255,255,.45); border-top-color:#fff; animation:haai-spin .7s linear infinite }
+@keyframes haai-spin { to { transform:rotate(1turn) } }
 /* Explicit geometry: theme CSS that resizes bare svg/svg[*] never breaks
 the arrow. It points up, so RTL needs no mirror. */
 .haai-form__send svg { display:block; width:18px; height:18px }
@@ -241,11 +246,11 @@ dark palette applies correctly; browsers render the same surface either way. */
 .haai-handoff__title { font-weight:600; font-size:.92em; margin-bottom:4px }
 .haai-handoff__intro { margin:0 0 9px; font-size:.84em; line-height:1.65; opacity:.85 }
 .haai-handoff__cta { display:inline-block; padding:8px 14px; border:0; border-radius:12px; background:var(--haai-primary,#4f46e5); color:#fff; font:inherit; font-size:.84em; font-weight:500; cursor:pointer; transition:filter .15s ease }
-.haai-handoff__cta:hover,.haai-handoff__cta:focus-visible { filter:brightness(1.08); outline:none; box-shadow:0 0 0 3px var(--haai-accent-ring) }
+.haai-handoff__cta:hover,.haai-handoff__cta:focus-visible { background:var(--haai-primary,#4f46e5)!important; filter:brightness(1.08); outline:none; box-shadow:0 0 0 3px var(--haai-accent-ring) }
 .haai-handoff__note { display:block; width:100%; margin-top:7px; padding:9px 12px; border:1.5px solid var(--haai-line,rgba(25,28,36,.09)); border-radius:12px; background:var(--haai-bg); color:var(--haai-text); font:inherit; font-size:.92em; transition:border-color .15s ease,box-shadow .15s ease }
 .haai-handoff__note:focus { outline:none; border-color:var(--haai-primary,#4f46e5); box-shadow:0 0 0 3px var(--haai-accent-ring) }
 .haai-handoff__send { display:block; width:100%; margin-top:9px; padding:10px 14px; border:0; border-radius:12px; background:var(--haai-primary,#4f46e5); color:#fff; font:inherit; font-size:.9em; font-weight:600; cursor:pointer; transition:filter .15s ease }
-.haai-handoff__send:hover,.haai-handoff__send:focus-visible { filter:brightness(1.08); outline:none; box-shadow:0 0 0 3px var(--haai-accent-ring) }
+.haai-handoff__send:hover,.haai-handoff__send:focus-visible { background:var(--haai-primary,#4f46e5)!important; filter:brightness(1.08); outline:none; box-shadow:0 0 0 3px var(--haai-accent-ring) }
 .haai-handoff__send:disabled { opacity:.6; cursor:default }
 .haai-handoff__err { margin:7px 0 0; font-size:.78em; color:#b91c1c; line-height:1.5 }
 .haai-handoff__done { font-size:.88em; font-weight:600; line-height:1.6 }

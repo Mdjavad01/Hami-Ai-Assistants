@@ -4,594 +4,623 @@
  * hard size cap so a long conversation can never blow the storage quota.
  */
 (function () {
-	'use strict';
-
-	var C = window.HAAI_CONFIG || {};
-	var I = C.i18n || {};
-	var HO = C.handoff || {};
-	var HI = HO.i18n || {};
-	var MAX_HISTORY = Math.max(0, (C.history && C.history.max) || 6);
-	var STORE_KEY = 'haai_chat_v1';
-	var STORE_CAP = 12000; // characters of serialised history.
-
-	var root = document.querySelector('.haai-widget:not(.haai-widget--preview)');
-	if (!root || '1' === root.getAttribute('data-init')) {
-		return;
-	}
-	root.setAttribute('data-init', '1');
-
-	var messages = root.querySelector('.haai-messages');
-	var form = root.querySelector('.haai-form');
-	var input = root.querySelector('.haai-form__input');
-	var typing = root.querySelector('.haai-typing');
-	var errorBox = root.querySelector('.haai-error');
-	var sendBtn = root.querySelector('.haai-form__send');
-	var suggestBox = root.querySelector('.haai-suggest');
-	var hpField = root.querySelector('[data-haai-hp]');
-	var leadBox = root.querySelector('[data-haai-lead]');
-	var leadName = root.querySelector('[data-haai-lead-name]');
-	var leadPhone = root.querySelector('[data-haai-lead-phone]');
-
-	// The operator avatar travels with every bot bubble. It is cloned from
-	// the template's typing indicator once, so the SVG (or the custom icon
-	// <img>) lives in exactly one place - no duplicate path in this file.
-		var AVATAR_HTML = (typing && typing.querySelector('.haai-msg__avatar'))
-				? typing.querySelector('.haai-msg__avatar').outerHTML
-				: '';
-
-		// The visitor's own row gets a neutral person chip, mirrored to the outer
-		// edge by CSS (.haai-msg--user is row-reversed in RTL) so both sides of
-		// the thread feel "staffed".
-		var USER_AVATAR_HTML = '<span class="haai-msg__avatar haai-msg__avatar--user" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 12.2c2.6 0 4.7-2.1 4.7-4.8S14.6 2.6 12 2.6 7.3 4.7 7.3 7.4s2.1 4.8 4.7 4.8zm0 2.2c-3.1 0-9.4 1.6-9.4 4.8v2.2h18.8v-2.2c0-3.2-6.3-4.8-9.4-4.8z" fill="currentColor"/></svg></span>';
-
-	var history = [];
-	var token = null;
-	var pending = false;
-	var initialHTML = messages ? messages.innerHTML : '';
-	var leadSent = false;
-	var lastUserText = '';
-	// Live-handoff state: consecutive unanswered turns, whether the offer was
-	// already shown once, and whether a request went through this session.
-	var failCount = 0;
-	var offered = false;
-	var handoffBusy = false;
-
-	/* ------------------------------------------------------------------
-	 * Helpers
-	 * ---------------------------------------------------------------- */
-
-	function on(el, ev, fn) {
-		if (el) el.addEventListener(ev, fn);
-	}
-
-	function scrollDown() {
-		if (messages) messages.scrollTop = messages.scrollHeight;
-	}
-
-	function autosize() {
-		if (!input) return;
-		// Rest = 2 lines, cap = 5 lines, beyond that the field scrolls. Bounds
-		// come from the live computed styles so the mobile 16px font and any
-		// admin-configured size keep the same line counts; the inline min/max
-		// also fence off theme CSS that inflates textareas site-wide.
-		var cs = getComputedStyle(input);
-		var lh = parseFloat(cs.lineHeight);
-		if (!lh || isNaN(lh)) lh = (parseFloat(cs.fontSize) || 14) * 1.5;
-		var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-		var bord = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
-		var minH = Math.round(lh * 2 + pad + bord);
-		var maxH = Math.round(lh * 5 + pad + bord);
-		input.style.minHeight = minH + 'px';
-		input.style.maxHeight = maxH + 'px';
-		input.style.height = 'auto';
-		var natural = input.scrollHeight + bord;
-		input.style.height = Math.min(Math.max(natural, minH), maxH) + 'px';
-		input.style.overflowY = natural > maxH ? 'auto' : 'hidden';
-		input.classList.toggle('is-multiline', natural > minH + lh / 2);
-	}
-
-	function showError(text) {
-		if (!errorBox) return;
-		if (!text) {
-			errorBox.setAttribute('hidden', '');
-			errorBox.textContent = '';
-			return;
-		}
-		errorBox.textContent = text;
-		errorBox.removeAttribute('hidden');
-	}
-
-	function setTyping(on) {
-		if (!typing) return;
-		if (on) typing.removeAttribute('hidden');
-		else typing.setAttribute('hidden', '');
-	}
-
-	function addBubble(role, text) {
-		if (!messages) return null;
-		var wrap = document.createElement('div');
-		wrap.className = 'haai-msg haai-msg--' + (role === 'user' ? 'user' : 'bot');
-		if (role !== 'user') {
-			if (AVATAR_HTML) wrap.insertAdjacentHTML('beforeend', AVATAR_HTML);
-		} else {
-			wrap.insertAdjacentHTML('beforeend', USER_AVATAR_HTML);
-		}
-
-		var bubble = document.createElement('div');
-		bubble.className = 'haai-msg__bubble';
-		if (role !== 'user') {
-			// Bot replies may carry the configured support links: escape first,
-			// then linkify ONLY http(s) URLs — no markdown, no other tags.
-			bubble.innerHTML = linkify(text);
-		} else {
-			bubble.textContent = text;
-		}
-
-		wrap.appendChild(bubble);
-		messages.appendChild(wrap);
-		scrollDown();
-		return wrap;
-	}
-
-	function linkify(text) {
-		var esc = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-		return esc.replace(/https?:\/\/[^\s<>"']+/g, function (m) {
-			var trail = '';
-			while (m && /[.,;:!?»)\]…،؛]$/.test(m)) {
-				trail = m.slice(-1) + trail;
-				m = m.slice(0, -1);
-			}
-			return '<a href="' + m + '" target="_blank" rel="noopener noreferrer nofollow">' + m + '</a>' + trail;
-		});
-	}
-
-	/* ------------------------------------------------------------------
-	 * History (sessionStorage, capped)
-	 * ---------------------------------------------------------------- */
-
-	function loadHistory() {
-		try {
-			var raw = window.sessionStorage.getItem(STORE_KEY);
-			var parsed = raw ? JSON.parse(raw) : [];
-			history = Array.isArray(parsed) ? parsed.slice(-MAX_HISTORY * 2) : [];
-		} catch (e) {
-			history = [];
-		}
-	}
-
-	function saveHistory() {
-		history = history.slice(-MAX_HISTORY * 2);
-		try {
-			var raw = JSON.stringify(history);
-			if (raw.length > STORE_CAP) {
-				history = history.slice(Math.ceil(history.length / 2));
-				raw = JSON.stringify(history);
-			}
-			window.sessionStorage.setItem(STORE_KEY, raw);
-		} catch (e) {
-			/* Private mode or quota exceeded: keep going without persistence. */
-		}
-	}
-
-	function push(role, text) {
-		history.push({ role: role, content: text });
-		saveHistory();
-	}
-
-	function clearHistory() {
-		history = [];
-		try { window.sessionStorage.removeItem(STORE_KEY); } catch (e) { /* ignore */ }
-	}
-
-	/* ------------------------------------------------------------------
-	 * Token (never embedded in the cached page)
-	 * ---------------------------------------------------------------- */
-
-	function ensureToken() {
-		if (token) return Promise.resolve(token);
-		return fetch(C.tokenUrl + (C.tokenUrl.indexOf('?') === -1 ? '?' : '&') + 'url=' + encodeURIComponent(location.href), { credentials: 'same-origin' })
-			.then(function (r) { return r.json(); })
-			.then(function (d) {
-				token = d && d.token ? d.token : '';
-				return token;
-			});
-	}
-
-	/**
-	 * POST to a REST route with the current token. When the server answers
-	 * 403 haai_bad_token (expired / invalidated mid-session) mint a fresh
-	 * token and replay the SAME request — exactly once, never in a loop.
-	 *
-	 * @param {string} path    Route after the REST namespace, e.g. '/chat'.
-	 * @param {object} payload Request body.
-	 * @param {boolean} retry  True on the first attempt only.
-	 */
-	function post(path, payload, retry) {
-		return ensureToken()
-			.then(function (t) {
-				payload.token = t;
-				return fetch(C.rest + path, {
-					method: 'POST',
-					credentials: 'same-origin',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(payload)
-				}).then(function (r) {
-					return r.json().then(function (j) { return { status: r.status, body: j }; });
-				});
-			})
-			.then(function (res) {
-				var b = res.body || {};
-				if (retry && 403 === res.status && 'haai_bad_token' === b.code) {
-					token = null;
-					return post(path, payload, false);
-				}
-				return res;
-			});
-	}
-
-	/* ------------------------------------------------------------------
-	 * Lead capture
-	 * ---------------------------------------------------------------- */
-
-	function normalizeFaDigits(value) {
-		var map = { '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9', '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9' };
-		return String(value || '').replace(/[۰-۹٠-٩]/g, function (c) { return map[c] || c; }).replace(/[^\d+]/g, '');
-	}
-
-	function validateLead(requirement) {
-		var name = leadName ? leadName.value.trim() : '';
-		var phone = normalizeFaDigits(leadPhone ? leadPhone.value : '');
-		if (leadPhone) leadPhone.value = phone;
-
-		if ('required' !== requirement) {
-			return { lead_name: name, lead_phone: phone, lead_consent: '' };
-		}
-
-		var invalid = phone.replace(/^\+?98/, '').replace(/^0/, '');
-		if (invalid.length < 10) {
-			if (leadPhone) {
-				leadPhone.classList.add('is-invalid');
-				leadPhone.focus();
-			}
-			showError(I.leadPhone || 'شماره موبایل معتبر وارد کنید.');
-			return null;
-		}
-		if (leadPhone) leadPhone.classList.remove('is-invalid');
-		showError('');
-
-		return {
-			lead_name: name,
-			lead_phone: phone,
-			lead_consent: (C.lead && C.lead.consent) || ''
-		};
-	}
-
-	/* ------------------------------------------------------------------
-	 * Send
-	 * ---------------------------------------------------------------- */
-
-	function send(text) {
-		text = (text || '').trim();
-		if (!text || pending) return;
-
-		var requirement = (C.lead && C.lead.required) || 'off';
-		var lead = 'off' === requirement || leadSent ? null : validateLead(requirement);
-		if (lead === null) return;
-		if (lead && lead.lead_phone) leadSent = true;
-
-		pending = true;
-		showError('');
-		addBubble('user', text);
-		push('user', text);
-		if (input) {
-			input.value = '';
-			autosize();
-		}
-		if (suggestBox) suggestBox.setAttribute('hidden', '');
-		if (lead && (lead.lead_name || lead.lead_phone) && leadBox) leadBox.setAttribute('hidden', '');
-
-		if (I.typing !== false) setTyping(true);
-		if (sendBtn) sendBtn.disabled = true;
-
-		var payload = {
-			message: text,
-			history: history.slice(0, -1),
-			token: token,
-			url: location.href,
-			page_title: (document.title || '').slice(0, 120),
-			hp: hpField ? hpField.value : ''
-		};
-		lastUserText = text;
-		if (lead) {
-			payload.lead_name = lead.lead_name;
-			payload.lead_phone = lead.lead_phone;
-			payload.lead_consent = lead.lead_consent;
-		}
-
-		post('/chat', payload, true)
-			.then(function (res) {
-				pending = false;
-				setTyping(false);
-				if (sendBtn) sendBtn.disabled = false;
-
-				var b = res.body || {};
-				if (b.ok) {
-					if (b.offline) failCount++; else failCount = 0;
-					addBubble('bot', b.reply);
-					push('assistant', b.reply);
-					if (b.handoff) {
-						offerHandoff();
-					} else {
-						maybeAutoOffer();
-					}
-					if (b.suggested && b.suggested.length) renderSuggest(b.suggested);
-					return;
-				}
-				token = null; // expired token: mint a fresh one next time.
-				failCount++;
-				showError(b.message || I.error || '');
-				maybeAutoOffer();
-			})
-			.catch(function () {
-				pending = false;
-				setTyping(false);
-				if (sendBtn) sendBtn.disabled = false;
-				failCount++;
-				showError(I.error || '');
-				maybeAutoOffer();
-			});
-	}
-
-	/* ------------------------------------------------------------------
-	 * Live human handoff
-	 * ---------------------------------------------------------------- */
-
-	function handoffEnabled() {
-		return !!(HO && HO.enabled);
-	}
-
-	// After N consecutive turns the bot could not answer (error, offline),
-	// slide the human-support offer into the thread — once per session.
-	function maybeAutoOffer() {
-		var after = parseInt(HO.after, 10);
-		if (!after || after < 1) return;
-		if (offered || !handoffEnabled()) return;
-		if (failCount < after) return;
-		offerHandoff();
-	}
-
-	function offerHandoff() {
-		if (!handoffEnabled() || !messages) return null;
-		offered = true;
-
-		var wrap = document.createElement('div');
-		wrap.className = 'haai-msg haai-msg--bot haai-handoff';
-		if (AVATAR_HTML) wrap.insertAdjacentHTML('beforeend', AVATAR_HTML);
-
-		var bubble = document.createElement('div');
-		bubble.className = 'haai-msg__bubble haai-handoff__bubble';
-		bubble.innerHTML = '<p class="haai-handoff__intro">' + esc(HI.offer || '') + '</p>' +
-			'<button type="button" class="haai-handoff__cta">' + esc(HI.openForm || '') + '</button>';
-
-		wrap.appendChild(bubble);
-		messages.appendChild(wrap);
-		bubble.querySelector('.haai-handoff__cta').addEventListener('click', function () {
-			renderHandoffForm(wrap);
-		});
-		scrollDown();
-		return wrap;
-	}
-
-	function esc(s) {
-		return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-	}
-
-	function renderHandoffForm(wrap) {
-		var bubble = wrap ? wrap.querySelector('.haai-handoff__bubble') : null;
-		if (!bubble) return;
-		if (bubble.getAttribute('data-form')) return; // form already open
-		bubble.setAttribute('data-form', '1');
-
-		bubble.innerHTML =
-			'<div class="haai-handoff__title">' + esc(HI.title || '') + '</div>' +
-			'<p class="haai-handoff__intro">' + esc(HI.intro || '') + '</p>' +
-			'<div class="haai-lead__row">' +
-			'<input type="text" class="haai-lead__name haai-handoff__name" name="handoff_name" placeholder="' + esc(I.name || 'نام') + '" autocomplete="name" maxlength="120">' +
-			'<input type="tel" class="haai-lead__phone haai-handoff__phone" name="handoff_phone" inputmode="numeric" placeholder="' + esc(I.phone || 'شماره موبایل') + '" autocomplete="tel" maxlength="20">' +
-			'</div>' +
-			'<input type="text" class="haai-handoff__note" name="handoff_note" placeholder="' + esc(HI.note || '') + '" maxlength="300">' +
-			(HO.consent ? '<p class="haai-lead__consent">' + esc(HO.consent) + '</p>' : '') +
-			'<p class="haai-handoff__err" hidden></p>' +
-			'<button type="button" class="haai-handoff__send">' + esc(HI.send || '') + '</button>';
-
-		var nameEl = bubble.querySelector('.haai-handoff__name');
-		var phoneEl = bubble.querySelector('.haai-handoff__phone');
-		var noteEl = bubble.querySelector('.haai-handoff__note');
-		var errEl = bubble.querySelector('.haai-handoff__err');
-		var sendEl = bubble.querySelector('.haai-handoff__send');
-
-		phoneEl.addEventListener('input', function () {
-			phoneEl.classList.remove('is-invalid');
-			if (errEl) errEl.setAttribute('hidden', '');
-		});
-
-		sendEl.addEventListener('click', function () {
-			if (handoffBusy) return;
-
-			var name = nameEl.value.trim();
-			var phone = normalizeFaDigits(phoneEl.value);
-			phoneEl.value = phone;
-
-			var invalid = phone.replace(/^\+?98/, '').replace(/^0/, '');
-			if (!name) {
-				nameEl.focus();
-				return;
-			}
-			if (invalid.length < 10) {
-				phoneEl.classList.add('is-invalid');
-				phoneEl.focus();
-				if (errEl) {
-					errEl.textContent = I.leadPhone || 'شماره موبایل معتبر وارد کنید.';
-					errEl.removeAttribute('hidden');
-				}
-				return;
-			}
-
-			handoffBusy = true;
-			sendEl.disabled = true;
-			sendEl.textContent = HI.sending || '…';
-			if (errEl) errEl.setAttribute('hidden', '');
-
-			post('/handoff', {
-				name: name,
-				phone: phone,
-				note: noteEl ? noteEl.value.trim() : '',
-				url: location.href,
-				last_message: lastUserText,
-				hp: hpField ? hpField.value : ''
-			}, true)
-				.then(function (res) {
-					handoffBusy = false;
-					var b = res.body || {};
-					if (res.status < 400 && b.ok) {
-						finishHandoff(bubble, b);
-						return;
-					}
-					sendEl.disabled = false;
-					sendEl.textContent = HI.send || '';
-					if (errEl) {
-						errEl.textContent = (b && b.message) ? b.message : (HI.fail || '');
-						errEl.removeAttribute('hidden');
-					}
-				})
-				.catch(function () {
-					handoffBusy = false;
-					sendEl.disabled = false;
-					sendEl.textContent = HI.send || '';
-					if (errEl) {
-						errEl.textContent = HI.fail || '';
-						errEl.removeAttribute('hidden');
-					}
-				});
-		});
-
-		nameEl.focus();
-		scrollDown();
-	}
-
-	function finishHandoff(bubble, b) {
-		var html = '<div class="haai-handoff__done">' + esc(b.notified ? HI.done : (HI.doneMail || HI.done)) + '</div>';
-		if (b.message) html += '<p class="haai-handoff__note-txt">' + esc(b.message) + '</p>';
-		if (b.wa) html += '<a class="haai-handoff__wa" href="' + esc(b.wa) + '" target="_blank" rel="noopener noreferrer nofollow">' + esc(HI.wa || '') + '</a>';
-		bubble.innerHTML = html;
-		scrollDown();
-	}
-
-	/* ------------------------------------------------------------------
-	 * Suggested questions
-	 * ---------------------------------------------------------------- */
-
-	function renderSuggest(list) {
-		if (!messages) return;
-		var old = messages.querySelector('.haai-suggest');
-		if (old) old.parentNode.removeChild(old);
-		if (!list || !list.length) return;
-
-		var box = document.createElement('div');
-		box.className = 'haai-suggest';
-		box.id = 'haai-suggest';
-		list.forEach(function (q) {
-			var b = document.createElement('button');
-			b.type = 'button';
-			b.className = 'haai-suggest__item';
-			b.setAttribute('data-haai-suggest', '');
-			b.textContent = q;
-			box.appendChild(b);
-		});
-		messages.appendChild(box);
-		suggestBox = box;
-		scrollDown();
-	}
-
-	/* ------------------------------------------------------------------
-	 * Wiring
-	 * ---------------------------------------------------------------- */
-
-	on(messages, 'click', function (e) {
-		var t = e.target.closest ? e.target.closest('[data-haai-suggest]') : null;
-		if (t) send(t.textContent);
-	});
-
-	on(form, 'submit', function (e) {
-		e.preventDefault();
-		send(input ? input.value : '');
-	});
-
-	on(input, 'input', autosize);
-
-	// Header headset button: open the handoff form on demand, any time.
-	on(root.querySelector('[data-haai-human]'), 'click', function () {
-		var wrap = offerHandoff();
-		if (wrap) renderHandoffForm(wrap);
-	});
-
-	on(input, 'keydown', function (e) {
-		if ('Enter' === e.key && !e.shiftKey && !e.isComposing) {
-			e.preventDefault();
-			send(input.value);
-		}
-	});
-
-	on(leadPhone, 'input', function () {
-		leadPhone.classList.remove('is-invalid');
-	});
-
-	on(root.querySelector('[data-haai-restart]'), 'click', function () {
-		clearHistory();
-		token = null;
-		pending = false;
-		leadSent = false;
-		failCount = 0;
-		offered = false;
-		lastUserText = '';
-		showError('');
-		setTyping(false);
-		if (messages) messages.innerHTML = initialHTML;
-		suggestBox = messages ? messages.querySelector('.haai-suggest') : null;
-		if (leadBox) leadBox.removeAttribute('hidden');
-		if (leadName) leadName.value = '';
-		if (leadPhone) {
-			leadPhone.value = '';
-			leadPhone.classList.remove('is-invalid');
-		}
-		if (input) input.focus();
-	});
-
-	on(root.querySelector('[data-haai-close]'), 'click', function () {
-		var panel = root.closest ? root.closest('.haai-float') : null;
-		if (panel) panel.setAttribute('hidden', '');
-		else root.setAttribute('hidden', '');
-		document.dispatchEvent(new CustomEvent('haai:close'));
-	});
-
-	// Restore the previous conversation so a page change keeps the thread.
-	loadHistory();
-	if (history.length && messages) {
-		history.slice(-MAX_HISTORY * 2).forEach(function (turn) {
-			if (turn && turn.role && turn.content) addBubble(turn.role, turn.content);
-		});
-	}
-
-	autosize();
-
-	// Public handle: loader.js and themes can hook into it.
-	window.HAAI_CHAT = {
-		root: root,
-		send: send,
-		focus: function () { if (input) input.focus(); },
-		isOpen: function () {
-			var p = root.closest ? root.closest('.haai-float') : null;
-			return p ? !p.hasAttribute('hidden') : !root.hasAttribute('hidden');
-		}
-	};
+        'use strict';
+
+        var C = window.HAAI_CONFIG || {};
+        var I = C.i18n || {};
+        var HO = C.handoff || {};
+        var HI = HO.i18n || {};
+        var MAX_HISTORY = Math.max(0, (C.history && C.history.max) || 6);
+        var STORE_KEY = 'haai_chat_v1';
+        var STORE_CAP = 12000; // characters of serialised history.
+
+        var root = document.querySelector('.haai-widget:not(.haai-widget--preview)');
+        if (!root || '1' === root.getAttribute('data-init')) {
+                return;
+        }
+        root.setAttribute('data-init', '1');
+
+        var messages = root.querySelector('.haai-messages');
+        var form = root.querySelector('.haai-form');
+        var input = root.querySelector('.haai-form__input');
+        var typing = root.querySelector('.haai-typing');
+        var errorBox = root.querySelector('.haai-error');
+        var sendBtn = root.querySelector('.haai-form__send');
+        var suggestBox = root.querySelector('.haai-suggest');
+        var hpField = root.querySelector('[data-haai-hp]');
+        var leadBox = root.querySelector('[data-haai-lead]');
+        var leadName = root.querySelector('[data-haai-lead-name]');
+        var leadPhone = root.querySelector('[data-haai-lead-phone]');
+
+        // Bulletproof send icon: a page whose widget markup came from an old
+        // cached copy (a template that shipped no inline SVG) must never show
+        // an empty circle — restore the arrow right here if it is missing.
+        if (sendBtn && !sendBtn.querySelector('svg')) {
+                sendBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l4.59 4.58L19 11l-7-7-7 7z" fill="currentColor"/></svg>';
+        }
+
+        // The operator avatar travels with every bot bubble. It is cloned from
+        // the template's typing indicator once, so the SVG (or the custom icon
+        // <img>) lives in exactly one place - no duplicate path in this file.
+                var AVATAR_HTML = (typing && typing.querySelector('.haai-msg__avatar'))
+                                ? typing.querySelector('.haai-msg__avatar').outerHTML
+                                : '';
+
+                // The visitor's own row gets a neutral person chip, mirrored to the outer
+                // edge by CSS (.haai-msg--user is row-reversed in RTL) so both sides of
+                // the thread feel "staffed".
+                var USER_AVATAR_HTML = '<span class="haai-msg__avatar haai-msg__avatar--user" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 12.2c2.6 0 4.7-2.1 4.7-4.8S14.6 2.6 12 2.6 7.3 4.7 7.3 7.4s2.1 4.8 4.7 4.8zm0 2.2c-3.1 0-9.4 1.6-9.4 4.8v2.2h18.8v-2.2c0-3.2-6.3-4.8-9.4-4.8z" fill="currentColor"/></svg></span>';
+
+        var history = [];
+        var token = null;
+        var pending = false;
+        var initialHTML = messages ? messages.innerHTML : '';
+        var leadSent = false;
+        var lastUserText = '';
+        // Live-handoff state: consecutive unanswered turns, whether the offer was
+        // already shown once, and whether a request went through this session.
+        var failCount = 0;
+        var offered = false;
+        var handoffBusy = false;
+
+        /* ------------------------------------------------------------------
+         * Helpers
+         * ---------------------------------------------------------------- */
+
+        function on(el, ev, fn) {
+                if (el) el.addEventListener(ev, fn);
+        }
+
+        function scrollDown() {
+                if (messages) messages.scrollTop = messages.scrollHeight;
+        }
+
+        function autosize() {
+                if (!input) return;
+                // Rest = 2 lines, cap = 5 lines, beyond that the field scrolls. Bounds
+                // come from the live computed styles so the mobile 16px font and any
+                // admin-configured size keep the same line counts; the inline min/max
+                // also fence off theme CSS that inflates textareas site-wide.
+                var cs = getComputedStyle(input);
+                var lh = parseFloat(cs.lineHeight);
+                if (!lh || isNaN(lh)) lh = (parseFloat(cs.fontSize) || 14) * 1.5;
+                var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+                var bord = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+                var minH = Math.round(lh * 2 + pad + bord);
+                var maxH = Math.round(lh * 5 + pad + bord);
+                input.style.minHeight = minH + 'px';
+                input.style.maxHeight = maxH + 'px';
+                input.style.height = 'auto';
+                var natural = input.scrollHeight + bord;
+                input.style.height = Math.min(Math.max(natural, minH), maxH) + 'px';
+                input.style.overflowY = natural > maxH ? 'auto' : 'hidden';
+                input.classList.toggle('is-multiline', natural > minH + lh / 2);
+        }
+
+        function showError(text) {
+                if (!errorBox) return;
+                if (!text) {
+                        errorBox.setAttribute('hidden', '');
+                        errorBox.textContent = '';
+                        return;
+                }
+                errorBox.textContent = text;
+                errorBox.removeAttribute('hidden');
+        }
+
+        function setTyping(on) {
+                if (!typing) return;
+                if (on) typing.removeAttribute('hidden');
+                else typing.setAttribute('hidden', '');
+        }
+
+        // Send button states: muted while the field is empty, vivid once the
+        // visitor typed something, spinner while a turn is in flight — the
+        // same messenger grammar as WhatsApp/Telegram, nothing to learn.
+        function syncSend() {
+                if (!sendBtn) return;
+                var typed = !!(input && input.value && input.value.trim());
+                sendBtn.classList.toggle('is-ready', typed);
+        }
+
+        function addBubble(role, text) {
+                if (!messages) return null;
+                var wrap = document.createElement('div');
+                wrap.className = 'haai-msg haai-msg--' + (role === 'user' ? 'user' : 'bot');
+                if (role !== 'user') {
+                        if (AVATAR_HTML) wrap.insertAdjacentHTML('beforeend', AVATAR_HTML);
+                } else {
+                        wrap.insertAdjacentHTML('beforeend', USER_AVATAR_HTML);
+                }
+
+                var bubble = document.createElement('div');
+                bubble.className = 'haai-msg__bubble';
+                if (role !== 'user') {
+                        // Bot replies may carry the configured support links: escape first,
+                        // then linkify ONLY http(s) URLs — no markdown, no other tags.
+                        bubble.innerHTML = linkify(text);
+                } else {
+                        bubble.textContent = text;
+                }
+
+                wrap.appendChild(bubble);
+                messages.appendChild(wrap);
+                scrollDown();
+                return wrap;
+        }
+
+        function linkify(text) {
+                var esc = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                return esc.replace(/https?:\/\/[^\s<>"']+/g, function (m) {
+                        var trail = '';
+                        while (m && /[.,;:!?»)\]…،؛]$/.test(m)) {
+                                trail = m.slice(-1) + trail;
+                                m = m.slice(0, -1);
+                        }
+                        return '<a href="' + m + '" target="_blank" rel="noopener noreferrer nofollow">' + m + '</a>' + trail;
+                });
+        }
+
+        /* ------------------------------------------------------------------
+         * History (sessionStorage, capped)
+         * ---------------------------------------------------------------- */
+
+        function loadHistory() {
+                try {
+                        var raw = window.sessionStorage.getItem(STORE_KEY);
+                        var parsed = raw ? JSON.parse(raw) : [];
+                        history = Array.isArray(parsed) ? parsed.slice(-MAX_HISTORY * 2) : [];
+                } catch (e) {
+                        history = [];
+                }
+        }
+
+        function saveHistory() {
+                history = history.slice(-MAX_HISTORY * 2);
+                try {
+                        var raw = JSON.stringify(history);
+                        if (raw.length > STORE_CAP) {
+                                history = history.slice(Math.ceil(history.length / 2));
+                                raw = JSON.stringify(history);
+                        }
+                        window.sessionStorage.setItem(STORE_KEY, raw);
+                } catch (e) {
+                        /* Private mode or quota exceeded: keep going without persistence. */
+                }
+        }
+
+        function push(role, text) {
+                history.push({ role: role, content: text });
+                saveHistory();
+        }
+
+        function clearHistory() {
+                history = [];
+                try { window.sessionStorage.removeItem(STORE_KEY); } catch (e) { /* ignore */ }
+        }
+
+        /* ------------------------------------------------------------------
+         * Token (never embedded in the cached page)
+         * ---------------------------------------------------------------- */
+
+        function ensureToken() {
+                if (token) return Promise.resolve(token);
+                return fetch(C.tokenUrl + (C.tokenUrl.indexOf('?') === -1 ? '?' : '&') + 'url=' + encodeURIComponent(location.href), { credentials: 'same-origin' })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) {
+                                token = d && d.token ? d.token : '';
+                                return token;
+                        });
+        }
+
+        /**
+         * POST to a REST route with the current token. When the server answers
+         * 403 haai_bad_token (expired / invalidated mid-session) mint a fresh
+         * token and replay the SAME request — exactly once, never in a loop.
+         *
+         * @param {string} path    Route after the REST namespace, e.g. '/chat'.
+         * @param {object} payload Request body.
+         * @param {boolean} retry  True on the first attempt only.
+         */
+        function post(path, payload, retry) {
+                return ensureToken()
+                        .then(function (t) {
+                                payload.token = t;
+                                return fetch(C.rest + path, {
+                                        method: 'POST',
+                                        credentials: 'same-origin',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(payload)
+                                }).then(function (r) {
+                                        return r.json().then(function (j) { return { status: r.status, body: j }; });
+                                });
+                        })
+                        .then(function (res) {
+                                var b = res.body || {};
+                                if (retry && 403 === res.status && 'haai_bad_token' === b.code) {
+                                        token = null;
+                                        return post(path, payload, false);
+                                }
+                                return res;
+                        });
+        }
+
+        /* ------------------------------------------------------------------
+         * Lead capture
+         * ---------------------------------------------------------------- */
+
+        function normalizeFaDigits(value) {
+                var map = { '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9', '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9' };
+                return String(value || '').replace(/[۰-۹٠-٩]/g, function (c) { return map[c] || c; }).replace(/[^\d+]/g, '');
+        }
+
+        function validateLead(requirement) {
+                var name = leadName ? leadName.value.trim() : '';
+                var phone = normalizeFaDigits(leadPhone ? leadPhone.value : '');
+                if (leadPhone) leadPhone.value = phone;
+
+                if ('required' !== requirement) {
+                        return { lead_name: name, lead_phone: phone, lead_consent: '' };
+                }
+
+                var invalid = phone.replace(/^\+?98/, '').replace(/^0/, '');
+                if (invalid.length < 10) {
+                        if (leadPhone) {
+                                leadPhone.classList.add('is-invalid');
+                                leadPhone.focus();
+                        }
+                        showError(I.leadPhone || 'شماره موبایل معتبر وارد کنید.');
+                        return null;
+                }
+                if (leadPhone) leadPhone.classList.remove('is-invalid');
+                showError('');
+
+                return {
+                        lead_name: name,
+                        lead_phone: phone,
+                        lead_consent: (C.lead && C.lead.consent) || ''
+                };
+        }
+
+        /* ------------------------------------------------------------------
+         * Send
+         * ---------------------------------------------------------------- */
+
+        function send(text) {
+                text = (text || '').trim();
+                if (!text || pending) return;
+
+                var requirement = (C.lead && C.lead.required) || 'off';
+                var lead = 'off' === requirement || leadSent ? null : validateLead(requirement);
+                if (lead === null) return;
+                if (lead && lead.lead_phone) leadSent = true;
+
+                pending = true;
+                showError('');
+                addBubble('user', text);
+                push('user', text);
+                if (input) {
+                        input.value = '';
+                        autosize();
+                }
+                if (suggestBox) suggestBox.setAttribute('hidden', '');
+                if (lead && (lead.lead_name || lead.lead_phone) && leadBox) leadBox.setAttribute('hidden', '');
+
+                if (I.typing !== false) setTyping(true);
+                if (sendBtn) {
+                        sendBtn.disabled = true;
+                        sendBtn.classList.add('is-busy');
+                }
+
+                var payload = {
+                        message: text,
+                        history: history.slice(0, -1),
+                        token: token,
+                        url: location.href,
+                        page_title: (document.title || '').slice(0, 120),
+                        hp: hpField ? hpField.value : ''
+                };
+                lastUserText = text;
+                if (lead) {
+                        payload.lead_name = lead.lead_name;
+                        payload.lead_phone = lead.lead_phone;
+                        payload.lead_consent = lead.lead_consent;
+                }
+
+                post('/chat', payload, true)
+                        .then(function (res) {
+                                pending = false;
+                                setTyping(false);
+                                if (sendBtn) {
+                                        sendBtn.disabled = false;
+                                        sendBtn.classList.remove('is-busy');
+                                }
+
+                                var b = res.body || {};
+                                if (b.ok) {
+                                        if (b.offline) failCount++; else failCount = 0;
+                                        addBubble('bot', b.reply);
+                                        push('assistant', b.reply);
+                                        if (b.handoff) {
+                                                offerHandoff();
+                                        } else {
+                                                maybeAutoOffer();
+                                        }
+                                        if (b.suggested && b.suggested.length) renderSuggest(b.suggested);
+                                        return;
+                                }
+                                token = null; // expired token: mint a fresh one next time.
+                                failCount++;
+                                showError(b.message || I.error || '');
+                                maybeAutoOffer();
+                        })
+                        .catch(function () {
+                                pending = false;
+                                setTyping(false);
+                                if (sendBtn) {
+                                        sendBtn.disabled = false;
+                                        sendBtn.classList.remove('is-busy');
+                                }
+                                failCount++;
+                                showError(I.error || '');
+                                maybeAutoOffer();
+                        });
+        }
+
+        /* ------------------------------------------------------------------
+         * Live human handoff
+         * ---------------------------------------------------------------- */
+
+        function handoffEnabled() {
+                return !!(HO && HO.enabled);
+        }
+
+        // After N consecutive turns the bot could not answer (error, offline),
+        // slide the human-support offer into the thread — once per session.
+        function maybeAutoOffer() {
+                var after = parseInt(HO.after, 10);
+                if (!after || after < 1) return;
+                if (offered || !handoffEnabled()) return;
+                if (failCount < after) return;
+                offerHandoff();
+        }
+
+        function offerHandoff() {
+                if (!handoffEnabled() || !messages) return null;
+                offered = true;
+
+                var wrap = document.createElement('div');
+                wrap.className = 'haai-msg haai-msg--bot haai-handoff';
+                if (AVATAR_HTML) wrap.insertAdjacentHTML('beforeend', AVATAR_HTML);
+
+                var bubble = document.createElement('div');
+                bubble.className = 'haai-msg__bubble haai-handoff__bubble';
+                bubble.innerHTML = '<p class="haai-handoff__intro">' + esc(HI.offer || '') + '</p>' +
+                        '<button type="button" class="haai-handoff__cta">' + esc(HI.openForm || '') + '</button>';
+
+                wrap.appendChild(bubble);
+                messages.appendChild(wrap);
+                bubble.querySelector('.haai-handoff__cta').addEventListener('click', function () {
+                        renderHandoffForm(wrap);
+                });
+                scrollDown();
+                return wrap;
+        }
+
+        function esc(s) {
+                return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function renderHandoffForm(wrap) {
+                var bubble = wrap ? wrap.querySelector('.haai-handoff__bubble') : null;
+                if (!bubble) return;
+                if (bubble.getAttribute('data-form')) return; // form already open
+                bubble.setAttribute('data-form', '1');
+
+                bubble.innerHTML =
+                        '<div class="haai-handoff__title">' + esc(HI.title || '') + '</div>' +
+                        '<p class="haai-handoff__intro">' + esc(HI.intro || '') + '</p>' +
+                        '<div class="haai-lead__row">' +
+                        '<input type="text" class="haai-lead__name haai-handoff__name" name="handoff_name" placeholder="' + esc(I.name || 'نام') + '" autocomplete="name" maxlength="120">' +
+                        '<input type="tel" class="haai-lead__phone haai-handoff__phone" name="handoff_phone" inputmode="numeric" placeholder="' + esc(I.phone || 'شماره موبایل') + '" autocomplete="tel" maxlength="20">' +
+                        '</div>' +
+                        '<input type="text" class="haai-handoff__note" name="handoff_note" placeholder="' + esc(HI.note || '') + '" maxlength="300">' +
+                        (HO.consent ? '<p class="haai-lead__consent">' + esc(HO.consent) + '</p>' : '') +
+                        '<p class="haai-handoff__err" hidden></p>' +
+                        '<button type="button" class="haai-handoff__send">' + esc(HI.send || '') + '</button>';
+
+                var nameEl = bubble.querySelector('.haai-handoff__name');
+                var phoneEl = bubble.querySelector('.haai-handoff__phone');
+                var noteEl = bubble.querySelector('.haai-handoff__note');
+                var errEl = bubble.querySelector('.haai-handoff__err');
+                var sendEl = bubble.querySelector('.haai-handoff__send');
+
+                phoneEl.addEventListener('input', function () {
+                        phoneEl.classList.remove('is-invalid');
+                        if (errEl) errEl.setAttribute('hidden', '');
+                });
+
+                sendEl.addEventListener('click', function () {
+                        if (handoffBusy) return;
+
+                        var name = nameEl.value.trim();
+                        var phone = normalizeFaDigits(phoneEl.value);
+                        phoneEl.value = phone;
+
+                        var invalid = phone.replace(/^\+?98/, '').replace(/^0/, '');
+                        if (!name) {
+                                nameEl.focus();
+                                return;
+                        }
+                        if (invalid.length < 10) {
+                                phoneEl.classList.add('is-invalid');
+                                phoneEl.focus();
+                                if (errEl) {
+                                        errEl.textContent = I.leadPhone || 'شماره موبایل معتبر وارد کنید.';
+                                        errEl.removeAttribute('hidden');
+                                }
+                                return;
+                        }
+
+                        handoffBusy = true;
+                        sendEl.disabled = true;
+                        sendEl.textContent = HI.sending || '…';
+                        if (errEl) errEl.setAttribute('hidden', '');
+
+                        post('/handoff', {
+                                name: name,
+                                phone: phone,
+                                note: noteEl ? noteEl.value.trim() : '',
+                                url: location.href,
+                                last_message: lastUserText,
+                                hp: hpField ? hpField.value : ''
+                        }, true)
+                                .then(function (res) {
+                                        handoffBusy = false;
+                                        var b = res.body || {};
+                                        if (res.status < 400 && b.ok) {
+                                                finishHandoff(bubble, b);
+                                                return;
+                                        }
+                                        sendEl.disabled = false;
+                                        sendEl.textContent = HI.send || '';
+                                        if (errEl) {
+                                                errEl.textContent = (b && b.message) ? b.message : (HI.fail || '');
+                                                errEl.removeAttribute('hidden');
+                                        }
+                                })
+                                .catch(function () {
+                                        handoffBusy = false;
+                                        sendEl.disabled = false;
+                                        sendEl.textContent = HI.send || '';
+                                        if (errEl) {
+                                                errEl.textContent = HI.fail || '';
+                                                errEl.removeAttribute('hidden');
+                                        }
+                                });
+                });
+
+                nameEl.focus();
+                scrollDown();
+        }
+
+        function finishHandoff(bubble, b) {
+                var html = '<div class="haai-handoff__done">' + esc(b.notified ? HI.done : (HI.doneMail || HI.done)) + '</div>';
+                if (b.message) html += '<p class="haai-handoff__note-txt">' + esc(b.message) + '</p>';
+                if (b.wa) html += '<a class="haai-handoff__wa" href="' + esc(b.wa) + '" target="_blank" rel="noopener noreferrer nofollow">' + esc(HI.wa || '') + '</a>';
+                bubble.innerHTML = html;
+                scrollDown();
+        }
+
+        /* ------------------------------------------------------------------
+         * Suggested questions
+         * ---------------------------------------------------------------- */
+
+        function renderSuggest(list) {
+                if (!messages) return;
+                var old = messages.querySelector('.haai-suggest');
+                if (old) old.parentNode.removeChild(old);
+                if (!list || !list.length) return;
+
+                var box = document.createElement('div');
+                box.className = 'haai-suggest';
+                box.id = 'haai-suggest';
+                list.forEach(function (q) {
+                        var b = document.createElement('button');
+                        b.type = 'button';
+                        b.className = 'haai-suggest__item';
+                        b.setAttribute('data-haai-suggest', '');
+                        b.textContent = q;
+                        box.appendChild(b);
+                });
+                messages.appendChild(box);
+                suggestBox = box;
+                scrollDown();
+        }
+
+        /* ------------------------------------------------------------------
+         * Wiring
+         * ---------------------------------------------------------------- */
+
+        on(messages, 'click', function (e) {
+                var t = e.target.closest ? e.target.closest('[data-haai-suggest]') : null;
+                if (t) send(t.textContent);
+        });
+
+        on(form, 'submit', function (e) {
+                e.preventDefault();
+                send(input ? input.value : '');
+        });
+
+        on(input, 'input', autosize);
+
+        // Header headset button: open the handoff form on demand, any time.
+        on(root.querySelector('[data-haai-human]'), 'click', function () {
+                var wrap = offerHandoff();
+                if (wrap) renderHandoffForm(wrap);
+        });
+
+        on(input, 'keydown', function (e) {
+                if ('Enter' === e.key && !e.shiftKey && !e.isComposing) {
+                        e.preventDefault();
+                        send(input.value);
+                }
+        });
+
+        on(input, 'input', syncSend);
+
+        on(leadPhone, 'input', function () {
+                leadPhone.classList.remove('is-invalid');
+        });
+
+        on(root.querySelector('[data-haai-restart]'), 'click', function () {
+                clearHistory();
+                token = null;
+                pending = false;
+                leadSent = false;
+                failCount = 0;
+                offered = false;
+                lastUserText = '';
+                showError('');
+                setTyping(false);
+                if (messages) messages.innerHTML = initialHTML;
+                suggestBox = messages ? messages.querySelector('.haai-suggest') : null;
+                if (leadBox) leadBox.removeAttribute('hidden');
+                if (leadName) leadName.value = '';
+                if (leadPhone) {
+                        leadPhone.value = '';
+                        leadPhone.classList.remove('is-invalid');
+                }
+                if (input) input.focus();
+                syncSend();
+        });
+
+        on(root.querySelector('[data-haai-close]'), 'click', function () {
+                var panel = root.closest ? root.closest('.haai-float') : null;
+                if (panel) panel.setAttribute('hidden', '');
+                else root.setAttribute('hidden', '');
+                document.dispatchEvent(new CustomEvent('haai:close'));
+        });
+
+        // Restore the previous conversation so a page change keeps the thread.
+        loadHistory();
+        if (history.length && messages) {
+                history.slice(-MAX_HISTORY * 2).forEach(function (turn) {
+                        if (turn && turn.role && turn.content) addBubble(turn.role, turn.content);
+                });
+        }
+
+        autosize();
+        syncSend();
+
+        // Public handle: loader.js and themes can hook into it.
+        window.HAAI_CHAT = {
+                root: root,
+                send: send,
+                focus: function () { if (input) input.focus(); },
+                isOpen: function () {
+                        var p = root.closest ? root.closest('.haai-float') : null;
+                        return p ? !p.hasAttribute('hidden') : !root.hasAttribute('hidden');
+                }
+        };
 })();
