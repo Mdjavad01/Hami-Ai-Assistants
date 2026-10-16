@@ -796,6 +796,23 @@ body.haai-theme-dark .haai-wrap {
 
 .haai-model-list { min-width: 280px; max-width: 100%; }
 
+/* Failover sources (provider tab): health badges + the row editor. */
+.haai-fb { margin-top: var(--haai-sp-4); }
+.haai-fb__health { display: flex; flex-wrap: wrap; gap: var(--haai-sp-2); margin-block: var(--haai-sp-2) var(--haai-sp-3); }
+.haai-fb__badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12px; border: 1px solid var(--haai-border); border-radius: var(--haai-r-full); background: var(--haai-surface-2); }
+.haai-fb__badge--up { color: var(--haai-ok); background: var(--haai-ok-soft); border-color: transparent; }
+.haai-fb__badge--down { color: var(--haai-warn); background: var(--haai-warn-soft); border-color: transparent; }
+.haai-fb__rows { display: flex; flex-direction: column; gap: var(--haai-sp-2); }
+.haai-fb__row { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(190px, 1.4fr) minmax(210px, 1.6fr) minmax(170px, 1.3fr) 32px; gap: var(--haai-sp-2); align-items: end; padding: var(--haai-sp-3); background: var(--haai-surface-2); border: 1px solid var(--haai-border); border-radius: var(--haai-r-md); }
+.haai-fb__cell { min-width: 0; }
+.haai-fb__row .regular-text { width: 100%; max-width: none; }
+.haai-fb__label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--haai-muted); }
+.haai-fb__remove { height: 32px; min-height: 32px; padding: 0; line-height: 30px; }
+@media (max-width: 1100px) {
+        .haai-fb__row { grid-template-columns: 1fr 1fr; }
+        .haai-fb__row .haai-fb__remove { justify-self: end; grid-column: 2; }
+}
+
 .haai-hits { margin: var(--haai-sp-3) 0 0; padding: 0; list-style: none; }
 .haai-hits li { margin-bottom: var(--haai-sp-2); padding: var(--haai-sp-3); background: var(--haai-surface-2); border: 1px solid var(--haai-border); border-radius: var(--haai-r-md); font-size: 13px; }
 .haai-hits .haai-hit-title { display: block; font-weight: var(--haai-fw-strong); }

@@ -91,6 +91,11 @@ final class Haa_Settings {
                                 'proxy_port'      => '',
                                 'proxy_username'  => '',
                                 'proxy_password'  => '',
+                                // Backup sources for automatic failover. Each row:
+                                // provider (preset slug or ''), base_url, api_key
+                                // (encrypted), model, hash (stable row id for the
+                                // masked-key round-trip).
+                                'failovers'       => array(),
                         ),
 
                         // Derived from Haa_Modules::catalog(): a new module can never be
@@ -816,6 +821,12 @@ final class Haa_Settings {
                 $p['api_key']        = self::decrypt( $p['api_key'] );
                 $p['proxy_password'] = self::decrypt( $p['proxy_password'] );
 
+                // Failover rows become wire-ready candidates. Transport settings
+                // (timeout, proxy, retries…) stay with the primary; Haa_API merges
+                // them at call time, so only the endpoint, key, model and wire
+                // format come from the row.
+                $p['failovers'] = self::resolve_failover_rows( isset( $p['failovers'] ) ? $p['failovers'] : array() );
+
                 return $p;
         }
 
@@ -872,6 +883,11 @@ final class Haa_Settings {
                                 ? $stored[ $field ]
                                 : self::decrypt( $cfg[ $field ] );
                 }
+
+                // Failover rows arrive here in sanitized slug form (encrypted keys);
+                // resolve them to the same wire shape provider() emits, so every
+                // consumer of this config sees one canonical shape.
+                $cfg['failovers'] = self::resolve_failover_rows( isset( $cfg['failovers'] ) ? $cfg['failovers'] : array() );
 
                 return $cfg;
         }
@@ -1007,6 +1023,7 @@ final class Haa_Settings {
                         'provider.proxy_username'  => array( 'cb' => array( 'Haa_Settings', 'sanitize_text' ) ),
                         'provider.proxy_password'  => array( 'cb' => array( 'Haa_Settings', 'sanitize_secret' ) ),
                         'provider.allow_localhost' => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
+                        'provider.failovers'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_failovers' ) ),
 
                         // Appearance.
                         'appearance.primary_color'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
@@ -1683,6 +1700,139 @@ final class Haa_Settings {
                 return self::encrypt( $raw );
         }
 
+        /**
+         * Failover sources: one saved row per backup provider, max five.
+         *
+         * A row survives only when it names a preset or carries a base URL.
+         * Keys are stored encrypted; a masked (untouched) field reuses the
+         * stored key of the SAME row, matched by the row's stable hash — so
+         * deleting or reordering rows can never copy a key onto the wrong
+         * source.
+         *
+         * @param mixed $raw Raw provider.failovers array from the form.
+         * @return array<int,array{provider:string,base_url:string,api_key:string,model:string,hash:string}>
+         */
+        public static function sanitize_failovers( $raw ) {
+                $stored  = (array) self::get( 'provider.failovers', array() );
+                $presets = Haa_API::presets();
+                $out     = array();
+                $seen    = array();
+
+                foreach ( (array) $raw as $row ) {
+                        if ( ! is_array( $row ) || count( $out ) >= 5 ) {
+                                continue;
+                        }
+
+                        $provider = self::sanitize_text( isset( $row['provider'] ) ? $row['provider'] : '' );
+                        if ( '' !== $provider && ! isset( $presets[ $provider ] ) ) {
+                                $provider = '';
+                        }
+                        $base  = self::sanitize_url( isset( $row['base_url'] ) ? $row['base_url'] : '' );
+                        $model = self::sanitize_model( isset( $row['model'] ) ? $row['model'] : '' );
+
+                        $raw_key = isset( $row['api_key'] ) && is_scalar( $row['api_key'] ) ? (string) $row['api_key'] : '';
+                        $raw_key = preg_replace( '/[\x00-\x1F\x7F]/', '', $raw_key );
+
+                        $hash = '';
+                        if ( isset( $row['hash'] ) && is_scalar( $row['hash'] ) && 1 === preg_match( '/^[a-f0-9]{32}$/', (string) $row['hash'] ) ) {
+                                $hash = (string) $row['hash'];
+                        }
+
+                        // A completely empty row is the untouched template — drop it.
+                        if ( '' === $provider && '' === $base && '' === $model && '' === $raw_key ) {
+                                continue;
+                        }
+
+                        if ( '' === $raw_key || self::KEY_MASK === $raw_key ) {
+                                // Untouched field: keep the stored key of this exact row.
+                                $key = '';
+                                foreach ( $stored as $s ) {
+                                        if ( '' !== $hash && isset( $s['hash'], $s['api_key'] ) && $s['hash'] === $hash && '' !== $s['api_key'] ) {
+                                                $key = (string) $s['api_key'];
+                                                break;
+                                        }
+                                }
+                        } elseif ( 0 === strpos( $raw_key, 'haaienc:' ) ) {
+                                // Already-encrypted value (the sanitizer re-ran over stored
+                                // data): keep both the key and the row's identity intact.
+                                $key = $raw_key;
+                        } else {
+                                $key  = self::encrypt( $raw_key );
+                                $hash = ''; // A typed key is a new secret; mint a fresh id below.
+                        }
+
+                        if ( '' === $hash ) {
+                                $hash = md5( uniqid( 'haai-fb', true ) );
+                        }
+                        if ( isset( $seen[ $hash ] ) ) {
+                                continue;
+                        }
+                        $seen[ $hash ] = true;
+
+                        $out[] = array(
+                                'provider' => $provider,
+                                'base_url' => $base,
+                                'api_key'  => $key,
+                                'model'    => $model,
+                                'hash'     => $hash,
+                        );
+                }
+
+                return $out;
+        }
+
+        /**
+         * Stored failover rows → wire-ready configs. Presets fill the blanks
+         * exactly like provider() fills the primary; a row without any preset
+         * and without a base URL is skipped; a custom row speaks the OpenAI
+         * wire format, because that is what every relay speaks. Keys decrypt.
+         *
+         * @param array $rows Sanitized rows (slug form) or already-resolved rows.
+         * @return array<int,array{adapter:string,base_url:string,api_key:string,model:string,hash:string}>
+         */
+        public static function resolve_failover_rows( $rows ) {
+                $presets = Haa_API::presets();
+                $out     = array();
+
+                foreach ( (array) $rows as $row ) {
+                        if ( ! is_array( $row ) ) {
+                                continue;
+                        }
+                        $slug  = (string) ( $row['provider'] ?? '' );
+                        $base  = (string) ( $row['base_url'] ?? '' );
+                        $model = (string) ( $row['model'] ?? '' );
+
+                        if ( '' !== $slug && isset( $presets[ $slug ] ) ) {
+                                if ( '' === $base ) {
+                                        $base = $presets[ $slug ]['base_url'];
+                                }
+                                if ( '' === $model ) {
+                                        $model = $presets[ $slug ]['model'];
+                                }
+                                $adapter = $presets[ $slug ]['adapter'];
+                        } else {
+                                $adapter = (string) ( $row['adapter'] ?? 'openai' );
+                                if ( ! isset( Haa_API::adapters()[ $adapter ] ) ) {
+                                        $adapter = 'openai';
+                                }
+                        }
+
+                        if ( '' === $base ) {
+                                continue;
+                        }
+
+                        $out[] = array(
+                                'adapter'  => $adapter,
+                                'base_url' => $base,
+                                'api_key'  => self::decrypt( (string) ( $row['api_key'] ?? '' ) ),
+                                'model'    => $model,
+                                'hash'     => (string) ( $row['hash'] ?? '' ),
+                        );
+                }
+
+                return $out;
+        }
+
         /* ------------------------------------------------------------------
          * Diagnostics
          * ---------------------------------------------------------------- */
@@ -1932,7 +2082,7 @@ final class Haa_Settings {
                 // Core tabs (mirrors Haa_Admin::render_core_fields).
                 $core = array(
                         'general'   => array( 'general.enabled', 'general.display_mode', 'general.floating_position', 'general.floating_bottom', 'general.floating_side', 'general.show_devices', 'general.show_roles', 'general.show_on_post_types', 'general.pages_mode', 'general.special_pages', 'general.show_on_pages', 'general.exclude_pages' ),
-                        'provider'  => array( 'provider.provider', 'provider.api_key', 'provider.base_url', 'provider.model', 'provider.embedding_model', 'provider.image_model', 'provider.timeout', 'provider.max_tokens', 'provider.allow_localhost', 'provider.adapter', 'provider.temperature', 'provider.retries', 'provider.proxy_host', 'provider.proxy_port', 'provider.proxy_username', 'provider.proxy_password' ),
+                        'provider'  => array( 'provider.provider', 'provider.api_key', 'provider.base_url', 'provider.model', 'provider.embedding_model', 'provider.image_model', 'provider.timeout', 'provider.max_tokens', 'provider.allow_localhost', 'provider.adapter', 'provider.temperature', 'provider.retries', 'provider.proxy_host', 'provider.proxy_port', 'provider.proxy_username', 'provider.proxy_password', 'provider.failovers' ),
                         'appearance'=> array( 'appearance.skin', 'appearance.primary_color', 'appearance.secondary_color', 'appearance.bg_color', 'appearance.text_color', 'appearance.theme_mode', 'appearance.dark_bg', 'appearance.dark_text', 'appearance.dark_bubble', 'appearance.font', 'appearance.font_size', 'appearance.border_radius', 'appearance.button_size', 'appearance.welcome_message', 'appearance.placeholder', 'appearance.custom_icon', 'appearance.custom_css' ),
                         'advanced'  => array( 'advanced.enable_rag', 'advanced.kb_enabled', 'advanced.kb_post_types', 'advanced.kb_chunk_words', 'advanced.kb_overlap_words', 'advanced.kb_categories', 'advanced.kb_max_file_kb', 'advanced.enable_cache', 'advanced.cache_ttl', 'advanced.rate_limit_count', 'advanced.rate_limit_minutes', 'advanced.token_ttl_minutes', 'advanced.max_message_chars', 'advanced.daily_request_cap', 'advanced.daily_cap_message', 'advanced.daily_user_cap', 'advanced.daily_user_cap_message', 'advanced.log_conversations', 'advanced.log_retention_days', 'advanced.usage_retention', 'advanced.guest_access', 'advanced.login_required_message', 'advanced.ip_header' ),
                 );

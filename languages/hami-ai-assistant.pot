@@ -5611,3 +5611,58 @@ msgstr ""
 #: includes/class-haa-admin.php
 msgid "استایل و رنگ‌ها (حالت روشن)"
 msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "منابع یدکی — سوییچ خودکار در اختلال"
+msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "اگر سرویس اصلی در دسترس نبود (مهلت پاسخ، قطعی، خطای ۴۲۹/۵۰۰ یا کلید تمام‌شده)، درخواست بلافاصله به منبع یدکی بعدی می‌رود و پاسخ همان ذخیره می‌شود. منبعی که خطا بدهد ۵ دقیقه از چرخه خارج می‌شود تا درخواست‌های بعدی بی‌درنگ از مسیر سالم بروند و سپس خودکار برمی‌گردد. وقتی منبع یدکی تعریف شده باشد هر منبع فقط یک تلاش می‌کند تا سوییچ سریع بماند. حداکثر ۵ منبع؛ کلیدها رمزنگاری‌شده ذخیره می‌شوند."
+msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "سرویس اصلی: موقتاً کنار گذاشته شد (~%d دقیقه تا بازگشت)"
+msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "سرویس اصلی: سالم"
+msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "منبع %1$d (%2$s): کنار گذاشته (~%3$d دقیقه)"
+msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "منبع %1$d (%2$s): سالم"
+msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "افزودن منبع یدکی"
+msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "حذف این منبع یدکی"
+msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "— انتخاب سرویس —"
+msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "Base URL (اختیاری)"
+msgstr ""
+
+#. Failover (2.1.9)
+#: includes/class-haa-admin.php
+msgid "مدل (اختیاری)"
+msgstr ""

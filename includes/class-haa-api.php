@@ -263,6 +263,12 @@ final class Haa_API {
         /** Transient key for the cached /models response. */
         const MODELS_TRANSIENT = 'haai_models_';
 
+        /** Seconds a source that just failed stays out of the rotation. */
+        const FAILOVER_COOLDOWN = 300;
+
+        /** Transient prefix for the per-source failure cooldown. */
+        const COOLDOWN_PREFIX = 'haai_fb_';
+
         /** @var bool Did the last chat reply hit the provider's output ceiling? */
         private static $last_truncated = false;
 
@@ -423,7 +429,14 @@ final class Haa_API {
          * ---------------------------------------------------------------- */
 
         /**
-         * Send a conversation, with retry/backoff on transient failures.
+         * Send a conversation, with retry/backoff on transient failures and
+         * automatic failover across the configured backup sources.
+         *
+         * Every source gets one attempt while a fallback exists — that is what
+         * keeps the switch immediate — and the full retry/backoff budget only
+         * applies to a lone primary. A source that fails is benched for
+         * FAILOVER_COOLDOWN seconds, so later requests skip it instantly
+         * instead of paying its timeout again.
          *
          * @param array $messages Turns.
          * @param array $opts     model, temperature, max_tokens, module, retries.
@@ -431,12 +444,6 @@ final class Haa_API {
          */
         public function chat( $messages, $opts = array() ) {
                 self::$last_truncated = false;
-                if ( '' === ( $this->cfg['api_key'] ?? '' ) && ! $this->is_keyless() ) {
-                        return new WP_Error( 'haai_no_key', __( 'کلید API تنظیم نشده است. لطفاً در تب «ارائه‌دهنده AI» آن را وارد کنید.', 'hami-ai-assistant' ) );
-                }
-                if ( '' === ( $this->cfg['base_url'] ?? '' ) ) {
-                        return new WP_Error( 'haai_no_base', __( 'آدرس Base URL خالی است. یک ارائه‌دهنده انتخاب کنید یا آدرس رله را وارد کنید.', 'hami-ai-assistant' ) );
-                }
 
                 $opts = wp_parse_args(
                         $opts,
@@ -450,34 +457,69 @@ final class Haa_API {
                         )
                 );
 
-                $adapter  = $this->adapter();
-                $retries  = max( 0, (int) $opts['retries'] );
-                $attempt  = 0;
-                $last     = null;
-                $started  = microtime( true );
+                $candidates = $this->candidates();
 
-                while ( $attempt <= $retries ) {
-                        $result = $this->request_once( $adapter, $messages, $opts );
-                        $latency = (int) round( ( microtime( true ) - $started ) * 1000 );
+                // The friendly configuration errors survive the walk: with a sole
+                // (unusable) candidate they surface exactly as before; with a
+                // usable alternative the dead config was already filtered out.
+                if ( 1 === count( $candidates ) ) {
+                        if ( '' === ( $candidates[0]['api_key'] ?? '' ) && ! self::cfg_is_keyless( $candidates[0] ) ) {
+                                return new WP_Error( 'haai_no_key', __( 'کلید API تنظیم نشده است. لطفاً در تب «ارائه‌دهنده AI» آن را وارد کنید.', 'hami-ai-assistant' ) );
+                        }
+                        if ( '' === ( $candidates[0]['base_url'] ?? '' ) ) {
+                                return new WP_Error( 'haai_no_base', __( 'آدرس Base URL خالی است. یک ارائه‌دهنده انتخاب کنید یا آدرس رله را وارد کنید.', 'hami-ai-assistant' ) );
+                        }
+                }
+
+                // With a fallback configured, every source gets exactly one attempt
+                // so the switch stays immediate; the admin's retry/backoff budget
+                // only applies to a lone primary.
+                $retries = count( $candidates ) > 1 ? 1 : max( 0, (int) $opts['retries'] );
+
+                $started = microtime( true );
+                $last    = null;
+
+                foreach ( $candidates as $cfg ) {
+                        $this->cfg = $cfg; // request_once, the proxy and the error mapper all read the active source.
+                        $result    = $this->attempt( $messages, $opts, $retries );
 
                         if ( ! is_wp_error( $result ) ) {
-                                Haa_Usage::log(
-                                        array(
-                                                'module'     => $opts['module'],
-                                                'model'      => $opts['model'],
-                                                'operation'  => $opts['operation'],
-                                                'tokens_in'  => $this->estimate_tokens( $messages ),
-                                                'tokens_out' => $this->estimate_tokens( array( array( 'content' => $result ) ) ),
-                                                'latency_ms' => $latency,
-                                                'ok'         => 1,
-                                        )
-                                );
+                                $this->log_chat( $opts, $messages, $result, $started, 1, '' );
+                                return $result;
+                        }
+
+                        $last = $result;
+                        self::cool( $cfg );
+                }
+
+                $this->log_chat( $opts, $messages, '', $started, 0, $last ? $last->get_error_code() : 'unknown' );
+
+                return $last;
+        }
+
+        /**
+         * One candidate's retry loop (the old chat() body, per source).
+         *
+         * @param array $messages Turns.
+         * @param array $opts     Options.
+         * @param int   $retries  Attempts after the first.
+         * @return string|WP_Error
+         */
+        private function attempt( $messages, $opts, $retries ) {
+                $attempt = 0;
+                $last    = null;
+
+                while ( $attempt <= $retries ) {
+                        $result = $this->request_once( $this->adapter(), $messages, $opts );
+                        if ( ! is_wp_error( $result ) ) {
                                 return $result;
                         }
 
                         $last = $result;
 
-                        // Only transient classes are worth retrying.
+                        // Only transient classes are worth retrying on the SAME
+                        // source; anything else (bad key, no credit) moves the
+                        // walk to the next source instead.
                         $code = $result->get_error_code();
                         $transient = array( 'haai_timeout', 'haai_transport', 'haai_blocked', 'haai_http_429', 'haai_http_500', 'haai_http_502', 'haai_http_503', 'haai_http_504' );
                         if ( ! in_array( $code, $transient, true ) ) {
@@ -490,20 +532,138 @@ final class Haa_API {
                         }
                 }
 
+                return $last;
+        }
+
+        /**
+         * One usage-log row per chat() call, success or final failure.
+         *
+         * @param array  $opts    Options.
+         * @param array  $messages Turns.
+         * @param string $result  Reply text ('' on failure).
+         * @param float  $started microtime at walk start.
+         * @param int    $ok      1 or 0.
+         * @param string $err     Error code on failure.
+         * @return void
+         */
+        private function log_chat( $opts, $messages, $result, $started, $ok, $err ) {
                 Haa_Usage::log(
                         array(
                                 'module'     => $opts['module'],
                                 'model'      => $opts['model'],
                                 'operation'  => $opts['operation'],
                                 'tokens_in'  => $this->estimate_tokens( $messages ),
-                                'tokens_out' => 0,
+                                'tokens_out' => $ok ? $this->estimate_tokens( array( array( 'content' => $result ) ) ) : 0,
                                 'latency_ms' => (int) round( ( microtime( true ) - $started ) * 1000 ),
-                                'ok'         => 0,
-                                'error_code' => $last ? $last->get_error_code() : 'unknown',
+                                'ok'         => $ok,
+                                'error_code' => $err,
                         )
                 );
+        }
 
-                return $last;
+        /* ------------------------------------------------------------------
+         * Failover: candidates + cooldown
+         * ---------------------------------------------------------------- */
+
+        /**
+         * Sources to try, in order: the primary first, then each saved
+         * failover row. Sources still inside their failure cooldown move to
+         * the END of the line — they get one last chance when everything
+         * healthy has failed, and the moment a healthy fallback exists the
+         * switch is instant. A source with no key and no base URL is skipped
+         * entirely while a usable alternative exists; when nothing is usable
+         * the primary stays so its standard error messages surface.
+         *
+         * @return array<int,array> Wire-ready config arrays.
+         */
+        private function candidates() {
+                $ordered = $this->source_list();
+                $usable  = array();
+
+                foreach ( $ordered as $cfg ) {
+                        $no_key  = '' === ( $cfg['api_key'] ?? '' ) && ! self::cfg_is_keyless( $cfg );
+                        $no_base = '' === ( $cfg['base_url'] ?? '' );
+                        if ( ( $no_key || $no_base ) && count( $ordered ) > 1 ) {
+                                continue;
+                        }
+                        $usable[] = $cfg;
+                }
+
+                if ( ! $usable ) {
+                        $usable = array( $this->cfg );
+                }
+
+                return $usable;
+        }
+
+        /**
+         * The primary plus every saved failover row. A source inside its
+         * failure cooldown — primary included — is demoted to the back of the
+         * line: healthy sources answer first, benched ones only get a last
+         * chance after everything else failed. Insertion order (primary →
+         * fallback rows) is the priority among healthy sources.
+         *
+         * @return array<int,array>
+         */
+        private function source_list() {
+                $primary = $this->cfg;
+                $primary['is_primary'] = true;
+                $healthy = array();
+                $cooled  = array();
+
+                foreach ( array_merge( array( $primary ), (array) ( $primary['failovers'] ?? array() ) ) as $row ) {
+                        if ( ! is_array( $row ) || '' === trim( (string) ( $row['base_url'] ?? '' ) ) ) {
+                                continue;
+                        }
+                        if ( empty( $row['is_primary'] ) ) {
+                                // Transport settings ride the primary; the row only
+                                // overrides endpoint, key, model and wire format.
+                                $cfg = $primary;
+                                foreach ( array( 'adapter', 'base_url', 'api_key', 'model' ) as $k ) {
+                                        if ( '' !== (string) ( $row[ $k ] ?? '' ) ) {
+                                                $cfg[ $k ] = (string) $row[ $k ];
+                                        }
+                                }
+                                $cfg['is_primary'] = false;
+                        } else {
+                                $cfg = $row;
+                        }
+
+                        if ( 0 === self::cooldown_left( $cfg ) ) {
+                                $healthy[] = $cfg;
+                        } else {
+                                $cooled[] = $cfg;
+                        }
+                }
+
+                return array_merge( $healthy, $cooled );
+        }
+
+        /** @param array $cfg Source config. @return string Transient key. */
+        private static function cooldown_key( $cfg ) {
+                return self::COOLDOWN_PREFIX . substr( md5( (string) ( $cfg['base_url'] ?? '' ) . '|' . (string) ( $cfg['model'] ?? '' ) ), 0, 32 );
+        }
+
+        /**
+         * Bench a source that just failed.
+         *
+         * @param array $cfg Source config.
+         * @return void
+         */
+        private static function cool( $cfg ) {
+                set_transient( self::cooldown_key( $cfg ), time() + self::FAILOVER_COOLDOWN, self::FAILOVER_COOLDOWN );
+        }
+
+        /**
+         * Seconds left on a source's cooldown, 0 when healthy. Public so the
+         * provider tab can show which source is benched.
+         *
+         * @param array $cfg Source config (needs base_url at least).
+         * @return int
+         */
+        public static function cooldown_left( $cfg ) {
+                $until = get_transient( self::cooldown_key( $cfg ) );
+                return is_numeric( $until ) ? max( 0, (int) $until - time() ) : 0;
         }
 
         /**
@@ -565,6 +725,8 @@ final class Haa_API {
 
         /**
          * Text-to-image. Only OpenAI-compatible and Gemini are supported.
+         * Walks the failover sources too, skipping the ones that have no
+         * image endpoint at all (Claude).
          *
          * @param string $prompt Prompt.
          * @param array  $opts   size, quality, model.
@@ -581,19 +743,28 @@ final class Haa_API {
                         )
                 );
 
-                if ( '' === ( $this->cfg['api_key'] ?? '' ) && ! $this->is_keyless() ) {
+                $candidates = $this->candidates();
+                if ( 1 === count( $candidates ) && '' === ( $candidates[0]['api_key'] ?? '' ) && ! self::cfg_is_keyless( $candidates[0] ) ) {
                         return new WP_Error( 'haai_no_key', __( 'کلید API برای تولید تصویر تنظیم نشده است.', 'hami-ai-assistant' ) );
                 }
 
-                $adapter = $this->cfg['adapter'] ?? 'openai';
-                if ( 'claude' === $adapter ) {
-                        return new WP_Error( 'haai_no_image', __( 'آنتروپیک تولید تصویر ندارد. ارائه‌دهنده دیگری انتخاب کنید.', 'hami-ai-assistant' ) );
+                $started = microtime( true );
+                $res     = null;
+
+                foreach ( $candidates as $cfg ) {
+                        if ( 'claude' === ( $cfg['adapter'] ?? 'openai' ) ) {
+                                continue; // Anthropic has no image endpoint — never a "failure", just skip.
+                        }
+                        $this->cfg = $cfg;
+                        $res       = 'gemini' === $cfg['adapter']
+                                ? $this->image_gemini( $prompt, $opts )
+                                : $this->image_openai( $prompt, $opts );
+                        if ( ! is_wp_error( $res ) ) {
+                                break;
+                        }
+                        self::cool( $cfg );
                 }
 
-                $started = microtime( true );
-                $res     = 'gemini' === $adapter
-                        ? $this->image_gemini( $prompt, $opts )
-                        : $this->image_openai( $prompt, $opts );
                 $latency = (int) round( ( microtime( true ) - $started ) * 1000 );
 
                 Haa_Usage::log(
@@ -1031,7 +1202,17 @@ final class Haa_API {
          * @return bool
          */
         private function is_keyless() {
-                $host = (string) ( $this->cfg['base_url'] ?? '' );
+                return self::cfg_is_keyless( $this->cfg );
+        }
+
+        /**
+         * Keyless check for ANY source config (the primary or a failover row).
+         *
+         * @param array $cfg Source config.
+         * @return bool
+         */
+        private static function cfg_is_keyless( $cfg ) {
+                $host = (string) ( $cfg['base_url'] ?? '' );
                 // `[::1]` is how a local server is often written (and how our own test
                 // harness reaches it); without it a keyless Ollama/LM Studio on IPv6
                 // loopback is rejected with "کلید API تنظیم نشده".

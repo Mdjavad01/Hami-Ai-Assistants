@@ -1562,6 +1562,65 @@ final class Haa_Admin {
 			<?php
 		}
 
+		// Failover sources: the row editor lives inside the settings form so a
+		// single «ذخیره» persists it together with the rest of the provider tab.
+		if ( 'provider' === $tab ) {
+			$fb_stored  = (array) Haa_Settings::get( 'provider.failovers', array() );
+			$fb_primary = Haa_Settings::provider();
+			$fb_presets = array();
+			foreach ( Haa_API::presets() as $fslug => $fp ) {
+				$fb_presets[ $fslug ] = array( 'label' => $fp['label'], 'base_url' => $fp['base_url'], 'model' => $fp['model'] );
+			}
+			?>
+			<section class="haai-group haai-fb">
+				<h2 class="haai-group__title"><?php esc_html_e( 'منابع یدکی — سوییچ خودکار در اختلال', 'hami-ai-assistant' ); ?></h2>
+				<p class="description">
+					<?php esc_html_e( 'اگر سرویس اصلی در دسترس نبود (مهلت پاسخ، قطعی، خطای ۴۲۹/۵۰۰ یا کلید تمام‌شده)، درخواست بلافاصله به منبع یدکی بعدی می‌رود و پاسخ همان ذخیره می‌شود. منبعی که خطا بدهد ۵ دقیقه از چرخه خارج می‌شود تا درخواست‌های بعدی بی‌درنگ از مسیر سالم بروند و سپس خودکار برمی‌گردد. وقتی منبع یدکی تعریف شده باشد هر منبع فقط یک تلاش می‌کند تا سوییچ سریع بماند. حداکثر ۵ منبع؛ کلیدها رمزنگاری‌شده ذخیره می‌شوند.', 'hami-ai-assistant' ); ?>
+				</p>
+				<div class="haai-fb__health">
+					<?php
+					$fb_left = Haa_API::cooldown_left( $fb_primary );
+					if ( $fb_left ) {
+							printf(
+									'<span class="haai-fb__badge haai-fb__badge--down">%s</span>',
+									esc_html( sprintf( /* translators: %d: minutes. */ __( 'سرویس اصلی: موقتاً کنار گذاشته شد (~%d دقیقه تا بازگشت)', 'hami-ai-assistant' ), (int) ceil( $fb_left / 60 ) ) )
+							);
+					} else {
+							printf( '<span class="haai-fb__badge haai-fb__badge--up">%s</span>', esc_html__( 'سرویس اصلی: سالم', 'hami-ai-assistant' ) );
+					}
+					foreach ( (array) ( $fb_primary['failovers'] ?? array() ) as $fbi => $fbrow ) {
+							$fb_left = Haa_API::cooldown_left( is_array( $fbrow ) ? $fbrow : array() );
+							$fb_host = wp_html_excerpt( trim( (string) ( $fbrow['base_url'] ?? '' ) ), 30, '…' );
+							if ( $fb_left ) {
+									printf(
+											'<span class="haai-fb__badge haai-fb__badge--down">%s</span>',
+											esc_html( sprintf( /* translators: 1: row number 2: host 3: minutes. */ __( 'منبع %1$d (%2$s): کنار گذاشته (~%3$d دقیقه)', 'hami-ai-assistant' ), (int) ( $fbi + 1 ), $fb_host, (int) ceil( $fb_left / 60 ) ) )
+									);
+							} else {
+									printf(
+											'<span class="haai-fb__badge haai-fb__badge--up">%s</span>',
+											esc_html( sprintf( /* translators: 1: row number 2: host. */ __( 'منبع %1$d (%2$s): سالم', 'hami-ai-assistant' ), (int) ( $fbi + 1 ), $fb_host ) )
+									);
+							}
+					}
+					?>
+				</div>
+				<div class="haai-fb__rows" data-haai-fb data-presets="<?php echo esc_attr( (string) wp_json_encode( $fb_presets ) ); ?>">
+					<?php
+					foreach ( $fb_stored as $fbi => $fbrow ) {
+							$this->failover_row( (int) $fbi, is_array( $fbrow ) ? $fbrow : array() );
+					}
+					?>
+				</div>
+				<p>
+					<button type="button" class="button" data-haai-fb-add><?php esc_html_e( 'افزودن منبع یدکی', 'hami-ai-assistant' ); ?></button>
+				</p>
+				<?php // Blank row for admin.js; name indexes are rewritten on add. ?>
+				<template data-haai-fb-template><?php $this->failover_row( '__I__', array(), true ); ?></template>
+			</section>
+			<?php
+		}
+
 		// Modules screen has its own save handler.
 		if ( 'modules' === $tab ) {
 			echo '<p><a class="button button-secondary" href="' . esc_url( Haa_Util::screen_url( 'modules' ) ) . '">' . esc_html__( 'مدیریت ماژول‌ها', 'hami-ai-assistant' ) . '</a></p>';
@@ -1687,6 +1746,52 @@ final class Haa_Admin {
 			esc_attr( $mask )
 		);
 		echo '<p class="description">' . esc_html__( 'برای نگه‌داشتن مقدار فعلی، تغییرش ندهید. کلید به‌صورت رمزنگاری‌شده ذخیره می‌شود.', 'hami-ai-assistant' ) . '</p>';
+	}
+
+	/**
+	 * One failover source row (provider tab). Rendered into the settings form
+	 * for every saved row and once into a <template> for admin.js to clone.
+	 * Field names use provider[failovers][I][…] so the posted array lands
+	 * exactly on the provider.failovers sanitize rule.
+	 *
+	 * @param int|string $i        Row index, or '__I__' inside the template.
+	 * @param array      $row      Stored row (slug form, encrypted key).
+	 * @param bool       $template True inside the <template> clone source.
+	 * @return void
+	 */
+	public function failover_row( $i, $row, $template = false ) {
+		$slug      = (string) ( $row['provider'] ?? '' );
+		$key_plain = Haa_Settings::decrypt( (string) ( $row['api_key'] ?? '' ) );
+		$mask      = '' !== $key_plain ? '••••' . substr( $key_plain, -4 ) : '';
+		$has_full  = '' !== $key_plain && strlen( $key_plain ) > 4;
+		$n         = 'provider[failovers][' . $i . ']';
+		?>
+		<div class="haai-fb__row" data-haai-fb-row>
+			<div class="haai-fb__cell">
+				<label class="haai-fb__label"><?php esc_html_e( 'سرویس', 'hami-ai-assistant' ); ?></label>
+				<select name="<?php echo esc_attr( $n ); ?>[provider]" data-haai-fb-provider>
+					<option value=""><?php esc_html_e( '— انتخاب سرویس —', 'hami-ai-assistant' ); ?></option>
+					<?php foreach ( Haa_API::presets() as $fslug => $fp ) : ?>
+						<option value="<?php echo esc_attr( $fslug ); ?>" <?php selected( $fslug, $slug ); ?>><?php echo esc_html( $fp['label'] ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			</div>
+			<div class="haai-fb__cell">
+				<label class="haai-fb__label"><?php esc_html_e( 'کلید API', 'hami-ai-assistant' ); ?></label>
+				<input type="password" class="regular-text" autocomplete="off" name="<?php echo esc_attr( $n ); ?>[api_key]" value="<?php echo esc_attr( $has_full ? Haa_Settings::KEY_MASK : $key_plain ); ?>" placeholder="<?php echo esc_attr( $mask ); ?>">
+			</div>
+			<div class="haai-fb__cell">
+				<label class="haai-fb__label"><?php esc_html_e( 'Base URL (اختیاری)', 'hami-ai-assistant' ); ?></label>
+				<input type="text" class="regular-text code" dir="ltr" name="<?php echo esc_attr( $n ); ?>[base_url]" value="<?php echo esc_attr( (string) ( $row['base_url'] ?? '' ) ); ?>" placeholder="https://…/v1">
+			</div>
+			<div class="haai-fb__cell">
+				<label class="haai-fb__label"><?php esc_html_e( 'مدل (اختیاری)', 'hami-ai-assistant' ); ?></label>
+				<input type="text" class="regular-text code" dir="ltr" name="<?php echo esc_attr( $n ); ?>[model]" value="<?php echo esc_attr( (string) ( $row['model'] ?? '' ) ); ?>">
+			</div>
+			<input type="hidden" name="<?php echo esc_attr( $n ); ?>[hash]" value="<?php echo esc_attr( (string) ( $row['hash'] ?? '' ) ); ?>">
+			<button type="button" class="button-link-delete haai-fb__remove" data-haai-fb-remove aria-label="<?php esc_attr_e( 'حذف این منبع یدکی', 'hami-ai-assistant' ); ?>">✕</button>
+		</div>
+		<?php
 	}
 
 	/**

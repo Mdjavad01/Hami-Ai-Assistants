@@ -374,6 +374,14 @@ final class Haa_Usage {
         public static function summary( $d ) { return array( 'tokens' => 0, 'messages' => 0 ); }
         public static function today() { return array( 'tokens' => 0, 'messages' => 0 ); }
         public static function autopilot_posts_today() { return 0; }
+        /**
+         * The real transport logs one usage row per call; record them so a
+         * suite can assert on what the plugin logged without touching SQL.
+         */
+        public static function log( $data ) {
+                $GLOBALS['usage_log'][] = $data;
+                return true;
+        }
         public static function generated_posts_today() {
                 // Same deal as tokens_today(): the SQL is not what is under test here,
                 // the cap arithmetic in Haa_Planner::room_today() is.
@@ -417,7 +425,17 @@ final class Haa_Queue {
  * exactly the things D1 changes.
  *
  * Statics let a test script the model's answer: reply, or force a failure.
+ *
+ * A suite that must exercise the REAL transport (failover walk, cooldown, the
+ * actual adapters against the fake HTTP layer) sets
+ * $GLOBALS['haai_use_real_api'] = true BEFORE requiring this file: the real
+ * class-haa-api.php is required in its place and the fake below is skipped.
  */
+if ( ! empty( $GLOBALS['haai_use_real_api'] ) ) {
+        require_once dirname( __DIR__ ) . '/includes/class-haa-api.php';
+}
+
+if ( ! class_exists( 'Haa_API' ) ) {
 final class Haa_API {
         /** @var string Canned model text. */
         public static $reply = '';
@@ -581,6 +599,15 @@ final class Haa_API {
                         'gemini' => array( 'label' => 'Gemini', 'adapter' => 'gemini', 'base_url' => 'https://generativelanguage.googleapis.com/v1beta', 'model' => 'gemini-1.5-flash' ),
                 );
         }
+
+        /**
+         * Mirror of the real adapters() map — Haa_Settings::resolve_failover_rows()
+         * reads it on every provider() call, so the fake must answer it too.
+         */
+        public static function adapters() {
+                return array( 'openai' => 'OpenAI-compatible', 'gemini' => 'Google Gemini', 'claude' => 'Anthropic Claude' );
+        }
+}
 }
 
 /** Image and SEO side effects are recorded, not performed. */
@@ -1031,6 +1058,7 @@ class WP_Error {
                 $this->message = $message;
         }
         public function get_error_message() { return $this->message; }
+        public function get_error_code() { return $this->code; }
 }
 function is_wp_error( $thing ) { return $thing instanceof WP_Error; }
 
