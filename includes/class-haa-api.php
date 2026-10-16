@@ -1655,7 +1655,11 @@ final class Haa_API {
                                 $msg = __( 'کلید API نامعتبر است یا مدل انتخابی در اکانت شما فعال نیست.', 'hami-ai-assistant' );
                                 break;
                         case 403:
-                                $msg = __( 'دسترسی مجاز نیست. سطح اکانت یا کلید را بررسی کنید.', 'hami-ai-assistant' );
+                                if ( self::looks_like_geoblock( $detail, (string) ( $this->cfg['base_url'] ?? '' ) ) ) {
+                                        $msg = __( 'دسترسی مجاز نیست — به احتمال زیاد این سرویس درخواست‌های IP ایران را نمی‌پذیرد (تحریم/محدودیت جغرافیایی) و مشکل از کلید یا اکانت نیست. پراکسی را در تب «ارائه‌دهنده AI» تنظیم کنید یا Base URL را روی یک رله بگذارید (Cloudflare Worker، OpenRouter یا سرویس واسط) و دوباره «تست اتصال» بزنید.', 'hami-ai-assistant' );
+                                } else {
+                                        $msg = __( 'دسترسی مجاز نیست. سطح اکانت یا کلید را بررسی کنید.', 'hami-ai-assistant' );
+                                }
                                 break;
                         case 404:
                                 $msg = __( 'آدرس Endpoint یا مدل پیدا نشد. Base URL و نام مدل را بررسی کنید.', 'hami-ai-assistant' );
@@ -1683,6 +1687,50 @@ final class Haa_API {
                 }
 
                 return new WP_Error( 'haai_http_' . $code, $msg . ( $detail ? ' — ' . $detail : '' ), array( 'status' => $code ) );
+        }
+
+        /**
+         * Distinguish "the provider refuses this server's IP" (sanctions /
+         * geo-block) from an account-level 403.
+         *
+         * Gemini answers a blocked region with Google's generic HTML wall
+         * ("Your client does not have permission to get URL …") or with the
+         * JSON "User location is not supported …"; xAI's whole 403 body is a
+         * bare "Forbidden". The same keys work from a local dev machine (home
+         * traffic usually rides a VPN), so the admin blames the key first —
+         * spotting the shape lets the message say what actually helps: proxy
+         * or relay. Known-blocked hosts + a one-word detail is the xAI case;
+         * a real account error always names the project, key or model.
+         *
+         * @param string $detail   Masked provider detail (HTML stripped, 200 chars max).
+         * @param string $base_url Active source base URL (host is what matters).
+         * @return bool
+         */
+        private static function looks_like_geoblock( $detail, $base_url ) {
+                $needles = array(
+                        'does not have permission',      // Google HTML block page.
+                        'location is not supported',     // Gemini JSON geo error.
+                        'not available in your country', // Generic country wall.
+                        'country not supported',
+                        'unsupported country',
+                        'unsupported_country',
+                        'unsupported_region',
+                );
+                foreach ( $needles as $n ) {
+                        if ( false !== stripos( $detail, $n ) ) {
+                                return true;
+                        }
+                }
+
+                $host = strtolower( (string) parse_url( (string) $base_url, PHP_URL_HOST ) );
+                $geo_hosts = array(
+                        'generativelanguage.googleapis.com',
+                        'api.x.ai',
+                        'api.openai.com',
+                        'api.anthropic.com',
+                );
+
+                return in_array( $host, $geo_hosts, true ) && 'forbidden' === strtolower( trim( $detail ) );
         }
 
         /**
