@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.5
+ * Version:           2.1.6
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.5' );
+define( 'HAAI_VERSION', '2.1.6' );
 define( 'HAAI_DB_VERSION', '7' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
@@ -94,7 +94,15 @@ function haa_css_vars( $s ) {
         // store owner tunes both modes instead of inheriting hardcoded colours.
         // Hairline and muted text are derived from the dark ink colour.
         $drgb = haa_hex_rgb( (string) ( $a['dark_text'] ?? '#e9ebf3' ) );
+        // Channel triplets for the glass skin's rgba() surfaces: panel and bubble
+        // in both modes, straight from the admin-picked colours. The dark twins
+        // are remapped onto the light names by the [data-theme] rules in CSS.
+        $brgb   = haa_hex_rgb( (string) ( $a['bg_color'] ?? '#ffffff' ) );
+        $b2rgb  = haa_hex_rgb( (string) ( $a['secondary_color'] ?? '#eef2ff' ) );
+        $dbrgb  = haa_hex_rgb( (string) ( $a['dark_bg'] ?? '#171a23' ) );
+        $db2rgb = haa_hex_rgb( (string) ( $a['dark_bubble'] ?? '#242a37' ) );
         return '--haai-primary:' . $primary . ';'
+                . '--haai-primary-rgb:' . ( $rgb ?: '79,70,229' ) . ';'
                 . '--haai-on-accent:' . haa_contrast_text( $primary ) . ';'
                 // Derived tints keep the whole widget coherent with the two colours
                 // the admin picked: soft surface, focus ring, muted text, hairline,
@@ -105,9 +113,13 @@ function haa_css_vars( $s ) {
                 . '--haai-bg:' . ( $a['bg_color'] ?? '#fff' ) . ';'
                 . '--haai-text:' . ( $a['text_color'] ?? '#1f2937' ) . ';'
                 . '--haai-bubble:' . ( $a['secondary_color'] ?? '#eef2ff' ) . ';'
+                . '--haai-bg-rgb:' . ( $brgb ?: '255,255,255' ) . ';'
+                . '--haai-bubble-rgb:' . ( $b2rgb ?: '243,244,248' ) . ';'
                 . '--haai-dark-bg:' . ( $a['dark_bg'] ?? '#171a23' ) . ';'
                 . '--haai-dark-text:' . ( $a['dark_text'] ?? '#e9ebf3' ) . ';'
                 . '--haai-dark-bubble:' . ( $a['dark_bubble'] ?? '#242a37' ) . ';'
+                . '--haai-dark-bg-rgb:' . ( $dbrgb ?: '23,26,35' ) . ';'
+                . '--haai-dark-bubble-rgb:' . ( $db2rgb ?: '36,42,55' ) . ';'
                 . ( $drgb ? '--haai-dark-line:rgba(' . $drgb . ',.10);--haai-dark-faint:rgba(' . $drgb . ',.58);' : '' )
                 . '--haai-radius:' . $px( $a['border_radius'] ?? 16 ) . ';'
                 . '--haai-fs:' . $px( $a['font_size'] ?? 14 ) . ';'
@@ -277,7 +289,6 @@ function haa_public_config() {
                 'i18n'      => array(
                         'offline' => $b['offline_message'] ?? '',
                         'error'   => $b['error_message'] ?? '',
-                        'copy'    => __( 'کپی', 'hami-ai-assistant' ),
                         'typing'  => (bool) ( $b['typing_indicator'] ?? 1 ),
                         'login'   => $s['advanced']['login_required_message'] ?? '',
                         'name'    => $b['lead_name_label'] ?? 'نام',

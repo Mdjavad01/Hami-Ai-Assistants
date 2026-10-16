@@ -373,6 +373,7 @@
                         }
 
                         if (widget) widget.setAttribute('data-theme', valueOf('theme_mode') || 'light');
+                        if (widget) widget.setAttribute('data-skin', valueOf('skin') || 'standard');
 
                         var bubble = qs('.haai-msg--bot .haai-msg__bubble', preview);
                         if (bubble) bubble.textContent = valueOf('welcome_message');

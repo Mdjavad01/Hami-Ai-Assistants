@@ -108,6 +108,36 @@ final class Haa_Module_Chatbot implements Haa_Module_Interface {
                         'hint'  => __( 'هر سؤال در یک خط.', 'hami-ai-assistant' ),
                 );
                 $fields[] = array(
+                        'key'   => 'chat.contact_whatsapp',
+                        'type'  => 'text',
+                        'label' => __( 'راه ارتباطی: واتساپ', 'hami-ai-assistant' ),
+                        'hint'  => __( 'لینک کامل، مثل https://wa.me/989123456789 — وقتی پر باشد، بات برای «اتصال به پشتیبانی واتساپ» همین لینک را می‌دهد.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.contact_telegram',
+                        'type'  => 'text',
+                        'label' => __( 'راه ارتباطی: تلگرام', 'hami-ai-assistant' ),
+                        'hint'  => __( 'لینک کامل، مثل https://t.me/username', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.contact_phone',
+                        'type'  => 'text',
+                        'label' => __( 'راه ارتباطی: شماره تماس', 'hami-ai-assistant' ),
+                        'hint'  => __( 'مثل 02112345678 یا 09121234567', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.contact_page',
+                        'type'  => 'text',
+                        'label' => __( 'راه ارتباطی: صفحه «تماس با ما»', 'hami-ai-assistant' ),
+                        'hint'  => __( 'آدرس کامل صفحه تماس؛ با پر کردن این فیلد، بات لینک صفحه را در پاسخ می‌آورد.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.contact_note',
+                        'type'  => 'textarea',
+                        'label' => __( 'نکات تکمیلی پشتیبانی', 'hami-ai-assistant' ),
+                        'hint'  => __( 'اختیاری — مثل ساعات کاری یا آدرس؛ به پاسخ‌های راه ارتباطی اضافه می‌شود.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
                         'key'   => 'chat.error_message',
                         'type'  => 'text',
                         'label' => __( 'پیام خطا', 'hami-ai-assistant' ),

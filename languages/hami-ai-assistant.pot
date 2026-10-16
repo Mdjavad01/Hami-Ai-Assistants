@@ -34,10 +34,6 @@ msgstr ""
 msgid "Hami"
 msgstr ""
 
-#: hami-ai-assistant.php:216
-msgid "کپی"
-msgstr ""
-
 #: hami-ai-assistant.php:221
 #: templates/chat-widget.php:130
 msgid "ارسال"
@@ -5565,5 +5561,53 @@ msgid "پیام شما"
 msgstr ""
 
 #: templates/chat-widget.php:135
-msgid "پشتیبانی هوش مصنوعی"
+msgid "پشتیبانی هوش مصنوعی از"
+msgstr ""
+
+#: includes/class-haa-chat.php
+msgid "برای ارتباط با پشتیبانی از این راه‌ها استفاده کنید:"
+msgstr ""
+
+#: includes/class-haa-chat.php
+msgid "راه‌های ارتباطی رسمی سایت. اگر کاربر پشتیبانی انسانی، واتساپ، تلگرام، تماس تلفنی یا صفحه «تماس با ما» را خواست، دقیقاً همین‌ها را معرفی کن و لینک‌ها را عیناً بنویس. اگر پاسخ سوالی را نداری، کاربر را با همین لینک‌ها به پشتیبانی راهنمایی کن:"
+msgstr ""
+
+#: modules/class-haa-module-chatbot.php
+msgid "راه ارتباطی: واتساپ"
+msgstr ""
+
+#: modules/class-haa-module-chatbot.php
+msgid "راه ارتباطی: تلگرام"
+msgstr ""
+
+#: modules/class-haa-module-chatbot.php
+msgid "راه ارتباطی: شماره تماس"
+msgstr ""
+
+#: modules/class-haa-module-chatbot.php
+msgid "راه ارتباطی: صفحه «تماس با ما»"
+msgstr ""
+
+#: modules/class-haa-module-chatbot.php
+msgid "نکات تکمیلی پشتیبانی"
+msgstr ""
+
+#: includes/class-haa-admin.php
+msgid "استایل ویجت"
+msgstr ""
+
+#: includes/class-haa-admin.php
+msgid "استاندارد"
+msgstr ""
+
+#: includes/class-haa-admin.php
+msgid "گرادیانت"
+msgstr ""
+
+#: includes/class-haa-admin.php
+msgid "گلس (شیشه‌ای)"
+msgstr ""
+
+#: includes/class-haa-admin.php
+msgid "استایل و رنگ‌ها (حالت روشن)"
 msgstr ""

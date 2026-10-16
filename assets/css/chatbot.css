@@ -8,12 +8,12 @@
  * Nothing is hardcoded per site. Budget is measured on min+gzip (docs.md);
  * the .min.css is produced by tools/minify.mjs and this source stays readable.
  *
- * @built-by-concatenation: haai-msg--user is-left is-invalid is-done
+ * @built-by-concatenation: haai-msg--user is-left is-invalid is-multiline haai-msg__avatar--user
 */
 
 /* --- Defaults (settings override these inline, later in the head) --- */
 
-:root { --haai-primary:#4f46e5; --haai-accent-2:#3730a3; --haai-bg:#fff; --haai-text:#191c24; --haai-bubble:#f3f4f8; --haai-radius:16px; --haai-fs:14px; --haai-btn-size:56px; --haai-line:rgba(25,28,36,.08); --haai-faint:#8a8f9c; --haai-accent-soft:#eef0fe; --haai-accent-ring:rgba(79,70,229,.14); --haai-dark-bg:#171a23; --haai-dark-text:#e9ebf3; --haai-dark-bubble:#242a37; --haai-dark-line:rgba(233,235,243,.10); --haai-dark-faint:rgba(233,235,243,.58) }
+:root { --haai-primary:#4f46e5; --haai-accent-2:#3730a3; --haai-bg:#fff; --haai-text:#191c24; --haai-bubble:#f3f4f8; --haai-radius:16px; --haai-fs:14px; --haai-btn-size:56px; --haai-line:rgba(25,28,36,.08); --haai-faint:#8a8f9c; --haai-accent-soft:#eef0fe; --haai-accent-ring:rgba(79,70,229,.14); --haai-dark-bg:#171a23; --haai-dark-text:#e9ebf3; --haai-dark-bubble:#242a37; --haai-dark-line:rgba(233,235,243,.10); --haai-dark-faint:rgba(233,235,243,.58); --haai-primary-rgb:79,70,229; --haai-bg-rgb:255,255,255; --haai-bubble-rgb:243,244,248; --haai-dark-bg-rgb:23,26,35; --haai-dark-bubble-rgb:36,42,55 }
 
 /* --- Floating launcher ------------------------------------------ */
 
@@ -24,9 +24,9 @@
 .haai-fab:focus-visible { outline:2px solid var(--haai-primary,#4f46e5); outline-offset:3px }
 .haai-fab[hidden] { display:none }
 @keyframes haai-pulse {
-	0% { box-shadow:0 0 0 0 var(--haai-accent-ring) }
-	70% { box-shadow:0 0 0 16px rgba(15,18,34,0) }
-	100% { box-shadow:0 0 0 0 rgba(15,18,34,0) }
+        0% { box-shadow:0 0 0 0 var(--haai-accent-ring) }
+        70% { box-shadow:0 0 0 16px rgba(15,18,34,0) }
+        100% { box-shadow:0 0 0 0 rgba(15,18,34,0) }
 }
 
 /* .haai-float */
@@ -34,12 +34,12 @@
 .haai-float.is-left { right:auto; left:24px; transform-origin:bottom left }
 .haai-float[hidden] { display:none }
 @keyframes haai-pop {
-	from { opacity:0; transform:translateY(14px) scale(.96) }
+        from { opacity:0; transform:translateY(14px) scale(.96) }
 }
 
 @media (max-width:480px) {
-	/* .haai-float */
-	.haai-float { left:10px !important; right:10px; width:auto; max-width:none; bottom:calc(var(--haai-btn-size,56px) + 24px); max-height:calc(100vh - var(--haai-btn-size,56px) - 48px); transform-origin:bottom center }
+        /* .haai-float */
+        .haai-float { left:10px !important; right:10px; width:auto; max-width:none; bottom:calc(var(--haai-btn-size,56px) + 24px); max-height:calc(100vh - var(--haai-btn-size,56px) - 48px); transform-origin:bottom center }
 }
 
 /* .haai-teaser — markup comes from loader.js; its geometry (position, offsets,
@@ -49,7 +49,7 @@ The small corner points down at the launcher sitting under the bubble. */
 .haai-teaser.is-left { border-end-start-radius:14px; border-end-end-radius:4px }
 .haai-teaser.is-in { opacity:1; transform:translateY(0) }
 @media (max-width:480px) {
-	.haai-teaser { max-width:200px; font-size:12.5px }
+        .haai-teaser { max-width:200px; font-size:12.5px }
 }
 /* The teaser lives in <body>, outside the widget, so the dark palette reaches
 it through :has() where supported; older browsers keep the white bubble. */
@@ -61,21 +61,19 @@ body:has(.haai-widget[data-theme="dark"]) .haai-teaser { background:var(--haai-d
 .haai-widget { font-family:var(--haai-font,Vazirmatn,Tahoma,"Segoe UI",system-ui,sans-serif); box-sizing:border-box; display:flex; flex-direction:column; height:100%; min-height:320px; background:var(--haai-bg); color:var(--haai-text); font-size:var(--haai-fs); line-height:1.75; direction:rtl; text-align:right }
 .haai-widget *,.haai-widget *::before,.haai-widget *::after { box-sizing:border-box }
 .haai-widget--inline { border:1px solid rgba(25,28,36,.1); border-radius:min(var(--haai-radius),20px); margin:0 auto; overflow:hidden; box-shadow:0 2px 10px rgba(15,18,34,.05) }
-.haai-widget[data-theme="dark"] { color-scheme:dark; --haai-bg:var(--haai-dark-bg,#171a23); --haai-text:var(--haai-dark-text,#e9ebf3); --haai-bubble:var(--haai-dark-bubble,#242a37); --haai-line:var(--haai-dark-line,rgba(233,235,243,.10)); --haai-faint:var(--haai-dark-faint,rgba(233,235,243,.58)) }
+.haai-widget[data-theme="dark"] { color-scheme:dark; --haai-bg:var(--haai-dark-bg,#171a23); --haai-text:var(--haai-dark-text,#e9ebf3); --haai-bubble:var(--haai-dark-bubble,#242a37); --haai-line:var(--haai-dark-line,rgba(233,235,243,.10)); --haai-faint:var(--haai-dark-faint,rgba(233,235,243,.58)); --haai-bg-rgb:var(--haai-dark-bg-rgb,23,26,35); --haai-bubble-rgb:var(--haai-dark-bubble-rgb,36,42,55) }
 .haai-widget[data-theme="dark"] .haai-form,.haai-widget[data-theme="dark"] .haai-lead,.haai-widget[data-theme="dark"] .haai-widget__foot { border-color:var(--haai-line) }
 .haai-widget[data-theme="dark"] .haai-form__input,.haai-widget[data-theme="dark"] .haai-lead__name,.haai-widget[data-theme="dark"] .haai-lead__phone { background:var(--haai-dark-bubble,#20232b); border-color:var(--haai-dark-line,#343947); color:var(--haai-dark-text,#e9ebf3) }
-.haai-widget[data-theme="dark"] .haai-msg__copy { box-shadow:inset 0 0 0 1px var(--haai-dark-line,rgba(255,255,255,.14)) }
 .haai-widget[data-theme="dark"] .haai-error { background:#3a1d1b; color:#f7c9c4 }
 .haai-widget[data-theme="dark"] .haai-suggest__item { background:transparent }
 /* Chips keep their accent tint in dark — soft/ring are derived from the
 admin's primary colour and read fine on the dark surface. */
 @media (prefers-color-scheme:dark) {
-	.haai-widget[data-theme="auto"] { color-scheme:dark; --haai-bg:var(--haai-dark-bg,#171a23); --haai-text:var(--haai-dark-text,#e9ebf3); --haai-bubble:var(--haai-dark-bubble,#242a37); --haai-line:var(--haai-dark-line,rgba(233,235,243,.10)); --haai-faint:var(--haai-dark-faint,rgba(233,235,243,.58)) }
-	.haai-widget[data-theme="auto"] .haai-form,.haai-widget[data-theme="auto"] .haai-lead,.haai-widget[data-theme="auto"] .haai-widget__foot { border-color:var(--haai-line) }
-	.haai-widget[data-theme="auto"] .haai-form__input,.haai-widget[data-theme="auto"] .haai-lead__name,.haai-widget[data-theme="auto"] .haai-lead__phone { background:var(--haai-dark-bubble,#20232b); border-color:var(--haai-dark-line,#343947); color:var(--haai-dark-text,#e9ebf3) }
-	.haai-widget[data-theme="auto"] .haai-msg__copy { box-shadow:inset 0 0 0 1px var(--haai-dark-line,rgba(255,255,255,.14)) }
-	.haai-widget[data-theme="auto"] .haai-error { background:#3a1d1b; color:#f7c9c4 }
-	.haai-widget[data-theme="auto"] .haai-suggest__item { background:transparent }
+        .haai-widget[data-theme="auto"] { color-scheme:dark; --haai-bg:var(--haai-dark-bg,#171a23); --haai-text:var(--haai-dark-text,#e9ebf3); --haai-bubble:var(--haai-dark-bubble,#242a37); --haai-line:var(--haai-dark-line,rgba(233,235,243,.10)); --haai-faint:var(--haai-dark-faint,rgba(233,235,243,.58)); --haai-bg-rgb:var(--haai-dark-bg-rgb,23,26,35); --haai-bubble-rgb:var(--haai-dark-bubble-rgb,36,42,55) }
+        .haai-widget[data-theme="auto"] .haai-form,.haai-widget[data-theme="auto"] .haai-lead,.haai-widget[data-theme="auto"] .haai-widget__foot { border-color:var(--haai-line) }
+        .haai-widget[data-theme="auto"] .haai-form__input,.haai-widget[data-theme="auto"] .haai-lead__name,.haai-widget[data-theme="auto"] .haai-lead__phone { background:var(--haai-dark-bubble,#20232b); border-color:var(--haai-dark-line,#343947); color:var(--haai-dark-text,#e9ebf3) }
+        .haai-widget[data-theme="auto"] .haai-error { background:#3a1d1b; color:#f7c9c4 }
+        .haai-widget[data-theme="auto"] .haai-suggest__item { background:transparent }
 }
 
 /* --- Header: gradient bar, white ink, status dot on the avatar --- */
@@ -113,26 +111,22 @@ any accent. */
 /* .haai-msg */
 .haai-msg { display:flex; gap:8px; align-items:flex-end; max-width:92%; animation:haai-in .22s cubic-bezier(.16,1,.3,1) }
 .haai-msg--bot { align-self:flex-start }
-.haai-msg--user { align-self:flex-end }
+.haai-msg--user { align-self:flex-end; flex-direction:row-reverse }
 /* The operator avatar: a rounded chip in the accent tint, echoing the header
 avatar. Markup ships in the template (welcome/typing) and is cloned by the JS. */
 .haai-msg__avatar { flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:28px; height:28px; margin-bottom:1px; border-radius:10px; background:var(--haai-accent-soft); box-shadow:inset 0 0 0 1px var(--haai-accent-ring); color:var(--haai-primary,#4f46e5); overflow:hidden }
 .haai-msg__avatar img { width:100%; height:100%; object-fit:cover }
 .haai-msg__avatar svg { width:15px; height:15px }
+.haai-msg__avatar--user { background:var(--haai-bubble); box-shadow:inset 0 0 0 1px var(--haai-line); color:var(--haai-faint,#8a8f9c) }
 .haai-msg__bubble { position:relative; padding:9px 14px 8px; border-radius:18px; font-size:.95em; line-height:1.8; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere }
 .haai-msg--bot .haai-msg__bubble { background:var(--haai-bubble); border-end-start-radius:6px; box-shadow:inset 0 0 0 1px var(--haai-line) }
 .haai-msg--user .haai-msg__bubble { background:linear-gradient(135deg,var(--haai-primary,#4f46e5),var(--haai-accent-2,#3730a3)); color:var(--haai-on-accent,#fff); border-end-end-radius:6px; box-shadow:0 4px 14px var(--haai-accent-ring) }
 @keyframes haai-in {
-	from { opacity:0; transform:translateY(6px) }
+        from { opacity:0; transform:translateY(6px) }
 }
 .haai-msg__bubble p { margin:0 0 .5em }
 .haai-msg__bubble p:last-child { margin-bottom:0 }
 .haai-msg__bubble a { color:inherit; text-decoration:underline }
-
-/* .haai-msg__copy */
-.haai-msg__copy { display:inline-block; margin-top:5px; padding:2px 10px; border:0; border-radius:999px; background:transparent; box-shadow:inset 0 0 0 1px var(--haai-line); color:inherit; font:inherit; font-size:.72em; opacity:.65; cursor:pointer; transition:opacity .15s ease,box-shadow .15s ease,color .15s ease }
-.haai-msg__copy:hover,.haai-msg__copy:focus-visible { opacity:1; box-shadow:inset 0 0 0 1px var(--haai-primary,#4f46e5) }
-.haai-msg__copy.is-done { color:var(--haai-primary,#4f46e5); opacity:1; box-shadow:inset 0 0 0 1px var(--haai-primary,#4f46e5) }
 
 /* --- Suggested questions: quiet pills that fill on hover ------------- */
 
@@ -152,13 +146,13 @@ avatar. Markup ships in the template (welcome/typing) and is cloned by the JS. *
 .haai-typing__dots span:nth-child(3) { animation-delay:.36s }
 .haai-typing[hidden] { display:none }
 @keyframes haai-blink {
-	0%,80%,100% { opacity:.3; transform:translateY(0) }
-	40% { opacity:1; transform:translateY(-2px) }
+        0%,80%,100% { opacity:.3; transform:translateY(0) }
+        40% { opacity:1; transform:translateY(-2px) }
 }
 
 @media (prefers-reduced-motion:reduce) {
-	/* .haai-typing */
-	.haai-typing__dots span,.haai-fab,.haai-fab::after,.haai-float,.haai-msg { animation:none !important; transition:none !important }
+        /* .haai-typing */
+        .haai-typing__dots span,.haai-fab,.haai-fab::after,.haai-float,.haai-msg,.haai-widget[data-skin="gradient"] .haai-widget__head { animation:none !important; transition:none !important }
 }
 
 /* --- Error --------------------------------------------------------- */
@@ -192,10 +186,10 @@ avatar. Markup ships in the template (welcome/typing) and is cloned by the JS. *
 /* Touch devices zoom into any focused field under 16px — keep the pill
 single-line height there by lifting only its font size. */
 @media (pointer:coarse) {
-	.haai-form__input { font-size:max(var(--haai-fs,14px),16px) }
+        .haai-form__input { font-size:max(var(--haai-fs,14px),16px) }
 }
 .haai-form__send { display:inline-flex; align-items:center; justify-content:center; width:42px; height:42px; margin-bottom:1px; border:0; border-radius:999px; background:linear-gradient(135deg,var(--haai-primary,#4f46e5),var(--haai-accent-2,#3730a3)); color:var(--haai-on-accent,#fff); cursor:pointer; flex:0 0 auto; box-shadow:0 4px 12px var(--haai-accent-ring); transition:opacity .15s ease,transform .15s ease,box-shadow .15s ease }
-.haai-form__send:hover,.haai-form__send:focus-visible { box-shadow:0 6px 16px var(--haai-accent-ring) }
+.haai-form__send:hover,.haai-form__send:focus-visible { box-shadow:0 6px 16px var(--haai-accent-ring); transform:scale(1.05) }
 .haai-form__send:active { transform:scale(.92) }
 .haai-form__send[disabled] { opacity:.45; cursor:not-allowed }
 /* The plane points away from the visitor: mirrored for the RTL widget. */
@@ -203,6 +197,27 @@ single-line height there by lifting only its font size. */
 
 /* .haai-widget */
 .haai-widget__foot { padding:6px 14px 7px; border-top:1px solid var(--haai-line,rgba(25,28,36,.07)); font-size:.7em; color:var(--haai-faint,#8a8f9c); text-align:center; flex:0 0 auto }
+.haai-widget__foot a { color:inherit; font-weight:700; text-decoration:none }
+.haai-widget__foot a:hover,.haai-widget__foot a:focus-visible { text-decoration:underline }
+
+/* --- Skins: gradient & glass (data-skin from the Appearance tab) ---- */
+
+.haai-widget[data-skin="gradient"] .haai-widget__head { background:linear-gradient(120deg,var(--haai-accent-2,#3730a3),var(--haai-primary,#4f46e5) 45%,var(--haai-accent-2,#3730a3)); background-size:200% 200%; animation:haai-sheen 9s ease-in-out infinite }
+.haai-widget[data-skin="gradient"] .haai-msg--bot .haai-msg__bubble,.haai-widget[data-skin="gradient"] .haai-typing__dots { background:linear-gradient(160deg,var(--haai-accent-soft,rgba(79,70,229,.12)),var(--haai-bubble)) }
+.haai-float:has(.haai-widget[data-skin="gradient"]) { box-shadow:0 32px 80px rgba(var(--haai-primary-rgb,79,70,229),.26),0 4px 16px rgba(var(--haai-primary-rgb,79,70,229),.14) }
+@keyframes haai-sheen { 0%,100% { background-position:0% 50% } 50% { background-position:100% 50% } }
+
+/* Glass keeps the panel translucent and blurs what sits behind it. :has()
+reaches the floating panel from the widget's own attribute; browsers without
+it simply keep the solid panel. Bubble/input surfaces go translucent, the
+blur itself lives on the panel + header only (cheap on mobile GPUs). */
+.haai-widget[data-skin="glass"] { background:transparent }
+.haai-widget--inline[data-skin="glass"],.haai-widget--preview[data-skin="glass"],.haai-float:has(.haai-widget[data-skin="glass"]) { background:rgba(var(--haai-bg-rgb,255,255,255),.68); -webkit-backdrop-filter:blur(18px) saturate(1.5); backdrop-filter:blur(18px) saturate(1.5) }
+.haai-widget[data-skin="glass"] .haai-widget__head { background:linear-gradient(135deg,rgba(var(--haai-primary-rgb,79,70,229),.88),rgba(var(--haai-primary-rgb,79,70,229),.66)); -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px) }
+.haai-widget[data-skin="glass"] .haai-msg--bot .haai-msg__bubble { background:rgba(var(--haai-bubble-rgb,243,244,248),.6); box-shadow:inset 0 0 0 1px var(--haai-line),0 4px 18px rgba(var(--haai-primary-rgb,79,70,229),.06) }
+.haai-widget[data-skin="glass"] .haai-typing__dots { background:rgba(var(--haai-bubble-rgb,243,244,248),.6) }
+.haai-widget[data-skin="glass"] .haai-form__input { background:rgba(var(--haai-bubble-rgb,243,244,248),.55) }
+.haai-widget[data-skin="glass"] .haai-suggest__item { background:rgba(var(--haai-bg-rgb,255,255,255),.55) }
 
 /* Preview mode: the widget lives inside the settings iframe, so it must not
 escape its frame or keep a fixed viewport position. */

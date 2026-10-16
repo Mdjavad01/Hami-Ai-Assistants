@@ -46,6 +46,23 @@ final class Haa_Chat {
                         );
                 }
 
+                // "Connect me to WhatsApp / give me the contact page" class of
+                // questions: when the admin filled the contact channels, they are
+                // answered straight from settings — deterministic, no AI call, no
+                // retrieval, no extra queries (settings ship in one autoloaded option).
+                $contact = self::contact_reply( $message );
+                if ( '' !== $contact ) {
+                        self::log_turn( $identifier, $message, $contact, array( 'provider' => 'local', 'model' => 'contact' ), 'ok', '' );
+                        return array_merge(
+                                $out,
+                                array(
+                                        'ok'     => true,
+                                        'cached' => false,
+                                        'reply'  => $contact,
+                                )
+                        );
+                }
+
                 $provider = Haa_Settings::provider();
                 if ( '' === $provider['api_key'] && '' === $provider['base_url'] ) {
                         $out['error'] = __( 'دستیار هنوز به سرویس AI متصل نشده است. لطفاً با مدیر سایت تماس بگیرید.', 'hami-ai-assistant' );
@@ -217,6 +234,100 @@ final class Haa_Chat {
          * ---------------------------------------------------------------- */
 
         /**
+         * The admin-configured support channels ('' when a field is empty).
+         *
+         * @return array<string,string>
+         */
+        private static function contact_channels() {
+                $s = Haa_Settings::get();
+                $c = isset( $s['chat'] ) ? $s['chat'] : array();
+                return array(
+                        'whatsapp' => trim( (string) ( $c['contact_whatsapp'] ?? '' ) ),
+                        'telegram' => trim( (string) ( $c['contact_telegram'] ?? '' ) ),
+                        'phone'    => trim( (string) ( $c['contact_phone'] ?? '' ) ),
+                        'page'     => trim( (string) ( $c['contact_page'] ?? '' ) ),
+                        'note'     => trim( (string) ( $c['contact_note'] ?? '' ) ),
+                );
+        }
+
+        /**
+         * Deterministic "reach a human" reply. Strong contact intents (WhatsApp,
+         * Telegram, phone, the contact page, "connect me to support") are answered
+         * with the exact configured links even when the provider is unreachable.
+         * Returns '' when nothing matches or nothing is configured.
+         *
+         * @param string $message Raw message.
+         * @return string
+         */
+        private static function contact_reply( $message ) {
+                $ch = self::contact_channels();
+                if ( '' === $ch['whatsapp'] . $ch['telegram'] . $ch['phone'] . $ch['page'] ) {
+                        return '';
+                }
+                $text = Haa_Search::normalize_text( (string) $message );
+                $want = (bool) preg_match(
+                        '/واتس|whats|تلگرام|telegram|تماس با ما|شماره تماس|شماره تلفن|های? ارتباطی|وصل.{0,12}(پشتیبانی|کارشناس|اپراتور)|(پشتیبانی|کارشناس|اپراتور).{0,12}(انسانی|واقعی|وصل)/u',
+                        $text
+                );
+                if ( ! $want ) {
+                        return '';
+                }
+
+                $lines = array( __( 'برای ارتباط با پشتیبانی از این راه‌ها استفاده کنید:', 'hami-ai-assistant' ) );
+                if ( '' !== $ch['whatsapp'] ) {
+                        $lines[] = '• واتساپ: ' . $ch['whatsapp'];
+                }
+                if ( '' !== $ch['telegram'] ) {
+                        $lines[] = '• تلگرام: ' . $ch['telegram'];
+                }
+                if ( '' !== $ch['phone'] ) {
+                        $lines[] = '• تلفن: ' . $ch['phone'];
+                }
+                if ( '' !== $ch['page'] ) {
+                        $lines[] = '• صفحه «تماس با ما»: ' . $ch['page'];
+                }
+                if ( '' !== $ch['note'] ) {
+                        $lines[] = $ch['note'];
+                }
+                return implode( "
+", $lines );
+        }
+
+        /**
+         * System-prompt block that teaches the model the official channels so
+         * casually phrased requests still return the exact links. Settings-only:
+         * no table, no query, no index — the lightest possible knowledge base.
+         *
+         * @return string '' when nothing is configured.
+         */
+        private static function contact_block() {
+                $ch = self::contact_channels();
+                if ( '' === $ch['whatsapp'] . $ch['telegram'] . $ch['phone'] . $ch['page'] ) {
+                        return '';
+                }
+                $head = __( 'راه‌های ارتباطی رسمی سایت. اگر کاربر پشتیبانی انسانی، واتساپ، تلگرام، تماس تلفنی یا صفحه «تماس با ما» را خواست، دقیقاً همین‌ها را معرفی کن و لینک‌ها را عیناً بنویس. اگر پاسخ سوالی را نداری، کاربر را با همین لینک‌ها به پشتیبانی راهنمایی کن:', 'hami-ai-assistant' );
+                $lines = array();
+                if ( '' !== $ch['whatsapp'] ) {
+                        $lines[] = '- واتساپ: ' . $ch['whatsapp'];
+                }
+                if ( '' !== $ch['telegram'] ) {
+                        $lines[] = '- تلگرام: ' . $ch['telegram'];
+                }
+                if ( '' !== $ch['phone'] ) {
+                        $lines[] = '- تلفن: ' . $ch['phone'];
+                }
+                if ( '' !== $ch['page'] ) {
+                        $lines[] = '- صفحه تماس: ' . $ch['page'];
+                }
+                if ( '' !== $ch['note'] ) {
+                        $lines[] = '- نکته: ' . $ch['note'];
+                }
+                return $head . "
+" . implode( "
+", $lines );
+        }
+
+        /**
          * @param string $message Current message.
          * @param array  $history Turns.
          * @param string $context Retrieved context.
@@ -267,6 +378,13 @@ final class Haa_Chat {
                         if ( ! empty( $extra['lead_phone'] ) ) {
                                 $system .= ' ' . __( 'موبایل:', 'hami-ai-assistant' ) . ' ' . $extra['lead_phone'];
                         }
+                }
+
+                $contact = self::contact_block();
+                if ( '' !== $contact ) {
+                        $system .= "
+
+" . $contact;
                 }
 
                 $out = array();

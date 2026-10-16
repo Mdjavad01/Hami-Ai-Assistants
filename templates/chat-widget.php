@@ -32,6 +32,7 @@ function haa_render_widget( $args = array() ) {
 
         $s    = Haa_Settings::get();
         $mode = isset( $s['appearance']['theme_mode'] ) ? $s['appearance']['theme_mode'] : 'light';
+        $skin = isset( $s['appearance']['skin'] ) ? $s['appearance']['skin'] : 'standard';
 
         $style = '';
         if ( '' !== $args['width'] ) {
@@ -43,7 +44,7 @@ function haa_render_widget( $args = array() ) {
         // The admin live preview is a second copy on the page, so it must not reuse the id.
         $id_attr = $args['preview'] ? '' : ' id="haai-widget"';
         ?>
-        <div class="haai-widget<?php echo $args['inline'] ? ' haai-widget--inline' : ''; ?><?php echo esc_attr( $extra_class ); ?>"<?php echo $id_attr; // phpcs:ignore WordPress.Security.EscapeOutput ?> data-theme="<?php echo esc_attr( $mode ); ?>" data-init="0"<?php echo $style; // phpcs:ignore WordPress.Security.EscapeOutput ?>>
+        <div class="haai-widget<?php echo $args['inline'] ? ' haai-widget--inline' : ''; ?><?php echo esc_attr( $extra_class ); ?>"<?php echo $id_attr; // phpcs:ignore WordPress.Security.EscapeOutput ?> data-theme="<?php echo esc_attr( $mode ); ?>" data-skin="<?php echo esc_attr( $skin ); ?>" data-init="0"<?php echo $style; // phpcs:ignore WordPress.Security.EscapeOutput ?>>
                 <div class="haai-widget__head">
                         <div class="haai-widget__title">
                                 <span class="haai-widget__avatar" aria-hidden="true"><?php echo haa_avatar_svg( $s ); /* phpcs:ignore WordPress.Security.EscapeOutput */ ?><span class="haai-widget__status"></span></span>
@@ -138,7 +139,7 @@ function haa_render_widget( $args = array() ) {
                         </button>
                 <?php echo $p ? '</div>' : '</form>'; // phpcs:ignore WordPress.Security.EscapeOutput ?>
 
-                <div class="haai-widget__foot"><?php esc_html_e( 'پشتیبانی هوش مصنوعی', 'hami-ai-assistant' ); ?></div>
+                <div class="haai-widget__foot"><?php esc_html_e( 'پشتیبانی هوش مصنوعی از', 'hami-ai-assistant' ); ?> <a href="https://hamisys.ir" target="_blank" rel="noopener noreferrer">HamiSys</a></div>
         </div>
         <?php
 }

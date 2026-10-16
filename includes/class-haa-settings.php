@@ -103,6 +103,7 @@ final class Haa_Settings {
                                 'text_color'      => '#1f2937',
                                 'bg_color'        => '#ffffff',
                                 'theme_mode'      => 'light',
+                                'skin'            => 'standard', // standard | gradient | glass.
                                 'dark_bg'         => '#171a23',
                                 'dark_text'       => '#e9ebf3',
                                 'dark_bubble'     => '#242a37',
@@ -136,6 +137,14 @@ final class Haa_Settings {
                                 'lead_name_label'     => 'نام',
                                 'lead_phone_label'    => 'شماره موبایل',
                                 'lead_consent_text'   => 'با ثبت شماره موافقم تا پشتیبانی با من تماس بگیرد.',
+                                // The chatbot's tiny "knowledge base" for reaching a human:
+                                // filled fields become both a system-prompt block and a
+                                // deterministic settings-only reply. No table, no query.
+                                'contact_whatsapp'    => '',
+                                'contact_telegram'    => '',
+                                'contact_phone'       => '',
+                                'contact_page'        => '',
+                                'contact_note'        => '',
                         ),
 
                         // Owned by product-content / article-writer.
@@ -987,6 +996,7 @@ final class Haa_Settings {
                         'appearance.text_color'      => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
                         'appearance.bg_color'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
                         'appearance.theme_mode'      => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'light', 'dark', 'auto' ) ),
+                        'appearance.skin'            => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'standard', 'gradient', 'glass' ) ),
                         'appearance.dark_bg'         => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
                         'appearance.dark_text'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
                         'appearance.dark_bubble'     => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
@@ -1018,6 +1028,11 @@ final class Haa_Settings {
                         'chat.lead_name_label'     => array( 'cb' => array( 'Haa_Settings', 'sanitize_text' ) ),
                         'chat.lead_phone_label'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_text' ) ),
                         'chat.lead_consent_text'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_textarea' ) ),
+                        'chat.contact_whatsapp'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_url' ) ),
+                        'chat.contact_telegram'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_url' ) ),
+                        'chat.contact_phone'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_text' ) ),
+                        'chat.contact_page'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_url' ) ),
+                        'chat.contact_note'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_textarea' ) ),
 
                         // Content core.
                         'content.default_language' => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'fa', 'en', 'ar', 'tr', 'de', 'fr', 'ru', 'es' ) ),
@@ -1891,7 +1906,7 @@ final class Haa_Settings {
                 $core = array(
                         'general'   => array( 'general.enabled', 'general.display_mode', 'general.floating_position', 'general.floating_bottom', 'general.floating_side', 'general.show_devices', 'general.show_roles', 'general.show_on_post_types', 'general.pages_mode', 'general.special_pages', 'general.show_on_pages', 'general.exclude_pages' ),
                         'provider'  => array( 'provider.provider', 'provider.api_key', 'provider.base_url', 'provider.model', 'provider.embedding_model', 'provider.image_model', 'provider.timeout', 'provider.max_tokens', 'provider.allow_localhost', 'provider.adapter', 'provider.temperature', 'provider.retries', 'provider.proxy_host', 'provider.proxy_port', 'provider.proxy_username', 'provider.proxy_password' ),
-                        'appearance'=> array( 'appearance.primary_color', 'appearance.secondary_color', 'appearance.bg_color', 'appearance.text_color', 'appearance.theme_mode', 'appearance.dark_bg', 'appearance.dark_text', 'appearance.dark_bubble', 'appearance.font', 'appearance.font_size', 'appearance.border_radius', 'appearance.button_size', 'appearance.welcome_message', 'appearance.placeholder', 'appearance.custom_icon', 'appearance.custom_css' ),
+                        'appearance'=> array( 'appearance.skin', 'appearance.primary_color', 'appearance.secondary_color', 'appearance.bg_color', 'appearance.text_color', 'appearance.theme_mode', 'appearance.dark_bg', 'appearance.dark_text', 'appearance.dark_bubble', 'appearance.font', 'appearance.font_size', 'appearance.border_radius', 'appearance.button_size', 'appearance.welcome_message', 'appearance.placeholder', 'appearance.custom_icon', 'appearance.custom_css' ),
                         'advanced'  => array( 'advanced.enable_rag', 'advanced.kb_enabled', 'advanced.kb_post_types', 'advanced.kb_chunk_words', 'advanced.kb_overlap_words', 'advanced.kb_categories', 'advanced.kb_max_file_kb', 'advanced.enable_cache', 'advanced.cache_ttl', 'advanced.rate_limit_count', 'advanced.rate_limit_minutes', 'advanced.token_ttl_minutes', 'advanced.max_message_chars', 'advanced.daily_request_cap', 'advanced.daily_cap_message', 'advanced.daily_user_cap', 'advanced.daily_user_cap_message', 'advanced.log_conversations', 'advanced.log_retention_days', 'advanced.usage_retention', 'advanced.guest_access', 'advanced.login_required_message', 'advanced.ip_header' ),
                 );
                 foreach ( $core as $tab_keys ) {
@@ -1900,7 +1915,7 @@ final class Haa_Settings {
 
                 // Module tabs.
                 $module_fields = array(
-                        'chatbot'          => array( 'chat.system_prompt', 'chat.max_history', 'chat.context_chunks', 'chat.context_max_chars', 'chat.suggested_questions', 'chat.error_message', 'chat.typing_indicator', 'chat.offline_enabled', 'chat.offline_start', 'chat.offline_end', 'chat.offline_message', 'chat.save_history', 'chat.history_retention', 'chat.lead_capture', 'chat.lead_requirement', 'chat.lead_name_label', 'chat.lead_phone_label', 'chat.lead_consent_text' ),
+                        'chatbot'          => array( 'chat.system_prompt', 'chat.max_history', 'chat.context_chunks', 'chat.context_max_chars', 'chat.suggested_questions', 'chat.error_message', 'chat.typing_indicator', 'chat.offline_enabled', 'chat.offline_start', 'chat.offline_end', 'chat.offline_message', 'chat.save_history', 'chat.history_retention', 'chat.lead_capture', 'chat.lead_requirement', 'chat.lead_name_label', 'chat.lead_phone_label', 'chat.lead_consent_text', 'chat.contact_whatsapp', 'chat.contact_telegram', 'chat.contact_phone', 'chat.contact_page', 'chat.contact_note' ),
                         'semantic-search'  => array( 'search.enabled', 'search.limit', 'search.min_score', 'search.include_products', 'search.include_posts', 'search.include_pages', 'search.embeddings', 'search.hybrid', 'search.semantic_weight', 'search.keyword_weight', 'search.chunk_cap', 'search.max_vectors' ),
                         'news'             => array( 'news.enabled', 'news.feeds', 'news.max_per_run', 'news.daily_cap', 'news.lookback_hours', 'news.default_status', 'news.default_category', 'news.min_words', 'news.quote_source' ),
                         'video-article'    => array( 'video.enabled', 'video.min_chars', 'video.max_words', 'video.default_status', 'video.default_category', 'video.fetch_captions' ),

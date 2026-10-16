@@ -1133,8 +1133,8 @@ final class Haa_Admin {
 		if ( 'appearance' === $tab ) {
 			return array(
 				'colors' => array(
-					'label' => __( 'رنگ‌ها (حالت روشن)', 'hami-ai-assistant' ),
-					'match' => array( 'primary_color', 'secondary_color', 'bg_color', 'text_color' ),
+					'label' => __( 'استایل و رنگ‌ها (حالت روشن)', 'hami-ai-assistant' ),
+					'match' => array( 'skin', 'primary_color', 'secondary_color', 'bg_color', 'text_color' ),
 				),
 				'dark'   => array(
 					'label' => __( 'حالت تیره (دارک)', 'hami-ai-assistant' ),
@@ -1351,6 +1351,7 @@ final class Haa_Admin {
 			$fields[] = array( 'key' => 'provider.proxy_username', 'type' => 'text', 'label' => __( 'پراکسی — نام کاربری', 'hami-ai-assistant' ) );
 			$fields[] = array( 'key' => 'provider.proxy_password', 'type' => 'secret', 'label' => __( 'پراکسی — رمز عبور', 'hami-ai-assistant' ), 'hint' => __( 'به‌صورت رمزنگاری‌شده ذخیره و در فرم فقط ماسک نمایش داده می‌شود.', 'hami-ai-assistant' ) );
 		} elseif ( 'appearance' === $tab ) {
+			$fields[] = array( 'key' => 'appearance.skin', 'type' => 'select', 'label' => __( 'استایل ویجت', 'hami-ai-assistant' ), 'choices' => array( 'standard' => __( 'استاندارد', 'hami-ai-assistant' ), 'gradient' => __( 'گرادیانت', 'hami-ai-assistant' ), 'glass' => __( 'گلس (شیشه‌ای)', 'hami-ai-assistant' ) ), 'hint' => __( 'گرادیانت: سرتیتر و حباب‌ها با گرادیانت متحرک. گلس: پنل شیشه‌ای مات و نیمه‌شفاف. هر دو با حالت روشن و تیره کار می‌کنند.', 'hami-ai-assistant' ) );
 			$fields[] = array( 'key' => 'appearance.primary_color', 'type' => 'color', 'label' => __( 'رنگ اصلی', 'hami-ai-assistant' ) );
 			$fields[] = array( 'key' => 'appearance.secondary_color', 'type' => 'color', 'label' => __( 'رنگ حباب پاسخ', 'hami-ai-assistant' ) );
 			$fields[] = array( 'key' => 'appearance.bg_color', 'type' => 'color', 'label' => __( 'رنگ پس‌زمینه', 'hami-ai-assistant' ) );

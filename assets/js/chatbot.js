@@ -37,6 +37,11 @@
 				? typing.querySelector('.haai-msg__avatar').outerHTML
 				: '';
 
+		// The visitor's own row gets a neutral person chip, mirrored to the outer
+		// edge by CSS (.haai-msg--user is row-reversed in RTL) so both sides of
+		// the thread feel "staffed".
+		var USER_AVATAR_HTML = '<span class="haai-msg__avatar haai-msg__avatar--user" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 12.2c2.6 0 4.7-2.1 4.7-4.8S14.6 2.6 12 2.6 7.3 4.7 7.3 7.4s2.1 4.8 4.7 4.8zm0 2.2c-3.1 0-9.4 1.6-9.4 4.8v2.2h18.8v-2.2c0-3.2-6.3-4.8-9.4-4.8z" fill="currentColor"/></svg></span>';
+
 	var history = [];
 	var token = null;
 	var pending = false;
@@ -98,26 +103,20 @@
 		if (!messages) return null;
 		var wrap = document.createElement('div');
 		wrap.className = 'haai-msg haai-msg--' + (role === 'user' ? 'user' : 'bot');
-		if (role !== 'user' && AVATAR_HTML) {
-			wrap.insertAdjacentHTML('beforeend', AVATAR_HTML);
+		if (role !== 'user') {
+			if (AVATAR_HTML) wrap.insertAdjacentHTML('beforeend', AVATAR_HTML);
+		} else {
+			wrap.insertAdjacentHTML('beforeend', USER_AVATAR_HTML);
 		}
 
 		var bubble = document.createElement('div');
 		bubble.className = 'haai-msg__bubble';
-		bubble.textContent = text;
-
 		if (role !== 'user') {
-			var copy = document.createElement('button');
-			copy.type = 'button';
-			copy.className = 'haai-msg__copy';
-			copy.textContent = I.copy || 'کپی';
-			copy.setAttribute('aria-label', I.copy || 'کپی');
-			copy.addEventListener('click', function () {
-				copyText(text).then(function () {
-					copy.classList.add('is-done');
-				});
-			});
-			bubble.appendChild(copy);
+			// Bot replies may carry the configured support links: escape first,
+			// then linkify ONLY http(s) URLs — no markdown, no other tags.
+			bubble.innerHTML = linkify(text);
+		} else {
+			bubble.textContent = text;
 		}
 
 		wrap.appendChild(bubble);
@@ -126,20 +125,15 @@
 		return wrap;
 	}
 
-	function copyText(text) {
-		if (navigator.clipboard && navigator.clipboard.writeText) {
-			return navigator.clipboard.writeText(text);
-		}
-		return new Promise(function (resolve) {
-			var ta = document.createElement('textarea');
-			ta.value = text;
-			ta.setAttribute('readonly', '');
-			ta.style.cssText = 'position:fixed;top:-9999px;opacity:0';
-			document.body.appendChild(ta);
-			ta.select();
-			try { document.execCommand('copy'); } catch (e) { /* older browsers */ }
-			document.body.removeChild(ta);
-			resolve();
+	function linkify(text) {
+		var esc = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+		return esc.replace(/https?:\/\/[^\s<>"']+/g, function (m) {
+			var trail = '';
+			while (m && /[.,;:!?»)\]…،؛]$/.test(m)) {
+				trail = m.slice(-1) + trail;
+				m = m.slice(0, -1);
+			}
+			return '<a href="' + m + '" target="_blank" rel="noopener noreferrer nofollow">' + m + '</a>' + trail;
 		});
 	}
 
