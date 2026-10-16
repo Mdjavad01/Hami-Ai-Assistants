@@ -124,7 +124,7 @@ function haa_css_vars( $s ) {
                 . '--haai-radius:' . $px( $a['border_radius'] ?? 16 ) . ';'
                 . '--haai-fs:' . $px( $a['font_size'] ?? 14 ) . ';'
                 . '--haai-btn-size:' . $px( $a['button_size'] ?? 56 ) . ';'
-                . '--haai-font:' . haa_font_stack( $a['font'] ?? 'system' ) . ';';
+                . '--haai-font:' . haa_font_stack( $a['font'] ?? 'vazirmatn' ) . ';';
 }
 
 /**
@@ -232,7 +232,11 @@ function haa_font_stack( $family ) {
  */
 function haa_font_face( $family ) {
         $map = array(
-                'vazirmatn' => array( 'Vazirmatn-Regular.woff2', 'Vazirmatn' ),
+                // One variable face covers every weight the admin UI and the widget
+                // use (400-700) in a single ~111KB woff2. Downloaded only where the
+                // plugin actually renders text (admin pages, opened widget), never
+                // on the rest of the site, and never from a CDN.
+                'vazirmatn' => array( 'Vazirmatn-var.woff2', 'Vazirmatn', '100 900' ),
                 'iransans'  => array( 'IRANSans.woff2', 'IRANSans' ),
                 'dana'      => array( 'Dana-Regular.woff2', 'Dana' ),
                 'yekan'     => array( 'YekanBakh-Regular.woff2', 'YekanBakh' ),
@@ -240,12 +244,15 @@ function haa_font_face( $family ) {
         if ( ! isset( $map[ $family ] ) ) {
                 return '';
         }
-        list( $file, $name ) = $map[ $family ];
-        $path = HAAI_PATH . 'assets/fonts/' . $file;
+        $row    = $map[ $family ];
+        $file   = (string) $row[0];
+        $name   = (string) $row[1];
+        $weight = isset( $row[2] ) ? (string) $row[2] : '400';
+        $path   = HAAI_PATH . 'assets/fonts/' . $file;
         if ( ! is_readable( $path ) ) {
                 return '';
         }
-        return '@font-face{font-family:"' . $name . '";src:url("' . HAAI_URL . 'assets/fonts/' . $file . '") format("woff2");font-weight:400;font-style:normal;font-display:swap;}';
+        return '@font-face{font-family:"' . $name . '";src:url("' . HAAI_URL . 'assets/fonts/' . $file . '") format("woff2");font-weight:' . $weight . ';font-style:normal;font-display:swap;}';
 }
 
 /**
@@ -493,6 +500,12 @@ final class Haa_Plugin {
 
                 // REST runs in both contexts: the cached frontend calls /token and /chat.
                 Haa_REST::hooks();
+
+                // Knowledge-base chunk maintenance belongs to core — NOT to the
+                // semantic-search module: the chatbot's RAG needs fresh chunks even
+                // on sites that never turn that module on. Priority 9 so the module's
+                // priority-10 hook always finds fresh rows when it embeds.
+                add_action( 'save_post', array( 'Haa_Search', 'on_save_post' ), 9 );
 
                 if ( is_admin() ) {
                         $this->admin = new Haa_Admin();

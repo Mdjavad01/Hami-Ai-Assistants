@@ -212,6 +212,58 @@ class Fake_WPDB {
                         }
                         return $out;
                 }
+                // ---- Knowledge base: BM25 candidates over the chunks table ----
+                if ( preg_match( '/FROM\s+\S*haai_chunks\s+c\s+INNER JOIN/i', $q ) && false !== strpos( $q, 'content_norm LIKE' ) ) {
+                        $needles = array();
+                        if ( preg_match_all( "/LIKE '([^']*)'/i", $q, $m ) ) {
+                                foreach ( $m[1] as $n ) {
+                                        $needles[] = trim( stripslashes( (string) $n ), '%' );
+                                }
+                        }
+                        $out = array();
+                        foreach ( (array) $GLOBALS['chunk_rows'] as $c ) {
+                                if ( ! isset( $c['content_norm'] ) ) {
+                                        continue; // Seeded metadata rows, not real chunks.
+                                }
+                                $hay = (string) $c['content_norm'] . ' ' . (string) ( $c['title'] ?? '' );
+                                foreach ( $needles as $n ) {
+                                        if ( '' !== $n && false !== stripos( $hay, $n ) ) {
+                                                $out[] = $c;
+                                                break;
+                                        }
+                                }
+                        }
+                        return $out;
+                }
+                // ---- Live wp_posts fallback (RAG without a built index) ----
+                if ( preg_match( '/FROM\s+\S*posts\s+p\s+WHERE/i', $q ) && false !== strpos( $q, 'post_title LIKE' ) ) {
+                        $types = array( 'post', 'page' );
+                        if ( preg_match( '/post_type IN \(([^)]*)\)/i', $q, $tm ) ) {
+                                $types = array_map( 'trim', explode( ',', str_replace( "'", '', $tm[1] ) ) );
+                        }
+                        $needles = array();
+                        if ( preg_match_all( "/LIKE '([^']*)'/i", $q, $m ) ) {
+                                foreach ( $m[1] as $n ) {
+                                        $needles[] = trim( stripslashes( (string) $n ), '%' );
+                                }
+                        }
+                        $out = array();
+                        foreach ( (array) $GLOBALS['posts'] as $p ) {
+                                $type   = isset( $p['type'] ) ? (string) $p['type'] : 'page';
+                                $status = isset( $p['status'] ) ? (string) $p['status'] : 'publish';
+                                if ( ! in_array( $type, $types, true ) || 'publish' !== $status ) {
+                                        continue;
+                                }
+                                $body = isset( $GLOBALS['post_content'][ (int) $p['id'] ] ) ? (string) $GLOBALS['post_content'][ (int) $p['id'] ] : '';
+                                foreach ( $needles as $n ) {
+                                        if ( '' !== $n && ( false !== stripos( (string) $p['title'], $n ) || false !== stripos( $body, $n ) ) ) {
+                                                $out[] = array( 'post_id' => (int) $p['id'], 'title' => (string) $p['title'], 'content' => $body );
+                                                break;
+                                        }
+                                }
+                        }
+                        return $out;
+                }
                 return array();
         }
         public function get_col( $q = '' ) {
@@ -291,12 +343,20 @@ class Fake_WPDB {
         /** In-memory rows for a query's table. @return array */
         private function rows_for( $q ) {
                 $key = $this->key_for( $q );
+                if ( 'chunk_rows' === $key ) {
+                        return (array) $GLOBALS['chunk_rows'];
+                }
                 return isset( $GLOBALS['db'][ $key ] ) ? (array) $GLOBALS['db'][ $key ] : array();
         }
 
         /** @return void */
         private function set_rows( $q, $rows ) {
-                $GLOBALS['db'][ $this->key_for( $q ) ] = (array) $rows;
+                $key = $this->key_for( $q );
+                if ( 'chunk_rows' === $key ) {
+                        $GLOBALS['chunk_rows'] = (array) $rows;
+                        return;
+                }
+                $GLOBALS['db'][ $key ] = (array) $rows;
         }
 
         /** Which in-memory table a query or table name refers to. @return string */
@@ -304,6 +364,7 @@ class Fake_WPDB {
                 $name = (string) $name;
                 if ( false !== strpos( $name, 'news_items' ) ) { return 'news_items'; }
                 if ( false !== strpos( $name, 'prog_items' ) )  { return 'prog_items'; }
+                if ( false !== strpos( $name, 'haai_chunks' ) ) { return 'chunk_rows'; }
                 return 'topics';
         }
 
@@ -331,6 +392,19 @@ class Fake_WPDB {
         }
 
         public function delete( $table, $where, $wm = array() ) {
+                // remove_post() deletes chunks by post_id, not by row id.
+                if ( isset( $where['post_id'] ) ) {
+                        $pid     = (int) $where['post_id'];
+                        $rows    = $this->rows_for( $table );
+                        $kept    = array();
+                        $removed = 0;
+                        foreach ( $rows as $row ) {
+                                if ( (int) ( $row['post_id'] ?? 0 ) === $pid ) { $removed++; continue; }
+                                $kept[] = $row;
+                        }
+                        $this->set_rows( $table, $kept );
+                        return $removed;
+                }
                 $id      = (int) $where['id'];
                 $rows    = $this->rows_for( $table );
                 $kept    = array();
@@ -343,6 +417,11 @@ class Fake_WPDB {
                 return $removed;
         }
         public function prepare( $q, ...$a ) {
+                // Real WP unpacks a single array argument into the placeholder list
+                // (wpdb::prepare legacy style: prepare($sql, $params_array)).
+                if ( 1 === count( $a ) && is_array( $a[0] ) ) {
+                        $a = $a[0];
+                }
                 // Positional, single pass: a naive per-argument preg_replace would match
                 // the "%s" inside a value such as '%shoes-v%' and corrupt the query.
                 $i   = 0;
@@ -695,6 +774,15 @@ function sanitize_key( $t ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolo
 function sanitize_email( $t ) { return $t; }
 function sanitize_html_class( $t ) { return preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $t ); }
 function wp_strip_all_tags( $t ) { return strip_tags( (string) $t ); }
+
+/** @return int */
+function wp_is_post_revision( $id ) { return 0; }
+
+/** @return int */
+function wp_is_post_autosave( $id ) { return 0; }
+
+/** @param string $t @return string */
+function strip_shortcodes( $t ) { return preg_replace( '/\[[^\]]*\]/', '', (string) $t ); }
 function wp_kses_post( $t ) { return $t; }
 function wp_kses( $t, $a ) { return $t; }
 function wp_unslash( $v ) { return $v; }
