@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.7
+ * Version:           2.1.8
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.7' );
+define( 'HAAI_VERSION', '2.1.8' );
 define( 'HAAI_DB_VERSION', '7' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
@@ -288,7 +288,7 @@ function haa_public_config() {
         $g = $s['general'];
         $b = $s['chat'] ?? array();
 
-        return array(
+        $config = array(
                 'i18n'      => array(
                         'offline' => $b['offline_message'] ?? '',
                         'error'   => $b['error_message'] ?? '',
@@ -326,7 +326,30 @@ function haa_public_config() {
                                 'required' => (string) ( $b['lead_requirement'] ?? 'off' ),
                                 'consent'  => (string) ( $b['lead_consent_text'] ?? '' ),
                         ),
+                );
+
+        // Live human handoff, only when the chatbot asks for it. The offer text is
+        // filterable so shops can phrase it like their brand.
+        $config['handoff'] = array(
+                'enabled' => (bool) ( $b['handoff_enabled'] ?? 0 ),
+                'after'   => (int) ( $b['handoff_after'] ?? 2 ),
+                'consent' => (string) ( $b['lead_consent_text'] ?? '' ),
+                'i18n'    => array(
+                        'title'    => apply_filters( 'haai_handoff_title', __( 'گفتگو با پشتیبان انسانی', 'hami-ai-assistant' ) ),
+                        'intro'    => apply_filters( 'haai_handoff_intro', __( 'نام و شماره‌ی خود را بگذارید؛ کارشناس ما به‌زودی با شما تماس می‌گیرد.', 'hami-ai-assistant' ) ),
+                        'note'     => __( 'موضوع (اختیاری)', 'hami-ai-assistant' ),
+                        'send'     => __( 'ثبت درخواست تماس', 'hami-ai-assistant' ),
+                        'sending'  => __( 'در حال ارسال…', 'hami-ai-assistant' ),
+                        'done'     => __( 'درخواست شما ثبت شد. کارشناس ما به‌زودی با شما تماس می‌گیرد.', 'hami-ai-assistant' ),
+                        'doneMail' => __( 'درخواست شما ثبت شد. برای پاسخ سریع‌تر از راه‌های ارتباطی زیر استفاده کنید.', 'hami-ai-assistant' ),
+                        'wa'       => __( 'ادامه در واتساپ', 'hami-ai-assistant' ),
+                        'fail'     => __( 'ثبت درخواست ممکن نشد. لطفاً دوباره تلاش کنید.', 'hami-ai-assistant' ),
+                        'offer'    => apply_filters( 'haai_handoff_offer', __( 'اگر می‌خواهید با یک کارشناس انسانی صحبت کنید، همین‌جا درخواست تماس بگذارید.', 'hami-ai-assistant' ) ),
+                        'openForm' => __( 'درخواست تماس پشتیبان', 'hami-ai-assistant' ),
+                ),
         );
+
+        return $config;
 }
 
 /**

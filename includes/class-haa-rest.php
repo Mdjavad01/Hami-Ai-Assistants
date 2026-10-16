@@ -56,6 +56,16 @@ final class Haa_REST {
 				'permission_callback' => array( __CLASS__, 'is_chat_allowed' ),
 			)
 		);
+
+		register_rest_route(
+			HAAI_REST_NS,
+			'/handoff',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'post_handoff' ),
+				'permission_callback' => array( __CLASS__, 'is_chat_allowed' ),
+			)
+		);
 	}
 
 	/**
@@ -299,6 +309,11 @@ final class Haa_REST {
 		$history = self::sanitize_history( (array) $request->get_param( 'history' ) );
 		$extra   = self::sanitize_lead_fields( $request );
 
+		// Where the visitor is standing: the browser reports its own page
+		// title, the server never spends a query resolving the URL.
+		$extra['page_title'] = Haa_Util::cut( sanitize_text_field( (string) $request->get_param( 'page_title' ) ), 120 );
+		$extra['page_url']   = esc_url_raw( (string) $request->get_param( 'url' ) );
+
 		$result = Haa_Chat::ask( $message, $history, $identifier, $extra );
 
 		if ( empty( $result['ok'] ) ) {
@@ -319,9 +334,71 @@ final class Haa_REST {
 				'reply'     => sanitize_textarea_field( (string) $result['reply'] ),
 				'cached'    => (bool) $result['cached'],
 				'offline'   => (bool) $result['offline'],
+				'handoff'   => ! empty( $result['handoff'] ),
 				'suggested' => array_values( array_slice( array_map( 'sanitize_text_field', (array) ( isset( $result['suggested'] ) ? $result['suggested'] : array() ) ), 0, 8 ) ),
 			)
 		);
+	}
+
+	/**
+	 * Live human handoff: the visitor trades their name + mobile for a real
+	 * person. Same armor as /chat — token, honeypot, rate limit, per-identity
+	 * daily cap — because it is equally public and equally abusable.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public static function post_handoff( WP_REST_Request $request ) {
+		if ( empty( Haa_Settings::get( 'chat.handoff_enabled' ) ) ) {
+			return new WP_Error( 'haai_handoff_off', __( 'گفتگوی زنده فعال نیست.', 'hami-ai-assistant' ), array( 'status' => 404 ) );
+		}
+
+		$hp = (string) $request->get_param( 'hp' );
+		if ( '' !== trim( $hp ) ) {
+			return new WP_Error( 'haai_spam', __( 'درخواست نامعتبر بود.', 'hami-ai-assistant' ), array( 'status' => 400 ) );
+		}
+
+		$token = (string) $request->get_param( 'token' );
+		if ( '' === $token ) {
+			$token = (string) $request->get_header( 'x_hami_token' );
+		}
+		if ( ! self::verify_token( $token ) ) {
+			return new WP_Error( 'haai_bad_token', __( 'توکن چت منقضی شده است. صفحه را تازه‌سازی کنید.', 'hami-ai-assistant' ), array( 'status' => 403 ) );
+		}
+
+		$identifier = self::identifier();
+		$limited    = Haa_Chat::rate_limit_status( $identifier );
+		if ( is_wp_error( $limited ) ) {
+			$limited->add_data( array( 'status' => 429 ) );
+			return $limited;
+		}
+		// Deliberately NOT the per-identity daily chat cap: the visitor asking
+		// for a human is often the one who just exhausted the bot. The hourly
+		// rate limit above already keeps notification spam bounded.
+
+		$data = array(
+			'name'  => (string) $request->get_param( 'name' ),
+			'phone' => (string) $request->get_param( 'phone' ),
+			'note'  => (string) $request->get_param( 'note' ),
+		);
+		$page_url = esc_url_raw( (string) $request->get_param( 'url' ) );
+		$last_msg = (string) $request->get_param( 'last_message' );
+
+		$result = Haa_Chat::handoff( $data, $identifier, $page_url, $last_msg );
+		if ( empty( $result['ok'] ) ) {
+			return new WP_Error( 'haai_handoff_failed', (string) $result['error'], array( 'status' => 400 ) );
+		}
+
+		$res = rest_ensure_response(
+			array(
+				'ok'       => true,
+				'notified' => (bool) $result['notified'],
+				'wa'       => $result['wa'] ? esc_url_raw( (string) $result['wa'] ) : '',
+				'message'  => (string) Haa_Settings::get( 'chat.contact_note', '' ),
+			)
+		);
+		$res->header( 'Cache-Control', 'no-store, must-revalidate, max-age=0' );
+		return $res;
 	}
 
 	/* ------------------------------------------------------------------

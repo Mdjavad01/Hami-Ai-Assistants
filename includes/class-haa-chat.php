@@ -130,6 +130,14 @@ final class Haa_Chat {
                 // a real, bounded WooCommerce code or drop the sentence entirely.
                 $reply = self::resolve_discount_marker( $reply, $identifier );
 
+                // The model may ask for a human the same way; the flag rides to the
+                // widget, the marker never reaches the visitor.
+                $handoff = false;
+                if ( false !== strpos( $reply, '[[HANDOFF]]' ) ) {
+                        $reply   = trim( str_replace( '[[HANDOFF]]', '', $reply ) );
+                        $handoff = true;
+                }
+
                 if ( $cache_key ) {
                         Haa_DB::set_cached( $cache_key, $reply, (int) $s['advanced']['cache_ttl'] );
                 }
@@ -143,9 +151,10 @@ final class Haa_Chat {
                 return array_merge(
                         $out,
                         array(
-                                'ok'     => true,
-                                'reply'  => $reply,
-                                'tokens' => $api->estimate_tokens( $messages ) + $api->estimate_tokens( array( array( 'content' => $reply ) ) ),
+                                'ok'      => true,
+                                'reply'   => $reply,
+                                'handoff' => $handoff,
+                                'tokens'  => $api->estimate_tokens( $messages ) + $api->estimate_tokens( array( array( 'content' => $reply ) ) ),
                         )
                 );
         }
@@ -328,6 +337,198 @@ final class Haa_Chat {
         }
 
         /**
+         * Live human handoff. Validates the visitor's name + mobile, stores the
+         * request (logs table always; leads table too when the leads module is
+         * on) and pings the admin on Bale / Telegram so they can reach the
+         * visitor on WhatsApp or by phone. Storage and notification only — no
+         * schema, no recurring cost, one HTTP call per configured channel.
+         *
+         * @param array  $data       name, phone, note, consent.
+         * @param string $identifier Rate-limit identity.
+         * @param string $page_url   Page the visitor is on.
+         * @param string $last_msg   Their last chat message, when available.
+         * @return array{ok:bool,error:?string,wa:?string,notified:bool}
+         */
+        public static function handoff( $data, $identifier = '', $page_url = '', $last_msg = '' ) {
+                $name  = Haa_Util::cut( sanitize_text_field( (string) ( $data['name'] ?? '' ) ), 120 );
+                // normalize_ir_mobile() returns 09XXXXXXXXX (or '') — its own gate
+                // already validated the Iranian mobile format.
+                $phone = Haa_Util::normalize_ir_mobile( (string) ( $data['phone'] ?? '' ) );
+                $note  = Haa_Util::cut( sanitize_textarea_field( (string) ( $data['note'] ?? '' ) ), 500 );
+
+                if ( '' === $phone || ! preg_match( '/^09\d{9}$/', $phone ) ) {
+                        return array( 'ok' => false, 'error' => __( 'شماره موبایل معتبر وارد کنید (مثل ۰۹۱۲…).', 'hami-ai-assistant' ), 'wa' => null, 'notified' => false );
+                }
+                if ( '' === $name ) {
+                        return array( 'ok' => false, 'error' => __( 'نام خود را وارد کنید.', 'hami-ai-assistant' ), 'wa' => null, 'notified' => false );
+                }
+
+                $now      = current_time( 'mysql', true );
+                $last_msg = Haa_Util::cut( sanitize_textarea_field( (string) $last_msg ), 300 );
+
+                // 1) Request queue: one row in the core logs table (always present
+                //    for a working chatbot). role='handoff' makes it filterable.
+                global $wpdb;
+                $wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                        Haa_DB::table( 'logs' ),
+                        array(
+                                'session_id' => substr( (string) $identifier, 0, 64 ),
+                                'user_id'    => get_current_user_id(),
+                                'ip'         => Haa_REST::client_ip(),
+                                'role'       => 'handoff',
+                                'message'    => wp_json_encode(
+                                        array(
+                                                'name'  => $name,
+                                                'phone' => $phone,
+                                                'note'  => $note,
+                                                'page'  => esc_url_raw( (string) $page_url ),
+                                        )
+                                ),
+                                'response'   => $last_msg,
+                                'provider'   => 'handoff',
+                                'model'      => '',
+                                'status'     => 'new',
+                                'tokens'     => 0,
+                                'created'    => $now,
+                        ),
+                        array( '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
+                );
+
+                // 2) CRM trail: reuse the leads row when the leads module keeps its
+                //    table — a handoff is a lead with a phone, nothing new to store.
+                if ( Haa_Settings::is_module_enabled( 'leads' ) && class_exists( 'Haa_Module_Leads' ) ) {
+                        $leads = Haa_DB::table( 'leads' );
+                        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                        $exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$leads} WHERE phone = %s ORDER BY id DESC LIMIT 1", $phone ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                        if ( $exists ) {
+                                // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                                $wpdb->update(
+                                        $leads,
+                                        array(
+                                                'name'          => $name,
+                                                'stage'         => 'handoff',
+                                                'consent_text'  => (string) Haa_Settings::get( 'chat.lead_consent_text', '' ),
+                                                'consent_at'    => $now,
+                                                'last_activity' => $now,
+                                                'updated'       => $now,
+                                        ),
+                                        array( 'id' => (int) $exists ),
+                                        array( '%s', '%s', '%s', '%s', '%s', '%s' ),
+                                        array( '%d' )
+                                );
+                        } else {
+                                // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                                $wpdb->insert(
+                                        $leads,
+                                        array(
+                                                'name'          => $name,
+                                                'phone'         => $phone,
+                                                'lead_type'     => 'handoff',
+                                                'source'        => 'chatbot',
+                                                'stage'         => 'new',
+                                                'summary'       => $note ? $note : $last_msg,
+                                                'consent_text'  => (string) Haa_Settings::get( 'chat.lead_consent_text', '' ),
+                                                'consent_at'    => $now,
+                                                'ip'            => Haa_REST::client_ip(),
+                                                'created'       => $now,
+                                                'updated'       => $now,
+                                        ),
+                                        array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
+                                );
+                        }
+                }
+
+                // 3) Admin ping on Bale / Telegram. Bale first: it is reachable from
+                //    Iranian hosts where api.telegram.org is filtered. Links need the
+                //    international form (98…), storage keeps the local 0… form.
+                $intl = '98' . substr( $phone, 1 );
+                $msg = sprintf(
+                        "درخواست گفتگوی زنده\nسایت: %s\nنام: %s\nموبایل: %s\nواتساپ مستقیم: https://wa.me/%s\nتماس: tel:+%s",
+                        get_bloginfo( 'name' ),
+                        $name,
+                        $phone,
+                        $intl,
+                        $intl
+                );
+                if ( '' !== $note ) {
+                        $msg .= "\nیادداشت کاربر: " . $note;
+                }
+                if ( '' !== $last_msg ) {
+                        $msg .= "\nآخرین پیام در چت: " . $last_msg;
+                }
+                if ( '' !== (string) $page_url ) {
+                        $msg .= "\nصفحه: " . esc_url_raw( (string) $page_url );
+                }
+                $msg .= "\nپیشخوان: " . admin_url( 'admin.php?page=haai-settings&tab=conversations' );
+
+                $notified = self::notify_admin( $msg );
+
+                $wa = (string) Haa_Settings::get( 'chat.contact_whatsapp', '' );
+                return array(
+                        'ok'       => true,
+                        'error'    => null,
+                        'wa'       => '' !== $wa ? $wa : null,
+                        'notified' => $notified,
+                );
+        }
+
+        /**
+         * Send one text to every configured admin channel. A channel that is not
+         * configured is skipped; a channel that fails is logged and the others
+         * still run. Base URLs are filterable so relays can substitute the
+         * filtered api.telegram.org.
+         *
+         * @param string $text Plain text.
+         * @return bool True when at least one channel accepted the message.
+         */
+        private static function notify_admin( $text ) {
+                $s = Haa_Settings::get();
+                $c = isset( $s['chat'] ) ? $s['chat'] : array();
+                $sent = false;
+
+                $channels = array(
+                        'bale' => array(
+                                'token' => trim( (string) ( $c['notify_bale_token'] ?? '' ) ),
+                                'chat'  => trim( (string) ( $c['notify_bale_chat'] ?? '' ) ),
+                                'base'  => apply_filters( 'haai_bale_api_base', 'https://tapi.bale.ai' ),
+                        ),
+                        'tg'   => array(
+                                'token' => trim( (string) ( $c['notify_tg_token'] ?? '' ) ),
+                                'chat'  => trim( (string) ( $c['notify_tg_chat'] ?? '' ) ),
+                                'base'  => apply_filters( 'haai_tg_api_base', 'https://api.telegram.org' ),
+                        ),
+                );
+
+                foreach ( $channels as $key => $ch ) {
+                        if ( '' === $ch['token'] || '' === $ch['chat'] ) {
+                                continue;
+                        }
+                        $res = wp_remote_post(
+                                $ch['base'] . '/bot' . rawurlencode( $ch['token'] ) . '/sendMessage',
+                                array(
+                                        'timeout'  => 5,
+                                        'blocking' => true,
+                                        'headers'  => array( 'Content-Type' => 'application/json; charset=utf-8' ),
+                                        'body'     => wp_json_encode(
+                                                array(
+                                                        'chat_id' => $ch['chat'],
+                                                        'text'    => $text,
+                                                )
+                                        ),
+                                )
+                        );
+                        $code = is_wp_error( $res ) ? 0 : (int) wp_remote_retrieve_response_code( $res );
+                        if ( 200 <= $code && 300 > $code ) {
+                                $sent = true;
+                        } elseif ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                                $err = is_wp_error( $res ) ? $res->get_error_message() : (string) $code;
+                                error_log( '[HAAI][handoff] notify ' . $key . ' failed: ' . $err ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+                        }
+                }
+                return $sent;
+        }
+
+        /**
          * @param string $message Current message.
          * @param array  $history Turns.
          * @param string $context Retrieved context.
@@ -385,6 +586,66 @@ final class Haa_Chat {
                         $system .= "
 
 " . $contact;
+                }
+
+                // Tone preset: one line appended to the admin's own prompt, never a
+                // replacement — the admin's text stays the single source of truth.
+                $tone = (string) Haa_Settings::get( 'chat.tone', 'default' );
+                if ( 'formal' === $tone ) {
+                        $system .= "
+
+" . __( 'لحن: رسمی و محترمانه. از شوخی و صمیمیت بیش از حد پرهیز کن و جملات کامل و اداری بنویس.', 'hami-ai-assistant' );
+                } elseif ( 'friendly' === $tone ) {
+                        $system .= "
+
+" . __( 'لحن: صمیمی و دوستانه، مثل یک فروشنده‌ی خوش‌برخورد؛ اما دقیق و حرفه‌ای بمان.', 'hami-ai-assistant' );
+                } elseif ( 'playful' === $tone ) {
+                        $system .= "
+
+" . __( 'لحن: شاد و پرانرژی با شوخی‌های کوتاه؛ حرفه‌ای بودن و دقت پاسخ قربانی نشود.', 'hami-ai-assistant' );
+                }
+
+                // Page context: the visitor's browser reports where it is, so the bot
+                // can tie the answer to the exact product/article being viewed.
+                // Zero queries — the title travels with the request.
+                if ( ! empty( Haa_Settings::get( 'chat.page_context' ) ) && ! empty( $extra['page_title'] ) ) {
+                        $ptitle = Haa_Util::cut( wp_strip_all_tags( (string) $extra['page_title'] ), 120 );
+                        $purl   = '';
+                        if ( ! empty( $extra['page_url'] ) ) {
+                                $ph = (string) wp_parse_url( (string) $extra['page_url'], PHP_URL_HOST );
+                                $hh = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+                                if ( '' !== $ph && strtolower( $ph ) === strtolower( $hh ) ) {
+                                        $purl = esc_url_raw( (string) $extra['page_url'] );
+                                }
+                        }
+                        if ( '' !== $ptitle ) {
+                                $system .= "
+
+" . sprintf(
+                                        /* translators: 1: page title. 2: optional URL. */
+                                        __( 'کاربر در حال حاضر در صفحه‌ی «%1$s» است%2$s. اگر این صفحه به سؤالش مربوط است، پاسخ را به همین صفحه وصل کن و لینکش را تکرار نکن.', 'hami-ai-assistant' ),
+                                        $ptitle,
+                                        $purl ? ' (' . $purl . ')' : ''
+                                );
+                        }
+                }
+
+                // Admin-typed knowledge. Plain text appended to the prompt — the
+                // lightest possible way to teach the bot site-specific facts.
+                $knowledge = trim( (string) Haa_Settings::get( 'chat.custom_knowledge', '' ) );
+                if ( '' !== $knowledge ) {
+                        $system .= "
+
+" . __( 'دانش اختصاصی سایت (بر اساس این هم دقیق پاسخ بده):', 'hami-ai-assistant' ) . "
+" . Haa_Util::cut( wp_strip_all_tags( $knowledge ), 6000 );
+                }
+
+                // Live handoff: the model can end a hopeless turn with the marker and
+                // the widget offers the human-support form. Never let the marker leak.
+                if ( ! empty( Haa_Settings::get( 'chat.handoff_enabled' ) ) ) {
+                        $system .= "
+
+" . __( 'اگر کاربر اصرار داشت با یک انسان صحبت کند، یا کمک به او از دست تو برنمی‌آمد، در انتهای همان یک پاسخ دقیقاً این نشان را بنویس: [[HANDOFF]] — و در همان پاسخ کوتاه بگو کارشناس پشتیبانی در دسترس است.', 'hami-ai-assistant' );
                 }
 
                 $out = array();
@@ -554,8 +815,8 @@ final class Haa_Chat {
                         ORDER BY hits DESC, p.ID DESC LIMIT 5";
 
                 // $score appears twice (SELECT + WHERE), so the placeholders need
-			// the value list twice as well.
-			$rows = $wpdb->get_results( $wpdb->prepare( $sql, array_merge( $vals, $vals ) ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                        // the value list twice as well.
+                        $rows = $wpdb->get_results( $wpdb->prepare( $sql, array_merge( $vals, $vals ) ), ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
                 return array_map( 'intval', wp_list_pluck( (array) $rows, 'ID' ) );
         }
 

@@ -137,6 +137,24 @@ final class Haa_Settings {
                                 'lead_name_label'     => 'نام',
                                 'lead_phone_label'    => 'شماره موبایل',
                                 'lead_consent_text'   => 'با ثبت شماره موافقم تا پشتیبانی با من تماس بگیرد.',
+                                // One-line tone preset appended to the system prompt:
+                                // default = the admin's own prompt text is the whole story.
+                                'tone'                => 'default', // default|formal|friendly|playful.
+                                // Tell the bot which page the visitor is on (title comes
+                                // from the visitor's browser — zero server queries).
+                                'page_context'        => 1,
+                                // Admin-typed extra knowledge, appended to the prompt.
+                                // Settings-only: no table, no index, no query.
+                                'custom_knowledge'    => '',
+                                // Live human handoff: the visitor leaves name + mobile, the
+                                // admin is pinged on Bale / Telegram and reaches the visitor
+                                // on WhatsApp or by phone. Nothing here has an API cost.
+                                'handoff_enabled'     => 1,
+                                'handoff_after'       => 2, // Failed turns before auto-offer; 0 = never.
+                                'notify_bale_token'   => '',
+                                'notify_bale_chat'    => '',
+                                'notify_tg_token'     => '',
+                                'notify_tg_chat'      => '',
                                 // The chatbot's tiny "knowledge base" for reaching a human:
                                 // filled fields become both a system-prompt block and a
                                 // deterministic settings-only reply. No table, no query.
@@ -1033,6 +1051,15 @@ final class Haa_Settings {
                         'chat.contact_phone'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_text' ) ),
                         'chat.contact_page'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_url' ) ),
                         'chat.contact_note'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_textarea' ) ),
+                        'chat.tone'                => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'default', 'formal', 'friendly', 'playful' ) ),
+                        'chat.page_context'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
+                        'chat.custom_knowledge'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_textarea' ) ),
+                        'chat.handoff_enabled'     => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
+                        'chat.handoff_after'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 0, 'max' => 10 ),
+                        'chat.notify_bale_token'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_text' ) ),
+                        'chat.notify_bale_chat'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_text' ) ),
+                        'chat.notify_tg_token'     => array( 'cb' => array( 'Haa_Settings', 'sanitize_text' ) ),
+                        'chat.notify_tg_chat'      => array( 'cb' => array( 'Haa_Settings', 'sanitize_text' ) ),
 
                         // Content core.
                         'content.default_language' => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'fa', 'en', 'ar', 'tr', 'de', 'fr', 'ru', 'es' ) ),
@@ -1915,7 +1942,7 @@ final class Haa_Settings {
 
                 // Module tabs.
                 $module_fields = array(
-                        'chatbot'          => array( 'chat.system_prompt', 'chat.max_history', 'chat.context_chunks', 'chat.context_max_chars', 'chat.suggested_questions', 'chat.error_message', 'chat.typing_indicator', 'chat.offline_enabled', 'chat.offline_start', 'chat.offline_end', 'chat.offline_message', 'chat.save_history', 'chat.history_retention', 'chat.lead_capture', 'chat.lead_requirement', 'chat.lead_name_label', 'chat.lead_phone_label', 'chat.lead_consent_text', 'chat.contact_whatsapp', 'chat.contact_telegram', 'chat.contact_phone', 'chat.contact_page', 'chat.contact_note' ),
+                        'chatbot'          => array( 'chat.system_prompt', 'chat.max_history', 'chat.context_chunks', 'chat.context_max_chars', 'chat.suggested_questions', 'chat.error_message', 'chat.typing_indicator', 'chat.offline_enabled', 'chat.offline_start', 'chat.offline_end', 'chat.offline_message', 'chat.save_history', 'chat.history_retention', 'chat.lead_capture', 'chat.lead_requirement', 'chat.lead_name_label', 'chat.lead_phone_label', 'chat.lead_consent_text', 'chat.contact_whatsapp', 'chat.contact_telegram', 'chat.contact_phone', 'chat.contact_page', 'chat.contact_note', 'chat.tone', 'chat.page_context', 'chat.custom_knowledge', 'chat.handoff_enabled', 'chat.handoff_after', 'chat.notify_bale_token', 'chat.notify_bale_chat', 'chat.notify_tg_token', 'chat.notify_tg_chat' ),
                         'semantic-search'  => array( 'search.enabled', 'search.limit', 'search.min_score', 'search.include_products', 'search.include_posts', 'search.include_pages', 'search.embeddings', 'search.hybrid', 'search.semantic_weight', 'search.keyword_weight', 'search.chunk_cap', 'search.max_vectors' ),
                         'news'             => array( 'news.enabled', 'news.feeds', 'news.max_per_run', 'news.daily_cap', 'news.lookback_hours', 'news.default_status', 'news.default_category', 'news.min_words', 'news.quote_source' ),
                         'video-article'    => array( 'video.enabled', 'video.min_chars', 'video.max_words', 'video.default_status', 'video.default_category', 'video.fetch_captions' ),

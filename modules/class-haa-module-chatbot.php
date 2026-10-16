@@ -56,14 +56,15 @@ final class Haa_Module_Chatbot implements Haa_Module_Interface {
         }
 
         /**
-         * Declares the "Chatbot" tab. Registered only when the module is on, so a
-         * disabled chatbot leaves no orphan tab behind.
+         * Declares the "Chatbot" and "Conversations" tabs. Registered only when
+         * the module is on, so a disabled chatbot leaves no orphan tab behind.
          *
          * @param array $sections Tabs collected so far.
          * @return array
          */
         public function register_section( $sections ) {
-                $sections['chat'] = __( 'چت‌بات', 'hami-ai-assistant' );
+                $sections['chat']           = __( 'چت‌بات', 'hami-ai-assistant' );
+                $sections['conversations']  = __( 'گفتگوها', 'hami-ai-assistant' );
                 return $sections;
         }
 
@@ -211,6 +212,67 @@ final class Haa_Module_Chatbot implements Haa_Module_Interface {
                         'key'   => 'chat.lead_consent_text',
                         'type'  => 'text',
                         'label' => __( 'متن رضایت', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'    => 'chat.tone',
+                        'type'   => 'select',
+                        'label'  => __( 'لحن پاسخ‌دهی', 'hami-ai-assistant' ),
+                        'choices' => array(
+                                'default'  => __( 'پیش‌فرض (طبق دستور سیستمی)', 'hami-ai-assistant' ),
+                                'formal'   => __( 'رسمی و اداری', 'hami-ai-assistant' ),
+                                'friendly' => __( 'صمیمی و دوستانه', 'hami-ai-assistant' ),
+                                'playful'  => __( 'شوخ و پرانرژی', 'hami-ai-assistant' ),
+                        ),
+                        'hint'  => __( 'یک خط به دستور سیستمی اضافه می‌شود؛ متن اصلی را بازنویسی نمی‌کند.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.page_context',
+                        'type'  => 'checkbox',
+                        'label' => __( 'آگاهی از صفحه‌ی فعلی', 'hami-ai-assistant' ),
+                        'hint'  => __( 'بات بداند کاربر الان در کدام صفحه است (مثلاً صفحه‌ی محصول) و پاسخ را به همان صفحه وصل کند. بدون هیچ کوئری اضافه.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.custom_knowledge',
+                        'type'  => 'textarea',
+                        'label' => __( 'دانش اختصاصی (اختیاری)', 'hami-ai-assistant' ),
+                        'hint'  => __( 'هر چیزی که می‌خواهید بات بداند: شرایط گارانتی، روش ارسال، ساعات کاری، تخفیف‌ها… هر مورد در یک خط. فقط به پرامپت اضافه می‌شود — هیچ جدول یا کوئری‌ای نمی‌سازد.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.handoff_enabled',
+                        'type'  => 'checkbox',
+                        'label' => __( 'گفتگوی زنده با پشتیبان', 'hami-ai-assistant' ),
+                        'hint'  => __( 'بازدیدکننده با وارد کردن نام و شماره‌اش درخواست می‌دهد؛ شما از طریق بات بله یا تلگرام خبردار می‌شوید و با واتساپ یا تماس تلفنی به او پاسخ می‌دهید.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.handoff_after',
+                        'type'  => 'number',
+                        'label' => __( 'پیشنهاد خودکار پس از چند پاسخ ناموفق', 'hami-ai-assistant' ),
+                        'min'   => 0,
+                        'max'   => 10,
+                        'hint'  => __( '۰ یعنی هرگز خودکار پیشنهاد نده؛ بازدیدکننده فقط با دکمه‌ی «پشتیبان انسانی» درخواست بدهد.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.notify_bale_token',
+                        'type'  => 'text',
+                        'label' => __( 'اعلان از بله — توکن بات', 'hami-ai-assistant' ),
+                        'hint'  => __( 'از @BotFather بله بگیرید. مثال: 123456:ABC-DEF…', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.notify_bale_chat',
+                        'type'  => 'text',
+                        'label' => __( 'اعلان از بله — شناسه گفتگو', 'hami-ai-assistant' ),
+                        'hint'  => __( 'چت‌آی‌دی خودتان یا گروه پشتیبانی (عددی). بات را یک بار استارت کنید و یک پیام به آن بدهید تا شناسه ثبت شود.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.notify_tg_token',
+                        'type'  => 'text',
+                        'label' => __( 'اعلان از تلگرام — توکن بات (اختیاری)', 'hami-ai-assistant' ),
+                        'hint'  => __( 'اگر سایت یا سرورتان به api.telegram.org دسترسی ندارد، فقط بله را پر کنید. برای سرورهای خارج از ایران کار می‌کند.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
+                        'key'   => 'chat.notify_tg_chat',
+                        'type'  => 'text',
+                        'label' => __( 'اعلان از تلگرام — شناسه گفتگو', 'hami-ai-assistant' ),
                 );
                 return $fields;
         }

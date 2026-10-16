@@ -88,6 +88,11 @@ final class Haa_Util {
                         // Already country-coded.
                 } elseif ( 0 === strpos( $phone, '9' ) && 10 === strlen( $phone ) ) {
                         $phone = '98' . $phone;
+                } elseif ( 0 === strpos( $phone, '09' ) && 11 === strlen( $phone ) ) {
+                        // The everyday Iranian form visitors actually type (0912…).
+                        // Without this branch the final ^989 check rejected it and
+                        // the phone came back empty — leads silently lost.
+                        $phone = '98' . substr( $phone, 1 );
                 }
 
                 if ( ! preg_match( '/^989\d{9}$/', $phone ) ) {

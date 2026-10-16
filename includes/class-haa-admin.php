@@ -724,6 +724,14 @@ final class Haa_Admin {
 				<?php endforeach; ?>
 			</nav>
 
+			<?php if ( 'conversations' === $tab ) : ?>
+				<?php self::render_conversations(); ?>
+		</div>
+			<?php
+			return;
+		endif;
+			?>
+
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<?php wp_nonce_field( 'haai_admin' ); ?>
 				<input type="hidden" name="action" value="haai_save">
@@ -756,6 +764,119 @@ final class Haa_Admin {
 
 			<?php $this->render_settings_tools( $tab ); ?>
 			<?php $this->render_restore_panel( $tab ); ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Conversations tab: the support queue (live-handoff requests) plus the
+	 * saved transcripts. Read-only; retention policies keep both bounded.
+	 *
+	 * @return void
+	 */
+	public static function render_conversations() {
+		global $wpdb;
+
+		$logs     = Haa_DB::table( 'logs' );
+		$sessions = Haa_DB::table( 'sessions' );
+
+		$handoffs = (array) $wpdb->get_results(
+			"SELECT id, session_id, message, response, status, created FROM {$logs} WHERE role = 'handoff' ORDER BY id DESC LIMIT 12", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
+			ARRAY_A
+		);
+
+		$paged  = isset( $_GET['gpaged'] ) ? max( 1, (int) $_GET['gpaged'] ) : 1; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$per    = 20;
+		$total  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$sessions}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
+		$rows   = (array) $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, sid, title, message_count, created, updated, messages FROM {$sessions} ORDER BY updated DESC LIMIT %d OFFSET %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$per,
+				( $paged - 1 ) * $per
+			),
+			ARRAY_A
+		);
+		$pages = max( 1, (int) ceil( $total / $per ) );
+		?>
+		<div class="haai-panel haai-conv">
+			<h2 class="haai-conv__heading"><?php esc_html_e( 'درخواست‌های گفتگوی زنده', 'hami-ai-assistant' ); ?></h2>
+			<?php if ( ! $handoffs ) : ?>
+				<p class="haai-conv__empty"><?php esc_html_e( 'هنوز درخواستی ثبت نشده است. وقتی بازدیدکننده‌ای «گفتگو با پشتیبان» را بزند، نام، شماره و موضوعش همین‌جا می‌آید.', 'hami-ai-assistant' ); ?></p>
+			<?php else : ?>
+				<div class="haai-conv__queue">
+					<?php foreach ( $handoffs as $h ) :
+						$data = (array) json_decode( (string) $h['message'], true );
+						$name  = isset( $data['name'] ) ? (string) $data['name'] : '';
+						$phone = isset( $data['phone'] ) ? (string) $data['phone'] : '';
+						$intl  = ( 0 === strpos( $phone, '09' ) ) ? '98' . substr( $phone, 1 ) : $phone;
+						$note  = isset( $data['note'] ) ? (string) $data['note'] : '';
+						$page  = isset( $data['page'] ) ? (string) $data['page'] : '';
+						$wa    = '' !== $intl ? 'https://wa.me/' . $intl : '';
+						?>
+						<div class="haai-conv__req">
+							<div class="haai-conv__req-main">
+								<strong><?php echo esc_html( $name ); ?></strong>
+								<a class="haai-conv__link" href="tel:+<?php echo esc_attr( $intl ); ?>"><?php echo esc_html( $phone ); ?></a>
+								<?php if ( $wa ) : ?>
+									<a class="haai-conv__link haai-conv__wa" href="<?php echo esc_url( $wa ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'واتساپ', 'hami-ai-assistant' ); ?></a>
+								<?php endif; ?>
+								<span class="haai-conv__date"><?php echo esc_html( mysql2date( 'Y/m/d H:i', (string) $h['created'] ) ); ?></span>
+							</div>
+							<?php if ( $note || $h['response'] ) : ?>
+								<div class="haai-conv__req-note"><?php echo esc_html( trim( $note . ( $note && $h['response'] ? ' — ' : '' ) . (string) $h['response'] ) ); ?></div>
+							<?php endif; ?>
+							<?php if ( $page ) : ?>
+								<div class="haai-conv__req-page"><a href="<?php echo esc_url( $page ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $page ); ?></a></div>
+							<?php endif; ?>
+						</div>
+					<?php endforeach; ?>
+				</div>
+			<?php endif; ?>
+
+			<h2 class="haai-conv__heading"><?php esc_html_e( 'گفتگوهای ذخیره‌شده', 'hami-ai-assistant' ); ?>
+				<span class="haai-conv__count"><?php echo esc_html( number_format_i18n( $total ) ); ?></span>
+			</h2>
+			<?php if ( ! $rows ) : ?>
+				<p class="haai-conv__empty"><?php esc_html_e( 'گفتگویی ذخیره نشده است. اگر «ذخیره‌ی گفتگو» در تب چت‌بات روشن باشد، متن مکالمه‌ها همین‌جا ظاهر می‌شود.', 'hami-ai-assistant' ); ?></p>
+			<?php else : ?>
+				<div class="haai-conv__list">
+					<?php foreach ( $rows as $row ) :
+						$turns = (array) json_decode( (string) $row['messages'], true );
+						?>
+						<details class="haai-conv__item">
+							<summary>
+								<span class="haai-conv__title"><?php echo esc_html( '' !== (string) $row['title'] ? (string) $row['title'] : __( 'بدون عنوان', 'hami-ai-assistant' ) ); ?></span>
+								<span class="haai-conv__meta"><?php echo esc_html( mysql2date( 'Y/m/d H:i', (string) $row['updated'] ) ); ?> · <?php echo esc_html( number_format_i18n( (int) $row['message_count'] ) ); ?> <?php esc_html_e( 'پیام', 'hami-ai-assistant' ); ?></span>
+							</summary>
+							<div class="haai-conv__thread">
+								<?php foreach ( $turns as $turn ) :
+									$role    = isset( $turn['role'] ) ? (string) $turn['role'] : '';
+									$content = isset( $turn['content'] ) ? (string) $turn['content'] : '';
+									if ( '' === $content ) {
+										continue;
+									}
+									?>
+									<div class="haai-conv__turn haai-conv__turn--<?php echo esc_attr( 'user' === $role ? 'user' : 'bot' ); ?>">
+										<span class="haai-conv__who"><?php echo 'user' === $role ? esc_html__( 'کاربر', 'hami-ai-assistant' ) : esc_html__( 'بات', 'hami-ai-assistant' ); ?></span>
+										<span class="haai-conv__text"><?php echo esc_html( $content ); ?></span>
+									</div>
+								<?php endforeach; ?>
+							</div>
+						</details>
+					<?php endforeach; ?>
+				</div>
+				<?php if ( $pages > 1 ) : ?>
+					<div class="haai-conv__pager">
+						<?php for ( $i = 1; $i <= $pages; $i++ ) : ?>
+							<?php if ( $i === $paged ) : ?>
+								<span class="haai-conv__page is-current"><?php echo esc_html( number_format_i18n( $i ) ); ?></span>
+							<?php else : ?>
+								<a class="haai-conv__page" href="<?php echo esc_url( add_query_arg( array( 'page' => self::PAGE, 'tab' => 'conversations', 'gpaged' => $i ), admin_url( 'admin.php' ) ) ); ?>"><?php echo esc_html( number_format_i18n( $i ) ); ?></a>
+							<?php endif; ?>
+						<?php endfor; ?>
+					</div>
+				<?php endif; ?>
+			<?php endif; ?>
 		</div>
 		<?php
 	}

@@ -176,7 +176,7 @@ avatar. Markup ships in the template (welcome/typing) and is cloned by the JS. *
 .haai-lead__label { display:block; margin-bottom:7px; font-size:.85em; opacity:.85 }
 .haai-lead__row { display:flex; gap:6px; flex-wrap:wrap }
 .haai-lead__name,.haai-lead__phone { flex:1 1 120px; min-width:0; padding:9px 12px; border:1.5px solid var(--haai-line,rgba(25,28,36,.09)); border-radius:12px; background:var(--haai-bg); color:var(--haai-text); font:inherit; font-size:.92em; transition:border-color .15s ease,box-shadow .15s ease }
-.haai-lead__name:focus,.haai-lead__phone:focus { outline:none; border-color:var(--haai-primary,#4f46e5); box-shadow:0 0 0 3px var(--haai-accent-ring,rgba(79,70,229,.14)) }
+.haai-lead__name:focus,.haai-lead__phone:focus { outline:none; border-color:var(--haai-primary,#4f46e5); box-shadow:0 0 0 3px var(--haai-accent-ring) }
 .haai-lead__phone.is-invalid { border-color:#b91c1c }
 .haai-lead__consent { margin:7px 0 0; font-size:.75em; opacity:.75; line-height:1.55 }
 
@@ -234,6 +234,25 @@ dark palette applies correctly; browsers render the same surface either way. */
 .haai-widget[data-skin="glass"] .haai-typing__dots { background:rgba(var(--haai-bubble-rgb,243,244,248),.6) }
 .haai-widget[data-skin="glass"] .haai-form__input { background:rgba(var(--haai-bubble-rgb,243,244,248),.55) }
 .haai-widget[data-skin="glass"] .haai-suggest__item { background:rgba(var(--haai-bg-rgb,255,255,255),.55) }
+
+/* --- Live human handoff: offer bubble + inline request form ---------- */
+
+.haai-handoff__bubble { max-width:88% }
+.haai-handoff__title { font-weight:600; font-size:.92em; margin-bottom:4px }
+.haai-handoff__intro { margin:0 0 9px; font-size:.84em; line-height:1.65; opacity:.85 }
+.haai-handoff__cta { display:inline-block; padding:8px 14px; border:0; border-radius:12px; background:var(--haai-primary,#4f46e5); color:#fff; font:inherit; font-size:.84em; font-weight:500; cursor:pointer; transition:filter .15s ease }
+.haai-handoff__cta:hover,.haai-handoff__cta:focus-visible { filter:brightness(1.08); outline:none; box-shadow:0 0 0 3px var(--haai-accent-ring) }
+.haai-handoff__note { display:block; width:100%; margin-top:7px; padding:9px 12px; border:1.5px solid var(--haai-line,rgba(25,28,36,.09)); border-radius:12px; background:var(--haai-bg); color:var(--haai-text); font:inherit; font-size:.92em; transition:border-color .15s ease,box-shadow .15s ease }
+.haai-handoff__note:focus { outline:none; border-color:var(--haai-primary,#4f46e5); box-shadow:0 0 0 3px var(--haai-accent-ring) }
+.haai-handoff__send { display:block; width:100%; margin-top:9px; padding:10px 14px; border:0; border-radius:12px; background:var(--haai-primary,#4f46e5); color:#fff; font:inherit; font-size:.9em; font-weight:600; cursor:pointer; transition:filter .15s ease }
+.haai-handoff__send:hover,.haai-handoff__send:focus-visible { filter:brightness(1.08); outline:none; box-shadow:0 0 0 3px var(--haai-accent-ring) }
+.haai-handoff__send:disabled { opacity:.6; cursor:default }
+.haai-handoff__err { margin:7px 0 0; font-size:.78em; color:#b91c1c; line-height:1.5 }
+.haai-handoff__done { font-size:.88em; font-weight:600; line-height:1.6 }
+.haai-handoff__note-txt { margin:6px 0 0; font-size:.8em; line-height:1.6; opacity:.8 }
+.haai-handoff__wa { display:inline-block; margin-top:9px; padding:7px 13px; border-radius:999px; background:#1faa53; color:#fff; font-size:.82em; font-weight:500; text-decoration:none; transition:filter .15s ease }
+.haai-handoff__wa:hover,.haai-handoff__wa:focus-visible { filter:brightness(1.1); outline:none }
+.haai-widget[data-theme="dark"] .haai-handoff__err { color:#f87171 }
 
 /* Preview mode: the widget lives inside the settings iframe, so it must not
 escape its frame or keep a fixed viewport position. */
