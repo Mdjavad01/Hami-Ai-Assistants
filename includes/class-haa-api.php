@@ -1068,8 +1068,14 @@ final class Haa_API {
                 }
 
                 if ( 'gemini' === ( $this->cfg['adapter'] ?? '' ) ) {
-                        $url     = add_query_arg( 'key', rawurlencode( $this->cfg['api_key'] ), $base . '/models' );
+                        // Header auth — same as the chat path. Through a relay
+                        // (Worker) the key must never ride in the URL, where it
+                        // would land in the relay's access logs.
+                        $url = $base . '/models';
                         $headers = array( 'Content-Type' => 'application/json' );
+                        if ( ! empty( $this->cfg['api_key'] ) ) {
+                                $headers['x-goog-api-key'] = (string) $this->cfg['api_key'];
+                        }
                 } else {
                         $url     = $base . '/models';
                         $headers = $adapter->headers();
