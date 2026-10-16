@@ -695,7 +695,7 @@ final class Haa_API {
                         return $safe;
                 }
 
-                $args = $this->apply_proxy( $args );
+                $args = $this->apply_proxy( $args, $url );
                 $res  = wp_remote_post( $url, $args );
 
                 if ( is_wp_error( $res ) ) {
@@ -814,7 +814,7 @@ final class Haa_API {
                                 )
                         ),
                 );
-                $args = $this->apply_proxy( $args );
+                $args = $this->apply_proxy( $args, $url );
                 $res  = wp_remote_post( $url, $args );
 
                 if ( is_wp_error( $res ) ) {
@@ -860,7 +860,7 @@ final class Haa_API {
                                 )
                         ),
                 );
-                $args = $this->apply_proxy( $args );
+                $args = $this->apply_proxy( $args, $url );
                 $res  = wp_remote_post( $url, $args );
 
                 if ( is_wp_error( $res ) ) {
@@ -966,7 +966,7 @@ final class Haa_API {
                         ),
                         'body'    => wp_json_encode( array( 'model' => $opts['model'], 'input' => array_values( $texts ) ) ),
                 );
-                $args = $this->apply_proxy( $args );
+                $args = $this->apply_proxy( $args, $url );
                 $res  = wp_remote_post( $url, $args );
 
                 if ( is_wp_error( $res ) ) {
@@ -1016,7 +1016,7 @@ final class Haa_API {
                         'headers' => array( 'Content-Type' => 'application/json' ),
                         'body'    => wp_json_encode( array( 'requests' => $requests ) ),
                 );
-                $args = $this->apply_proxy( $args );
+                $args = $this->apply_proxy( $args, $url );
                 $res  = wp_remote_post( $url, $args );
 
                 if ( is_wp_error( $res ) ) {
@@ -1085,7 +1085,8 @@ final class Haa_API {
                         array(
                                 'timeout' => max( 10, (int) $this->cfg['timeout'] ),
                                 'headers' => $headers,
-                        )
+                        ),
+                        $url
                 );
                 $res = wp_remote_get( $url, $args );
 
@@ -1535,43 +1536,157 @@ final class Haa_API {
                 return ord( $packed[12] ) . '.' . ord( $packed[13] ) . '.' . ord( $packed[14] ) . '.' . ord( $packed[15] );
         }
 
+        /** @var array{proxy:string, auth:string, match:string}|null Pending proxy for the next AI request — one-shot, URL-scoped. */
+        private static $pending_proxy = null;
+
+        /** @var bool Whether the http_api_curl hook is registered. */
+        private static $proxy_hook_registered = false;
+
         /**
          * @param array $args wp_remote_* args.
+         * @param string $url Endpoint URL the request is about to hit.
          * @return array
          */
-        private function apply_proxy( $args ) {
-                return self::proxy_args( $args, $this->cfg );
+        private function apply_proxy( $args, $url = '' ) {
+                return self::proxy_args( $args, $this->cfg, $url );
         }
 
         /**
-         * Apply the provider's proxy settings to ANY outbound request — not just the
-         * AI calls. Competitor research, SERP calls and Google Suggest all ride the
+         * Apply the provider's proxy settings to ANY outbound AI request — not just
+         * chat. Competitor research, SERP calls and Google Suggest all ride the
          * same relay, because on an Iranian host those destinations are blocked in
          * exactly the same way the AI endpoints are.
          *
+         * HOW the proxy actually reaches cURL (the part that is easy to get
+         * wrong): WordPress core IGNORES a 'proxy' key passed in wp_remote_* args
+         * — WP_Http::request() builds the Requests options explicitly and the
+         * only proxy core injects comes from the WP_PROXY_* constants via
+         * WP_HTTP_Proxy. Requests' own transports consume proxies from Proxy
+         * objects, which core only creates for those constants. The honest lever
+         * left to a plugin is the http_api_curl action, fired with the real cURL
+         * handle right before curl_exec: we stash the pending proxy here and
+         * on_curl_handle() stamps CURLOPT_PROXY / CURLOPT_PROXYUSERPWD onto the
+         * handle whose request URL matches. One-shot and URL-scoped, so no other
+         * plugin's or WordPress's own HTTP traffic is ever routed through it.
+         *
          * @param array     $args wp_remote_* args.
          * @param array|null $cfg  Provider config; null reads the stored settings.
+         * @param string    $match_url Endpoint URL this request will hit.
          * @return array
          */
-        public static function proxy_args( $args, $cfg = null ) {
+        public static function proxy_args( $args, $cfg = null, $match_url = '' ) {
                 if ( null === $cfg ) {
                         $cfg = (array) Haa_Settings::get( 'provider', array() );
                 }
                 if ( empty( $cfg['proxy_host'] ) ) {
                         return $args;
                 }
-                $port = ! empty( $cfg['proxy_port'] ) ? (int) $cfg['proxy_port'] : 8080;
-                $args['proxy']     = $cfg['proxy_host'] . ':' . $port;
-                $args['sslverify'] = false;
-                if ( ! empty( $cfg['proxy_username'] ) ) {
-                        $args['proxyauth'] = 2;
-                        $args['proxycuserpwd'] = $cfg['proxy_username'] . ':' . ( $cfg['proxy_password'] ?? '' );
+
+                $proxy_url = self::proxy_url( $cfg );
+                if ( '' === $proxy_url ) {
+                        return $args;
                 }
+
+                self::$pending_proxy = array(
+                        'proxy' => $proxy_url,
+                        'auth'  => ! empty( $cfg['proxy_username'] )
+                                ? (string) $cfg['proxy_username'] . ':' . (string) ( $cfg['proxy_password'] ?? '' )
+                                : '',
+                        'match' => (string) $match_url,
+                );
+
+                if ( ! self::$proxy_hook_registered && function_exists( 'add_action' ) ) {
+                        add_action( 'http_api_curl', array( __CLASS__, 'on_curl_handle' ), 10, 3 );
+                        self::$proxy_hook_registered = true;
+                }
+
+                // The TLS handshake now terminates at the proxy hop; keep
+                // verification relaxed, like every other proxy client.
+                $args['sslverify'] = false;
                 if ( ! isset( $args['headers'] ) ) {
                         $args['headers'] = array();
                 }
                 $args['headers']['Expect'] = '';
                 return $args;
+        }
+
+        /**
+         * Build the scheme-prefixed proxy string cURL understands. The scheme
+         * may ride inside the host field (socks5://host, socks5h://host — the h
+         * variant resolves DNS at the proxy, which matters when the host's own
+         * resolver lies); plain hosts speak http. cURL switches the proxy type
+         * from the prefix itself.
+         *
+         * @param array $cfg Provider config.
+         * @return string scheme://host:port, or '' when unusable.
+         */
+        private static function proxy_url( $cfg ) {
+                $raw = trim( (string) ( $cfg['proxy_host'] ?? '' ) );
+                if ( '' === $raw ) {
+                        return '';
+                }
+                $scheme = 'http';
+                $host   = $raw;
+                if ( preg_match( '#^([a-z][a-z0-9+.\-]*)://#i', $raw, $m ) ) {
+                        $scheme = strtolower( $m[1] );
+                        $host   = substr( $raw, strlen( $m[0] ) );
+                }
+                // A user:pass part must not ride inside the option (it leaks into
+                // debug logs); cURL gets it via PROXYUSERPWD instead.
+                if ( false !== strpos( $host, '@' ) ) {
+                        $host = substr( (string) strrchr( $host, '@' ), 1 );
+                }
+                $host = trim( $host, '/' );
+                if ( '' === $host ) {
+                        return '';
+                }
+                $port = ! empty( $cfg['proxy_port'] ) ? (int) $cfg['proxy_port'] : 8080;
+                return $scheme . '://' . $host . ':' . $port;
+        }
+
+        /**
+         * http_api_curl callback: stamp the pending proxy onto the real cURL
+         * handle right before curl_exec. Consumes the pending entry only when
+         * the request URL matches what proxy_args() stashed — a nested HTTP
+         * call from another plugin inside our window is left untouched.
+         *
+         * @param resource|\CurlHandle &$handle     cURL handle (by reference).
+         * @param array                $parsed_args WP_Http args.
+         * @param string               $url         Request URL.
+         */
+        public static function on_curl_handle( &$handle, $parsed_args = array(), $url = '' ) {
+                $pending = self::$pending_proxy;
+                if ( null === $pending ) {
+                        return;
+                }
+                if ( '' !== $pending['match'] && (string) $url !== $pending['match'] ) {
+                        return;
+                }
+                self::$pending_proxy = null; // consumed.
+
+                $is_handle = is_resource( $handle )
+                        || ( class_exists( 'CurlHandle' ) && $handle instanceof CurlHandle );
+                if ( $is_handle ) {
+                        curl_setopt_array( $handle, self::curl_proxy_options( $pending['proxy'], $pending['auth'] ) );
+                }
+        }
+
+        /**
+         * The raw cURL options for a proxy — pure, so the suite can assert them.
+         *
+         * @param string $proxy_url scheme://host:port.
+         * @param string $auth      user:pass or ''.
+         * @return array
+         */
+        public static function curl_proxy_options( $proxy_url, $auth = '' ) {
+                $opts = array(
+                        CURLOPT_PROXY => (string) $proxy_url,
+                );
+                if ( '' !== (string) $auth ) {
+                        $opts[ CURLOPT_PROXYAUTH ]    = CURLAUTH_ANY;
+                        $opts[ CURLOPT_PROXYUSERPWD ] = (string) $auth;
+                }
+                return $opts;
         }
 
         /**
