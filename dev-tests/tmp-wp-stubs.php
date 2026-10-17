@@ -492,7 +492,20 @@ class Fake_WPDB {
         public function esc_like( $s ) { return addslashes( (string) $s ); }
         // Haa_DB::create() asks for this before handing SQL to dbDelta().
         public function get_charset_collate() { return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'; }
-        public function query( $q ) { return 0; }
+        public function query( $q ) {
+                // Haa_Crawl::wipe() deletes crawl slots wholesale.
+                if ( preg_match( '/DELETE\s+.*?haai_chunks.*?WHERE\s+post_id\s+<\s*0/is', (string) $q ) ) {
+                        $kept    = array();
+                        $removed = 0;
+                        foreach ( (array) $GLOBALS['chunk_rows'] as $row ) {
+                                if ( (int) ( $row['post_id'] ?? 0 ) < 0 ) { $removed++; continue; }
+                                $kept[] = $row;
+                        }
+                        $GLOBALS['chunk_rows'] = $kept;
+                        return $removed;
+                }
+                return 0;
+        }
 }
 $GLOBALS['wpdb'] = new Fake_WPDB();
 

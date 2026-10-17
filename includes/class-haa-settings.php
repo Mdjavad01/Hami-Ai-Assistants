@@ -174,6 +174,7 @@ final class Haa_Settings {
                                 // deterministic settings-only reply. No table, no query.
                                 'contact_whatsapp'    => '',
                                 'contact_telegram'    => '',
+                                'contact_instagram'   => '',
                                 'contact_phone'       => '',
                                 'contact_page'        => '',
                                 'contact_note'        => '',
@@ -399,6 +400,16 @@ final class Haa_Settings {
                         'kb_overlap_words'   => 50,
                                 'kb_max_file_kb'     => 2048,
                                 'usage_retention'    => 90,
+                        ),
+
+                        // Site knowledge (tab «دانش سایت»): the rendered-page crawler.
+                        // urls = pages the admin insists the bot must know; auto_crawl
+                        // also picks up internal links found on the homepage; max_pages
+                        // is the whole budget so a crawl stays light by construction.
+                        'knowledge' => array(
+                                'urls'       => '',
+                                'auto_crawl' => 1,
+                                'max_pages'  => 30,
                         ),
                 );
         }
@@ -1097,9 +1108,15 @@ final class Haa_Settings {
                         'chat.lead_consent_text'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_textarea' ) ),
                         'chat.contact_whatsapp'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_url' ) ),
                         'chat.contact_telegram'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_url' ) ),
+                        'chat.contact_instagram'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_url' ) ),
                         'chat.contact_phone'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_text' ) ),
                         'chat.contact_page'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_url' ) ),
                         'chat.contact_note'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_textarea' ) ),
+
+                        // Site knowledge crawler («دانش سایت»).
+                        'knowledge.urls'           => array( 'cb' => array( 'Haa_Settings', 'sanitize_page_urls' ) ),
+                        'knowledge.auto_crawl'     => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
+                        'knowledge.max_pages'      => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 5, 'max' => 100 ),
                         'chat.tone'                => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'default', 'formal', 'friendly', 'playful' ) ),
                         'chat.page_context'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'chat.custom_knowledge'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_textarea' ) ),
@@ -1670,6 +1687,50 @@ final class Haa_Settings {
                 }
 
                 return implode( "\n", $out );
+        }
+
+        /**
+         * Newline-separated PAGE URLs, kept whole (path included), deduped by
+         * canonical form, capped at 50 pages.
+         *
+         * Different from sanitize_url_lines() (feeds: 12, query allowed) and
+         * sanitize_url_list() (competitor HOSTS only): the knowledge crawler
+         * needs exact page addresses like /contact-us/, and only http(s).
+         * SSRF decisions stay at call time (Haa_Crawl::safe_url), same policy
+         * as every other fetch in this plugin.
+         *
+         * @param mixed $raw Textarea value.
+         * @return string
+         */
+        public static function sanitize_page_urls( $raw ) {
+                if ( ! is_array( $raw ) ) {
+                        $raw = preg_split( '/\R+/u', (string) $raw );
+                }
+
+                $out = array();
+                foreach ( (array) $raw as $line ) {
+                        $line = trim( (string) $line );
+                        if ( '' === $line || preg_match( '#^(mailto|tel|sms|javascript|data|file|ftp|sftp|ssh|telnet|gopher|ws|wss):#i', $line ) ) {
+                                continue;
+                        }
+                        if ( ! preg_match( '#^https?://#i', $line ) ) {
+                                $line = 'https://' . ltrim( $line, '/' );
+                        }
+                        $url = self::sanitize_url( $line );
+                        if ( '' === $url ) {
+                                continue;
+                        }
+                        $key = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) ) . rtrim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+                        if ( isset( $out[ $key ] ) ) {
+                                continue;
+                        }
+                        $out[ $key ] = $url;
+                        if ( count( $out ) >= 50 ) {
+                                break;
+                        }
+                }
+
+                return implode( "\n", array_values( $out ) );
         }
 
         /** @return array */
@@ -2305,6 +2366,7 @@ final class Haa_Settings {
                         'provider'  => array( 'provider.provider', 'provider.api_key', 'provider.base_url', 'provider.model', 'provider.embedding_model', 'provider.image_model', 'provider.timeout', 'provider.max_tokens', 'provider.allow_localhost', 'provider.adapter', 'provider.temperature', 'provider.retries', 'provider.proxy_host', 'provider.proxy_port', 'provider.proxy_username', 'provider.proxy_password', 'provider.failovers' ),
                         'appearance'=> array( 'appearance.skin', 'appearance.primary_color', 'appearance.secondary_color', 'appearance.bg_color', 'appearance.text_color', 'appearance.theme_mode', 'appearance.dark_bg', 'appearance.dark_text', 'appearance.dark_bubble', 'appearance.font', 'appearance.font_size', 'appearance.border_radius', 'appearance.button_size', 'appearance.welcome_message', 'appearance.placeholder', 'appearance.custom_icon', 'appearance.custom_css' ),
                         'advanced'  => array( 'advanced.enable_rag', 'advanced.kb_enabled', 'advanced.kb_post_types', 'advanced.kb_chunk_words', 'advanced.kb_overlap_words', 'advanced.kb_categories', 'advanced.kb_max_file_kb', 'advanced.enable_cache', 'advanced.cache_ttl', 'advanced.rate_limit_count', 'advanced.rate_limit_minutes', 'advanced.token_ttl_minutes', 'advanced.max_message_chars', 'advanced.daily_request_cap', 'advanced.daily_cap_message', 'advanced.daily_user_cap', 'advanced.daily_user_cap_message', 'advanced.log_conversations', 'advanced.log_retention_days', 'advanced.usage_retention', 'advanced.guest_access', 'advanced.login_required_message', 'advanced.ip_header' ),
+                        'knowledge' => array( 'knowledge.urls', 'knowledge.auto_crawl', 'knowledge.max_pages' ),
                 );
                 foreach ( $core as $tab_keys ) {
                         $keys = array_merge( $keys, $tab_keys );
@@ -2312,7 +2374,7 @@ final class Haa_Settings {
 
                 // Module tabs.
                 $module_fields = array(
-                        'chatbot'          => array( 'chat.system_prompt', 'chat.max_history', 'chat.context_chunks', 'chat.context_max_chars', 'chat.suggested_questions', 'chat.error_message', 'chat.typing_indicator', 'chat.offline_enabled', 'chat.offline_start', 'chat.offline_end', 'chat.offline_message', 'chat.save_history', 'chat.history_retention', 'chat.lead_capture', 'chat.lead_requirement', 'chat.lead_name_label', 'chat.lead_phone_label', 'chat.lead_consent_text', 'chat.contact_whatsapp', 'chat.contact_telegram', 'chat.contact_phone', 'chat.contact_page', 'chat.contact_note', 'chat.tone', 'chat.page_context', 'chat.custom_knowledge', 'chat.handoff_enabled', 'chat.handoff_after', 'chat.notify_bale_token', 'chat.notify_bale_chat', 'chat.notify_tg_token', 'chat.notify_tg_chat' ),
+                        'chatbot'          => array( 'chat.system_prompt', 'chat.max_history', 'chat.context_chunks', 'chat.context_max_chars', 'chat.suggested_questions', 'chat.error_message', 'chat.typing_indicator', 'chat.offline_enabled', 'chat.offline_start', 'chat.offline_end', 'chat.offline_message', 'chat.save_history', 'chat.history_retention', 'chat.lead_capture', 'chat.lead_requirement', 'chat.lead_name_label', 'chat.lead_phone_label', 'chat.lead_consent_text', 'chat.contact_whatsapp', 'chat.contact_telegram', 'chat.contact_instagram', 'chat.contact_phone', 'chat.contact_page', 'chat.contact_note', 'chat.tone', 'chat.page_context', 'chat.custom_knowledge', 'chat.handoff_enabled', 'chat.handoff_after', 'chat.notify_bale_token', 'chat.notify_bale_chat', 'chat.notify_tg_token', 'chat.notify_tg_chat' ),
                         'semantic-search'  => array( 'search.enabled', 'search.limit', 'search.min_score', 'search.include_products', 'search.include_posts', 'search.include_pages', 'search.embeddings', 'search.hybrid', 'search.semantic_weight', 'search.keyword_weight', 'search.chunk_cap', 'search.max_vectors' ),
                         'news'             => array( 'news.enabled', 'news.feeds', 'news.max_per_run', 'news.daily_cap', 'news.lookback_hours', 'news.default_status', 'news.default_category', 'news.min_words', 'news.quote_source' ),
                         'video-article'    => array( 'video.enabled', 'video.min_chars', 'video.max_words', 'video.default_status', 'video.default_category', 'video.fetch_captions' ),

@@ -1119,6 +1119,7 @@ final class Haa_Admin {
                         'provider'  => __( 'سرویس AI', 'hami-ai-assistant' ),
                         'modules'   => __( 'ماژول‌ها', 'hami-ai-assistant' ),
                         'appearance'=> __( 'ظاهر', 'hami-ai-assistant' ),
+                        'knowledge' => __( 'دانش سایت', 'hami-ai-assistant' ),
                         'advanced'  => __( 'پیشرفته', 'hami-ai-assistant' ),
                 );
 
@@ -1503,6 +1504,27 @@ final class Haa_Admin {
                         $fields[] = array( 'key' => 'appearance.placeholder', 'type' => 'text', 'label' => __( 'متن جای‌گاه', 'hami-ai-assistant' ) );
                         $fields[] = array( 'key' => 'appearance.custom_icon', 'type' => 'media', 'label' => __( 'آیکون سفارشی', 'hami-ai-assistant' ) );
                         $fields[] = array( 'key' => 'appearance.custom_css', 'type' => 'textarea', 'label' => __( 'CSS سفارشی', 'hami-ai-assistant' ) );
+                } elseif ( 'knowledge' === $tab ) {
+                        $fields[] = array(
+                                'key'   => 'knowledge.urls',
+                                'type'  => 'textarea',
+                                'label' => __( 'آدرس صفحاتی که دستیار حتماً باید بلد باشد', 'hami-ai-assistant' ),
+                                'hint'  => __( 'هر خط یک آدرس کامل (مثل https://example.com/contact-us). محتوای رندرشده‌ی همین صفحات به پایگاه دانش اضافه می‌شود؛ برای شماره تماس، اینستاگرام و صفحه «تماس با ما» همین‌ها کافی است. حداکثر ۵۰ آدرس.', 'hami-ai-assistant' ),
+                        );
+                        $fields[] = array(
+                                'key'   => 'knowledge.auto_crawl',
+                                'type'  => 'checkbox',
+                                'label' => __( 'کشف خودکار لینک‌های صفحه‌ی اول', 'hami-ai-assistant' ),
+                                'hint'  => __( 'صفحه‌ی نخست خزش، لینک‌های داخلی منو و فوتر را هم به فهرست اضافه می‌کند (تا سقف بودجه‌ی پایین).', 'hami-ai-assistant' ),
+                        );
+                        $fields[] = array(
+                                'key'   => 'knowledge.max_pages',
+                                'type'  => 'number',
+                                'label' => __( 'بودجه‌ی خزش (حداکثر صفحه)', 'hami-ai-assistant' ),
+                                'min'   => 5,
+                                'max'   => 100,
+                                'hint'  => __( 'سبک نگه داشته می‌شود: هر بار ۲ صفحه و هر صفحه فقط یک درخواست GET با سقف حجم. صفحات منتشرشده‌ی سایت همیشه جزو اولین خزش‌ها هستند.', 'hami-ai-assistant' ),
+                        );
                 } elseif ( 'advanced' === $tab ) {
                         $fields[] = array( 'key' => 'advanced.enable_rag', 'type' => 'checkbox', 'label' => __( 'استفاده از محتوای سایت در پاسخ', 'hami-ai-assistant' ) );
                         $fields[] = array( 'key' => 'advanced.kb_enabled', 'type' => 'checkbox', 'label' => __( 'پایگاه دانش (RAG)', 'hami-ai-assistant' ), 'hint' => __( 'برای جست‌وجوی معنایی و پاسخ‌های هوشمند لازم است.', 'hami-ai-assistant' ) );

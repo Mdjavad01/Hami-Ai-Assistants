@@ -30,6 +30,7 @@ delete_option( 'haai_db_version' );          // dbDelta guard.
 delete_option( 'haai_migrated' );            // v1 -> v2 migration flag.
 delete_option( 'haai_queue_lock' );          // Queue mutex.
 delete_option( 'hami_ai_kb_state' );         // Rebuild cursor (legacy name kept).
+delete_option( 'hami_ai_crawl_state' );      // Site-knowledge crawler cursor.
 delete_option( 'haai_profile_draft' );       // Unapproved site-profile draft.
 
 // Legacy / non-prefixed leftovers, if any.

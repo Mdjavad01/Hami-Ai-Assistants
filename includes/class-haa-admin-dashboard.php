@@ -23,6 +23,8 @@ final class Haa_Admin_Dashboard {
 
 		$queue   = Haa_Queue::stats();
 		$search  = Haa_Search::stats();
+		$crawl   = Haa_Crawl::stats();
+		$crawl_state = Haa_Crawl::progress();
 		$health  = self::health();
 		$modules = Haa_Modules::describe_all();
 		?>
@@ -85,6 +87,38 @@ final class Haa_Admin_Dashboard {
 			</div>
 
 			<h2 class="haai-sec-title">
+				<?php esc_html_e( 'دانش سایت', 'hami-ai-assistant' ); ?>
+				<span class="haai-badge"><?php echo esc_html( sprintf( '%s صفحه / %s تکه', number_format_i18n( (int) $crawl['pages'] ), number_format_i18n( (int) $crawl['chunks'] ) ) ); ?></span>
+			</h2>
+			<p class="description">
+				<?php esc_html_e( 'خزش، محتوای رندرشدهٔ صفحات سایت (منو، فوتر، ویجت‌ها و صفحه تماس) را به پایگاه دانش اضافه می‌کند و شماره تماس، اینستاگرام و لینک صفحه تماس را یک‌جا برای دستیار خلاصه می‌کند. آدرس‌های دلخواه را در تب «دانش سایت» بدهید.', 'hami-ai-assistant' ); ?>
+			</p>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-actions" data-haai-crawl-form>
+				<?php wp_nonce_field( 'haai_admin' ); ?>
+				<input type="hidden" name="action" value="haai_crawl_start">
+				<button type="submit" class="button button-primary" data-haai-crawl-start>
+					<?php echo empty( $crawl_state['running'] ) ? esc_html__( 'کرال و به‌روزرسانی دانش سایت', 'hami-ai-assistant' ) : esc_html__( 'ادامهِ خزش', 'hami-ai-assistant' ); ?>
+				</button>
+				<a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => Haa_Admin::PAGE, 'tab' => 'knowledge' ), admin_url( 'admin.php' ) ) ); ?>">
+					<?php esc_html_e( 'تنظیم آدرس صفحات', 'hami-ai-assistant' ); ?>
+				</a>
+			</form>
+			<div class="haai-progress" data-haai-crawl-progress<?php echo empty( $crawl_state['running'] ) ? ' hidden' : ''; ?>>
+				<div class="haai-progress__bar" data-haai-crawl-bar style="width:<?php echo (int) $crawl_state['percent']; ?>%"></div>
+			</div>
+			<p class="description" data-haai-crawl-status>
+				<?php
+				if ( ! empty( $crawl_state['running'] ) ) {
+					esc_html_e( 'خزش در حال اجراست…', 'hami-ai-assistant' );
+				} elseif ( ! empty( $crawl_state['finished_at'] ) ) {
+					echo esc_html( sprintf( 'آخرین خزش: %s', mysql2date( 'Y/m/d H:i', gmdate( 'Y-m-d H:i:s', (int) $crawl_state['finished_at'] ) ) ) );
+				} else {
+					esc_html_e( 'هنوز خزشی اجرا نشده است.', 'hami-ai-assistant' );
+				}
+				?>
+			</p>
+
+			<h2 class="haai-sec-title">
 				<?php esc_html_e( 'ماژول‌ها', 'hami-ai-assistant' ); ?>
 				<span class="haai-badge">
 					<?php
@@ -139,6 +173,48 @@ final class Haa_Admin_Dashboard {
 			<?php self::render_diagnostics(); ?>
 		</div>
 		<?php
+			// Dashboard crawl ticker: the classic POST above starts the cursor,
+			// this script drives the remaining batches over AJAX — the same
+			// contract as the semantic-search rebuild ticker.
+			if ( ! empty( $crawl_state['running'] ) ) : ?>
+			<script>
+			(function () {
+				if (!window.haaiAdmin) return;
+				var bar = document.querySelector('[data-haai-crawl-bar]');
+				var wrap = document.querySelector('[data-haai-crawl-progress]');
+				var status = document.querySelector('[data-haai-crawl-status]');
+				var btn = document.querySelector('[data-haai-crawl-start]');
+				var running = true;
+
+				function tick() {
+					if (!running) return;
+					var body = new FormData();
+					body.append('action', 'haai_crawl_tick');
+					body.append('nonce', haaiAdmin.nonce);
+					fetch(haaiAdmin.ajax, { method: 'POST', credentials: 'same-origin', body: body })
+						.then(function (r) { return r.json(); })
+						.then(function (d) {
+							if (!running) return;
+							var p = d && d.progress ? d.progress : null;
+							if (!p) { stop(); say(haaiAdmin.i18n.fail); return; }
+							if (bar) bar.style.width = Math.max(0, Math.min(100, p.percent)) + '%';
+							say('خزش: ' + p.percent + '% (' + p.offset + ' / ' + p.total + ') — صفحه: ' + p.pages + '، تکه: ' + p.chunks);
+							if (p.last_error) { stop(); say(p.last_error); return; }
+							if (p.running) { setTimeout(tick, 800); }
+							else { stop(); if (bar) bar.style.width = '100%'; say('تمام شد — صفحه: ' + p.pages + '، تکه: ' + p.chunks + (p.stats ? '، مجموع تکه‌های خزش: ' + p.stats.chunks : '')); }
+						})
+						.catch(function () { stop(); say(haaiAdmin.i18n.fail); });
+				}
+
+				function stop() { running = false; if (btn) btn.disabled = false; }
+				function say(t) { if (status) status.textContent = t; }
+				if (btn) btn.disabled = true;
+				if (wrap) wrap.hidden = false;
+				tick();
+			})();
+			</script>
+			<?php endif; ?>
+			<?php
 	}
 
 	/**

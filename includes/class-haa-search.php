@@ -872,10 +872,10 @@ final class Haa_Search {
                         $in[] = $wpdb->prepare( '%s', (string) $type );
                 }
 
-                return " INNER JOIN {$wpdb->posts} p ON p.ID = {$alias}.post_id"
+                return " INNER JOIN {$wpdb->posts} p ON ( {$alias}.post_id < 0 OR ( p.ID = {$alias}.post_id"
                         . " AND p.post_status = 'publish'"
                         . " AND p.post_password = ''"
-                        . ' AND p.post_type IN (' . implode( ',', $in ) . ') ';
+                        . ' AND p.post_type IN (' . implode( ',', $in ) . ') ) ) ';
         }
 
         /**
@@ -1571,8 +1571,10 @@ final class Haa_Search {
         public static function purge_orphans() {
                 global $wpdb;
                 $chunks = Haa_DB::table( 'chunks' );
+                // post_id < 0 belongs to the site-knowledge crawler (rendered pages +
+                // contact facts); those rows have no wp_posts parent BY DESIGN.
                 // phpcs:ignore WordPress.DB
-                $wpdb->query( "DELETE c FROM $chunks c LEFT JOIN {$wpdb->posts} p ON p.ID = c.post_id WHERE p.ID IS NULL" );
+                $wpdb->query( "DELETE c FROM $chunks c LEFT JOIN {$wpdb->posts} p ON p.ID = c.post_id WHERE p.ID IS NULL AND c.post_id > 0" );
 
                 if ( Haa_Settings::is_module_enabled( 'semantic-search' ) ) {
                         $vectors = Haa_DB::table( 'vectors' );

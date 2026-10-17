@@ -121,6 +121,12 @@ final class Haa_Module_Chatbot implements Haa_Module_Interface {
                         'hint'  => __( 'لینک کامل، مثل https://t.me/username', 'hami-ai-assistant' ),
                 );
                 $fields[] = array(
+                        'key'   => 'chat.contact_instagram',
+                        'type'  => 'text',
+                        'label' => __( 'راه ارتباطی: اینستاگرام', 'hami-ai-assistant' ),
+                        'hint'  => __( 'لینک کامل، مثل https://instagram.com/username — برای سؤال «آدرس اینستاگرام؟» همین لینک عیناً پاسخ داده می‌شود.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
                         'key'   => 'chat.contact_phone',
                         'type'  => 'text',
                         'label' => __( 'راه ارتباطی: شماره تماس', 'hami-ai-assistant' ),
