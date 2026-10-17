@@ -11,6 +11,10 @@
  * rendered HTML closes that gap with one bounded HTTP request per page.
  *
  * Lightweight by design:
+ *   - 2.1.17: WordPress objects (pages/products/posts) are read straight
+ *     from the DATABASE (build_source: post content, Elementor meta,
+ *     WooCommerce fields) — no HTTP at all; only the homepage and the
+ *     admin's custom URLs still cost one network round-trip each.
  *   - resumable, batched state machine (2 pages per tick, 12 s budget) — the
  *     same contract as the KB rebuild, driven from the dashboard;
  *   - one GET per page, HTML-only, body capped, short timeouts, no recursion
@@ -190,26 +194,35 @@ final class Haa_Crawl {
          * fills the queue with the pages that answer real questions and leaves
          * the long tail out.
          *
-         * @return array<int,string>
+         * 2.1.17 — every entry also carries its post id: WP objects are read
+         * from the database (build_source: post_content + Elementor meta +
+         * WooCommerce fields) instead of HTTP-fetching the site's own URLs —
+         * on shared/CDN hosts those self-requests are slow, frequently
+         * firewalled, and were why a crawl could sit at 0/0 or take an hour.
+         * Only the homepage and the admin's custom URLs stay on HTTP, because
+         * rendered-only copy (menus/footer/widgets) and link discovery exist
+         * nowhere else.
+         *
+         * @return array<int,array{url:string,pid:int}>
          */
-        public static function targets() {
+        public static function targets_full() {
                 $cfg   = self::config();
                 $cap   = min( self::MAX_URLS, $cfg['pages'] );
                 $types = (array) ( $cfg['types'] ?? array( 'page' ) );
 
-                $urls = array();
+                $out  = array();
                 $seen = array();
-                $add  = function ( $url ) use ( &$urls, &$seen, $cap ) {
+                $add  = function ( $url, $pid = 0 ) use ( &$out, &$seen, $cap ) {
                         $url = self::safe_url( (string) $url );
                         if ( ! $url ) {
                                 return false;
                         }
                         $key = self::canon_url( $url );
-                        if ( isset( $seen[ $key ] ) || count( $urls ) >= $cap ) {
+                        if ( isset( $seen[ $key ] ) || count( $out ) >= $cap ) {
                                 return false;
                         }
                         $seen[ $key ] = true;
-                        $urls[]       = $url;
+                        $out[]        = array( 'url' => $url, 'pid' => (int) $pid );
                         return true;
                 };
 
@@ -218,7 +231,7 @@ final class Haa_Crawl {
 
                 // 1) Admin-entered URLs win right after the homepage (they are deliberate).
                 foreach ( $cfg['urls'] as $u ) {
-                        if ( count( $urls ) >= $cap ) {
+                        if ( count( $out ) >= $cap ) {
                                 break;
                         }
                         $add( $u );
@@ -226,7 +239,7 @@ final class Haa_Crawl {
 
                 // 2-4) Ticked content types, each bounded by the remaining budget.
                 foreach ( array( 'page', 'product', 'post' ) as $type ) {
-                        if ( ! in_array( $type, $types, true ) || count( $urls ) >= $cap ) {
+                        if ( ! in_array( $type, $types, true ) || count( $out ) >= $cap ) {
                                 continue;
                         }
                         $ids = get_posts(
@@ -234,7 +247,7 @@ final class Haa_Crawl {
                                         'post_type'        => $type,
                                         'post_status'      => 'publish',
                                         'post_password'    => '',
-                                        'posts_per_page'   => min( 100, $cap - count( $urls ) ),
+                                        'posts_per_page'   => min( 100, $cap - count( $out ) ),
                                         'orderby'          => 'date',
                                         'order'            => 'page' === $type ? 'ASC' : 'DESC',
                                         'fields'           => 'ids',
@@ -243,14 +256,23 @@ final class Haa_Crawl {
                                 )
                         );
                         foreach ( (array) $ids as $pid ) {
-                                if ( count( $urls ) >= $cap ) {
+                                if ( count( $out ) >= $cap ) {
                                         break;
                                 }
-                                $add( (string) get_permalink( (int) $pid ) );
+                                $add( (string) get_permalink( (int) $pid ), (int) $pid );
                         }
                 }
 
-                return $urls;
+                return $out;
+        }
+
+        /**
+         * URL-only view of the queue (labels, previews, tests).
+         *
+         * @return array<int,string>
+         */
+        public static function targets() {
+                return array_map( function ( $t ) { return (string) $t['url']; }, self::targets_full() );
         }
 
         /**
@@ -356,6 +378,7 @@ final class Haa_Crawl {
                                 'chunks'     => 0,   // Chunk rows written so far.
                                 'failed'     => 0,   // Pages that could not be fetched (2.1.16).
                                 'urls'       => array(),
+                                'pids'        => array(), // Parallel to urls: 0 = HTTP fetch, >0 = read from DB (2.1.17).
                                 'keys'       => array(), // Canonical keys of queued URLs.
                                 'facts'      => array(), // Accumulated contact-fact lines.
                                 'last_error' => '',
@@ -401,10 +424,12 @@ final class Haa_Crawl {
                         return self::progress();
                 }
 
-                $urls = self::targets();
-                if ( ! $urls ) {
+                $targets = self::targets_full();
+                if ( ! $targets ) {
                         return new WP_Error( 'haai_crawl_no_urls', __( 'هیچ صفحه‌ای برای خزش پیدا نشد.', 'hami-ai-assistant' ) );
                 }
+                $urls = array_map( function ( $t ) { return (string) $t['url']; }, $targets );
+                $pids = array_map( function ( $t ) { return (int) $t['pid']; }, $targets );
 
                 // Crawl rows are replaced per-URL; a stale contact slot from an older
                 // run is refreshed by the first batch anyway.
@@ -416,6 +441,7 @@ final class Haa_Crawl {
                                 'pages'       => 0,
                                 'chunks'      => 0,
                                 'urls'        => $urls,
+                                'pids'        => $pids,
                                 'keys'        => array_fill_keys( array_map( array( __CLASS__, 'canon_url' ), $urls ), 1 ),
                                 'facts'       => array(),
                                 'failed'      => 0,
@@ -468,52 +494,101 @@ final class Haa_Crawl {
                 set_transient( self::LOCK, 1, 45 );
 
                 $batch_size = max( 1, min( 4, (int) $batch_size ) );
-                $processed  = 0;
+                $pids       = (array) ( $state['pids'] ?? array() );
+                $http_done  = 0;
+                $db_done    = 0;
+
+                // 2.1.17 — a queue saved by an older version has no post-id
+                // column; backfill it from WP (url_to_postid) so a RESUMED run
+                // gets the DB-fast path too. The homepage and the admin's
+                // custom URLs stay HTTP: their rendered copy (menus, footer,
+                // widgets) and link discovery exist nowhere in the database.
+                $custom_keys = array_flip( array_map( array( __CLASS__, 'canon_url' ), (array) self::config()['urls'] ) );
+                $home_key    = self::canon_url( home_url( '/' ) );
+                while ( count( $pids ) < count( $urls ) ) {
+                        $i      = count( $pids );
+                        $canon  = self::canon_url( (string) $urls[ $i ] );
+                        $pids[] = ( $canon === $home_key || isset( $custom_keys[ $canon ] ) )
+                                ? 0
+                                : (int) url_to_postid( (string) $urls[ $i ] );
+                }
 
                 while ( $state['offset'] < count( $urls ) ) {
-                        $url = (string) $urls[ $state['offset'] ];
+                        $i       = (int) $state['offset'];
+                        $url     = (string) $urls[ $i ];
+                        $pid     = (int) ( $pids[ $i ] ?? 0 );
+                        $is_http = ( $pid <= 0 );
+
+                        // Per-source admission: an HTTP page is expensive (one
+                        // network round-trip each, up to the 6 s timeout on a
+                        // blocked host) — batch_size per tick. A DB page costs
+                        // milliseconds — 40 per tick, so a 30-URL queue ends in
+                        // ONE tick even on the slowest host.
+                        if ( $is_http && $http_done >= $batch_size ) {
+                                break;
+                        }
+                        if ( ! $is_http && $db_done >= 40 ) {
+                                break;
+                        }
 
                         // Heartbeat FIRST — a fetch stuck at the server timeout still
-                        // left a trail the dashboard can show («در حال خواندن: …»). 
+                        // left a trail the dashboard can show («در حال خواندن: …»).
                         $state['current']    = $url;
                         $state['current_at'] = time();
+                        $state['pids']       = $pids;
                         self::save_state( $state );
 
-                        $t0   = microtime( true );
-                        $html = self::fetch( $url );
+                        $t0 = microtime( true );
 
-                        if ( is_wp_error( $html ) ) {
-                                // One unreachable page must not poison the run — but it
-                                // must not stay SILENT either: a host that refuses to
-                                // read its own site would otherwise "finish" at 0/0
-                                // with no trace of why (2.1.16).
-                                $state['failed']     = (int) ( $state['failed'] ?? 0 ) + 1;
-                                $state['last_error'] = substr( (string) $html->get_error_message(), 0, 120 );
+                        if ( $is_http ) {
+                                $html = self::fetch( $url );
+
+                                if ( is_wp_error( $html ) ) {
+                                        // One unreachable page must not poison the run — but it
+                                        // must not stay SILENT either: a host that refuses to
+                                        // read its own site would otherwise "finish" at 0/0
+                                        // with no trace of why (2.1.16).
+                                        $state['failed']     = (int) ( $state['failed'] ?? 0 ) + 1;
+                                        $state['last_error'] = substr( (string) $html->get_error_message(), 0, 120 );
+                                } else {
+                                        $stored = self::store_page( $url, $html );
+                                        $state['pages']  += $stored['pages'];
+                                        $state['chunks'] += $stored['chunks'];
+                                        self::collect_facts( $state, $url, $html );
+
+                                        // Homepage: discover internal links while budget remains.
+                                        if ( 0 === $i && self::config()['discover'] ) {
+                                                $remaining = min( self::MAX_URLS, self::config()['pages'] ) - count( $urls );
+                                                $more      = self::links_from_home( $html, (array) ( $state['keys'] ?? array() ), $remaining );
+                                                if ( $more ) {
+                                                        $urls           = array_merge( $urls, $more );
+                                                        $state['urls']  = $urls;
+                                                        $state['keys']  = array_merge( (array) ( $state['keys'] ?? array() ), array_fill_keys( array_map( array( __CLASS__, 'canon_url' ), $more ), 1 ) );
+                                                        $state['total'] = count( $urls );
+                                                }
+                                        }
+                                }
                         } else {
-                                $stored = self::store_page( $url, $html );
+                                // DB path — wp_posts (+ Elementor meta, + WooCommerce
+                                // fields) already holds this page's copy; zero HTTP.
+                                $stored = self::store_db_page( $pid, $url );
                                 $state['pages']  += $stored['pages'];
                                 $state['chunks'] += $stored['chunks'];
-                                self::collect_facts( $state, $url, $html );
-
-                                // Homepage: discover internal links while budget remains.
-                                if ( 0 === (int) $state['offset'] && self::config()['discover'] ) {
-                                        $remaining = min( self::MAX_URLS, self::config()['pages'] ) - count( $urls );
-                                        $more      = self::links_from_home( $html, (array) ( $state['keys'] ?? array() ), $remaining );
-                                        if ( $more ) {
-                                                $urls              = array_merge( $urls, $more );
-                                                $state['urls']     = $urls;
-                                                $state['keys']     = array_merge( (array) ( $state['keys'] ?? array() ), array_fill_keys( array_map( array( __CLASS__, 'canon_url' ), $more ), 1 ) );
-                                                $state['total']    = count( $urls );
-                                        }
+                                if ( '' !== (string) $stored['text'] ) {
+                                        self::collect_facts( $state, $url, '<title>' . $stored['title'] . '</title>' . $stored['text'] );
                                 }
                         }
 
                         $state['offset']++;
-                        $processed++;
+                        if ( $is_http ) {
+                                $http_done++;
+                        } else {
+                                $db_done++;
+                        }
                         $state['ms_sum'] += (int) round( ( microtime( true ) - $t0 ) * 1000 );
                         $state['ms_n']++;
 
-                        if ( $processed >= $batch_size || ( microtime( true ) - $started ) > 10 ) {
+                        if ( ( microtime( true ) - $started ) > 10 ) {
                                 break;
                         }
                 }
@@ -699,13 +774,7 @@ final class Haa_Crawl {
                 $post_id = self::slot_id( $url );
                 $table   = Haa_DB::table( 'chunks' );
 
-                // Vectors hang off chunk ids; drop them first, exactly like remove_post().
-                if ( Haa_Settings::is_module_enabled( 'semantic-search' ) ) {
-                        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-                        $wpdb->query( $wpdb->prepare( "DELETE v FROM " . Haa_DB::table( 'vectors' ) . " v INNER JOIN $table c ON c.id = v.chunk_id WHERE c.post_id = %d", $post_id ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-                }
-                // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-                $wpdb->delete( $table, array( 'post_id' => $post_id ), array( '%d' ) );
+                self::drop_slot( $post_id );
 
                 $chunks = Haa_Search::chunk_text( $text );
                 // Keep the whole crawl lean: cap per page AND globally.
@@ -739,6 +808,85 @@ final class Haa_Crawl {
 
                 Haa_DB::flush_cache();
                 return array( 'pages' => 1, 'chunks' => $n );
+        }
+
+        /**
+         * Remove every KB row (and dangling vectors) owned by a crawl slot so a
+         * re-crawl replaces in place. Shared by the HTTP and the DB path.
+         *
+         * @param int $slot Negative slot id.
+         * @return void
+         */
+        private static function drop_slot( $slot ) {
+                global $wpdb;
+                $table = Haa_DB::table( 'chunks' );
+                if ( Haa_Settings::is_module_enabled( 'semantic-search' ) ) {
+                        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                        $wpdb->query( $wpdb->prepare( "DELETE v FROM " . Haa_DB::table( 'vectors' ) . " v INNER JOIN $table c ON c.id = v.chunk_id WHERE c.post_id = %d", $slot ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                }
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                $wpdb->delete( $table, array( 'post_id' => $slot ), array( '%d' ) );
+        }
+
+        /**
+         * 2.1.17 — DB-first crawl: index a WordPress object (page, product,
+         * post) WITHOUT any HTTP request. Haa_Search::build_source() already
+         * knows how to speak "shop" (WooCommerce name/price/stock/attributes)
+         * and "Elementor" (meta JSON → text), so the crawler reuses it
+         * verbatim and stores rows under the same deterministic negative slot
+         * the HTTP path uses — re-crawling replaces in place, retrieval and
+         * embeddings need zero new paths.
+         *
+         * @param int    $post_id WordPress post id.
+         * @param string $url     Canonical permalink queued for this object.
+         * @return array{pages:int,chunks:int,text:string,title:string}
+         */
+        public static function store_db_page( $post_id, $url ) {
+                global $wpdb;
+
+                $src   = Haa_Search::build_source( (int) $post_id );
+                $title = (string) ( $src['title'] ?? '' );
+                $text  = trim( (string) ( $src['content'] ?? '' ) );
+                if ( '' === $text || mb_strlen( $text ) < self::MIN_TEXT ) {
+                        return array( 'pages' => 0, 'chunks' => 0, 'text' => $text, 'title' => $title );
+                }
+
+                $slot   = self::slot_id( $url );
+                $table  = Haa_DB::table( 'chunks' );
+                self::drop_slot( $slot );
+
+                $chunks = Haa_Search::chunk_text( $text );
+                // Keep the whole crawl lean: cap per page AND globally.
+                $budget = self::MAX_CHUNKS - (int) $wpdb->get_var( "SELECT COUNT(*) FROM $table WHERE post_id < 0 AND post_id <> " . (int) $slot ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
+                if ( $budget <= 0 ) {
+                        return array( 'pages' => 0, 'chunks' => 0, 'text' => $text, 'title' => $title );
+                }
+                $chunks = array_slice( $chunks, 0, max( 1, min( 8, $budget ) ) );
+
+                $now = current_time( 'mysql', true );
+                $n   = 0;
+                foreach ( $chunks as $index => $chunk ) {
+                        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                        $wpdb->insert(
+                                $table,
+                                array(
+                                        'post_id'      => $slot,
+                                        'source'       => 'crawl',
+                                        'title'        => Haa_Util::cut( $title, 250 ),
+                                        'url'          => substr( (string) $url, 0, 250 ),
+                                        'chunk_index'  => $index,
+                                        'content'      => $chunk,
+                                        'content_norm' => Haa_Search::normalize_text( $chunk ) . ' ' . Haa_Search::normalize_text( $title ),
+                                        'meta'         => wp_json_encode( array( 'crawler' => 1 ) ),
+                                        'date_updated' => $now,
+                                ),
+                                array( '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s' )
+                        );
+                        $n++;
+                }
+
+                Haa_DB::flush_cache();
+                return array( 'pages' => 1, 'chunks' => $n, 'text' => $text, 'title' => $title );
         }
 
         /**

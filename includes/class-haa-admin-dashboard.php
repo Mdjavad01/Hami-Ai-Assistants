@@ -105,7 +105,9 @@ final class Haa_Admin_Dashboard {
                         // is about to be queued right next to the button.
                         $crawl_cfg    = Haa_Crawl::config();
                         $crawl_counts = Haa_Crawl::type_counts();
-                        $crawl_queue  = count( Haa_Crawl::targets() );
+                        $crawl_targets = Haa_Crawl::targets_full();
+                        $crawl_queue   = count( $crawl_targets );
+                        $crawl_http    = count( array_filter( $crawl_targets, function ( $t ) { return empty( $t['pid'] ); } ) );
                         $on  = array();
                         $off = array();
                         $type_labels = array( 'page' => 'برگه‌ها', 'product' => 'محصولات', 'post' => 'نوشته‌ها' );
@@ -117,7 +119,9 @@ final class Haa_Admin_Dashboard {
                                         $off[] = $label . ' (' . number_format_i18n( $n ) . ')';
                                 }
                         }
-                        $eta_min = (int) max( 1, ceil( $crawl_queue * 3 / 60 ) );
+                        // DB pages read in milliseconds; only the homepage and
+                        // custom URLs pay a real HTTP round-trip (~3 s worst case).
+                        $eta_min = (int) max( 1, (int) ceil( ( $crawl_http * 3 + ( $crawl_queue - $crawl_http ) * 0.1 ) / 60 ) );
                         ?>
                         <p class="description" data-haai-crawl-scope>
                                 <?php
@@ -267,7 +271,7 @@ final class Haa_Admin_Dashboard {
                                                 say('خزش تمام شد ولی هیچ صفحه‌ای خوانده نشد (' + p.failed + ' خطا' + (p.last_error ? ': ' + p.last_error : '') + '). معمولاً یعنی هاست اجازهٔ خواندن صفحات خودِ سایت را نمی‌دهد — از میزبانی بخواهید دسترسی خروجی به دامنه‌ی خودتان را باز کند، یا آدرس‌ها را با https کامل در تب «دانش سایت» بدهید.');
                                                 return;
                                         }
-                                        say('تمام شد — صفحه: ' + p.pages + '، تکه: ' + p.chunks + (p.failed ? '، خوانده‌نشده: ' + p.failed : '') + (p.stats ? '، مجموع تکه‌های خزش: ' + p.stats.chunks : '') + '. دستیار از این پس صفحات را با لینک می‌شناسد.');
+                                        say('تمام شد — صفحه: ' + p.pages + '، تکه: ' + p.chunks + (p.failed ? '، خوانده‌نشده: ' + p.failed + ' (معمولاً صفحه‌ی اول یا آدرس دلخواه — هاست اجازهٔ خواندن خودِ سایت را نمی‌دهد؛ بقیهٔ صفحات از دیتابیس خوانده شده‌اند)' : '') + (p.stats ? '، مجموع تکه‌های خزش: ' + p.stats.chunks : '') + '. دستیار از این پس صفحات را با لینک می‌شناسد.');
                                 }
                                 function retry(reason) {
                                         if (!running) return;

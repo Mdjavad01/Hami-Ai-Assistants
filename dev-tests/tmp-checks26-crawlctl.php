@@ -184,13 +184,20 @@ $GLOBALS['posts'] = array(
 reset_crawl_config();
 $start = Haa_Crawl::start();
 ok( 'fresh start: running with cursor at 0', 1 === (int) $start['running'] && 0 === (int) $start['offset'] && $start['total'] >= 5 );
+// 2.1.17 — one batch drains a mixed queue: 1 HTTP (homepage) + the DB pages
+// (up to 40 per tick), so a 30-URL queue ends in ONE tick, not fifteen.
 Haa_Crawl::batch( 2 );
-ok( 'one batch advanced the cursor to 2', 2 === (int) Haa_Crawl::progress()['offset'] );
+$p1 = Haa_Crawl::progress();
+ok( 'one batch drains the mixed queue (HTTP + DB)', (int) $p1['total'] === (int) $p1['offset'], '(offset=' . $p1['offset'] . '/' . $p1['total'] . ')' );
+// Resume contract — a partial cursor must be kept verbatim by «ادامهِ خزش».
+$s                = crawl_state();
+$s['running']     = 1;
+$s['offset']      = 2;
+$s['total']       = 5;
+$s['finished_at'] = 0;
+$GLOBALS['opts']['hami_ai_crawl_state'] = $s;
 $resumed = Haa_Crawl::start();
 ok( 'start() RESUMES (offset kept)', 1 === (int) $resumed['running'] && 2 === (int) $resumed['offset'], '(offset=' . $resumed['offset'] . ')' );
-Haa_Crawl::batch( 2 );
-$mid = Haa_Crawl::progress();
-ok( 'second batch advanced to 4', 4 === (int) $mid['offset'] );
 $reset = Haa_Crawl::start( true );
 ok( 'explicit reset rebuilds from zero', 1 === (int) $reset['running'] && 0 === (int) $reset['offset'] );
 Haa_Crawl::cancel();

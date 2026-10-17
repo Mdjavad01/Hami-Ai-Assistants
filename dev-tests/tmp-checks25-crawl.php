@@ -161,6 +161,14 @@ $GLOBALS['http_map'] = array(
 Haa_Settings::save_section( 'knowledge', array( 'urls' => "https://local.test/shop", 'auto_crawl' => 1, 'max_pages' => 6 ) );
 reset_crawl_config();
 $GLOBALS['opts']['hami_ai_crawl_state'] = array();
+// 2.1.17 — pages/products/posts are read from the DB now; give the fixtures
+// real post_content so the DB path carries the same facts the HTTP mock did.
+$GLOBALS['written'][700] = array( 'ID' => 700, 'post_title' => 'تماس با ما', 'post_type' => 'page', 'post_status' => 'publish',
+        'post_content' => '<h1>تماس با ما — فروشگاه هدیه گیلان</h1><p>آدرس: رشت، خیابان مطهری، مرکز هنر و خلاقیت. ساعت کاری ۹ تا ۱۸.</p>'
+                . '<p>شماره ثابت: 01333221100 — موبایل: 09113123456 — ایمیل: info@gilan.test</p>' );
+$GLOBALS['written'][701] = array( 'ID' => 701, 'post_title' => 'درباره ما', 'post_type' => 'page', 'post_status' => 'publish',
+        'post_content' => '<p>موسس مجموعه استاد محمدرضا خاموشیان، بافنده فرش‌های دستباف کاشان.</p>'
+                . '<p>این مجموعه از سال ۱۳۸۰ در زمینهٔ فروش صنایع دستی و فرش دستباف فعالیت می‌کند و ارسال سراسری دارد.</p>' );
 $start = Haa_Crawl::start();
 ok( 'start() returns progress array', is_array( $start ) && isset( $start['running'] ) );
 $guard = 0;

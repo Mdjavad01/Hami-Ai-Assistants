@@ -117,15 +117,18 @@ ok( 'lock released after the batch', false === get_transient( 'haai_crawl_lock' 
 
 echo "=== C. auto_drive() — self-heal without JS ===\n";
 reset_all();
-$GLOBALS['posts'] = array(
-	array( 'id' => 700, 'title' => 'درباره ما', 'type' => 'page', 'status' => 'publish' ),
-	array( 'id' => 701, 'title' => 'خدمات', 'type' => 'page', 'status' => 'publish' ),
-	array( 'id' => 702, 'title' => 'تماس', 'type' => 'page', 'status' => 'publish' ),
-);
+// 2.1.17 — one DB batch covers up to 40 pages, so the auto_drive matrix
+// needs a queue BIGGER than one batch to keep its partial-progress shape.
+$GLOBALS['posts'] = array();
+for ( $i = 700; $i < 750; $i++ ) {
+	$GLOBALS['posts'][] = array( 'id' => $i, 'title' => 'برگه ' . $i, 'type' => 'page', 'status' => 'publish' );
+	$GLOBALS['written'][ $i ] = array( 'ID' => $i, 'post_title' => 'برگه ' . $i, 'post_type' => 'page', 'post_status' => 'publish',
+		'post_content' => '<p>محتوای آزمایشی برگه ' . $i . ' فروشگاه هدیه گیلان انواع صنایع دستی و فرش دستباف را با ارسال سراسری عرضه می‌کند و برای سفارش تلفنی در خدمت شماست.</p>' );
+}
 $GLOBALS['http_map'] = array(
 	'local.test' => array( 'body' => good_body( 'صفحه', 'محتوای آزمایشی صفحه برای پر کردن حداقل کاراکترها.' ) ),
 );
-Haa_Settings::save_section( 'knowledge', array( 'urls' => '', 'auto_crawl' => 1, 'max_pages' => 8, 'crawl_types' => array( 'page' ) ) );
+Haa_Settings::save_section( 'knowledge', array( 'urls' => '', 'auto_crawl' => 1, 'max_pages' => 100, 'crawl_types' => array( 'page' ) ) );
 reset_crawl_config();
 
 $idle = Haa_Crawl::auto_drive();
