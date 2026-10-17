@@ -96,7 +96,8 @@ class Haa_Adapter_OpenAI extends Haa_Adapter_Base {
                                 'temperature' => (float) $opts['temperature'],
                                 'max_tokens'  => (int) $opts['max_tokens'],
                                 'stream'      => false,
-                        )
+                        ),
+                        JSON_INVALID_UTF8_SUBSTITUTE
                 );
         }
 
@@ -143,15 +144,36 @@ class Haa_Adapter_Gemini extends Haa_Adapter_Base {
                 $system  = array();
                 foreach ( (array) $messages as $m ) {
                         $role = isset( $m['role'] ) ? $m['role'] : 'user';
-                        $text = isset( $m['content'] ) ? (string) $m['content'] : '';
+                        $text = isset( $m['content'] ) ? trim( (string) $m['content'] ) : '';
                         if ( 'system' === $role ) {
                                 $system[] = $text;
                                 continue;
                         }
-                        $turns[] = array(
-                                'role'  => 'assistant' === $role ? 'model' : 'user',
-                                'parts' => array( array( 'text' => $text ) ),
-                        );
+                        if ( '' === $text ) {
+                                continue; // Gemini rejects empty parts with a 400.
+                        }
+                        $wire = 'assistant' === $role ? 'model' : 'user';
+                        // v1beta enforces strict user/model alternation — a session
+                        // that survived failed turns carries two user messages back
+                        // to back, and Google answers 400 "Please ensure that
+                        // multiturn requests alternate between user and model".
+                        // The admin probe (single ping, no history) stays green, so
+                        // the bot looks dead while the provider tab says healthy.
+                        // Consecutive same-role turns merge into one content as an
+                        // extra part, which is exactly the semantics the visitor saw.
+                        $last = count( $turns ) - 1;
+                        if ( $last >= 0 && $turns[ $last ]['role'] === $wire ) {
+                                $turns[ $last ]['parts'][] = array( 'text' => $text );
+                        } else {
+                                $turns[] = array(
+                                        'role'  => $wire,
+                                        'parts' => array( array( 'text' => $text ) ),
+                                );
+                        }
+                }
+                // Same contract on the first turn: it must speak as the user.
+                while ( $turns && 'model' === $turns[0]['role'] ) {
+                        array_shift( $turns );
                 }
 
                 $payload = array(
@@ -170,14 +192,27 @@ class Haa_Adapter_Gemini extends Haa_Adapter_Base {
                 if ( ! empty( $opts['grounding'] ) ) {
                         $payload['tools'] = array( array( 'google_search' => new stdClass() ) );
                 }
-                return wp_json_encode( $payload );
+                // A single invalid UTF-8 byte (a snippet cut mid-character) would
+                // make json_encode return false — an empty body every time. The flag
+                // substitutes the bad byte instead of losing the whole request.
+                return wp_json_encode( $payload, JSON_INVALID_UTF8_SUBSTITUTE );
         }
 
         public function extract( $json ) {
-                if ( isset( $json['candidates'][0]['content']['parts'][0]['text'] ) ) {
-                        return trim( (string) $json['candidates'][0]['content']['parts'][0]['text'] );
+                // Answers may arrive as several parts (and thinking models may put
+                // a thought part first): parts[0]-only read either truncated the
+                // reply or reported an empty one. Walk every part, skip thoughts.
+                $parts = isset( $json['candidates'][0]['content']['parts'] ) && is_array( $json['candidates'][0]['content']['parts'] )
+                        ? $json['candidates'][0]['content']['parts']
+                        : array();
+                $text  = '';
+                foreach ( $parts as $part ) {
+                        if ( empty( $part['thought'] ) && isset( $part['text'] ) ) {
+                                $text .= (string) $part['text'];
+                        }
                 }
-                return false;
+                $text = trim( $text );
+                return '' === $text ? false : $text;
         }
 
         public function truncated( $json ) {
@@ -213,15 +248,29 @@ class Haa_Adapter_Claude extends Haa_Adapter_Base {
                 $system = array();
                 foreach ( (array) $messages as $m ) {
                         $role = isset( $m['role'] ) ? $m['role'] : 'user';
-                        $text = isset( $m['content'] ) ? (string) $m['content'] : '';
+                        $text = isset( $m['content'] ) ? trim( (string) $m['content'] ) : '';
                         if ( 'system' === $role ) {
                                 $system[] = $text;
                                 continue;
                         }
-                        $turns[] = array(
-                                'role'    => 'assistant' === $role ? 'assistant' : 'user',
-                                'content' => $text,
-                        );
+                        if ( '' === $text ) {
+                                continue;
+                        }
+                        // Anthropic enforces alternation just like Gemini — merge
+                        // consecutive same-role turns instead of shipping a 400.
+                        $wire = 'assistant' === $role ? 'assistant' : 'user';
+                        $last = count( $turns ) - 1;
+                        if ( $last >= 0 && $turns[ $last ]['role'] === $wire ) {
+                                $turns[ $last ]['content'] .= "\n" . $text;
+                        } else {
+                                $turns[] = array(
+                                        'role'    => $wire,
+                                        'content' => $text,
+                                );
+                        }
+                }
+                while ( $turns && 'assistant' === $turns[0]['role'] ) {
+                        array_shift( $turns );
                 }
 
                 $payload = array(
@@ -235,14 +284,25 @@ class Haa_Adapter_Claude extends Haa_Adapter_Base {
                 if ( $system ) {
                         $payload['system'] = implode( "\n", $system );
                 }
-                return wp_json_encode( $payload );
+                return wp_json_encode( $payload, JSON_INVALID_UTF8_SUBSTITUTE );
         }
 
         public function extract( $json ) {
-                if ( isset( $json['content'][0]['text'] ) ) {
-                        return trim( (string) $json['content'][0]['text'] );
+                // Thinking models ship a thinking block first; content[0] is not
+                // always the text. Walk the blocks, join the text ones.
+                if ( is_string( $json['content'] ?? null ) ) {
+                        $text = trim( (string) $json['content'] );
+                        return '' === $text ? false : $text;
                 }
-                return false;
+                $blocks = isset( $json['content'] ) && is_array( $json['content'] ) ? $json['content'] : array();
+                $text   = '';
+                foreach ( $blocks as $block ) {
+                        if ( isset( $block['type'] ) && 'text' === $block['type'] && isset( $block['text'] ) ) {
+                                $text .= (string) $block['text'];
+                        }
+                }
+                $text = trim( $text );
+                return '' === $text ? false : $text;
         }
 
         public function truncated( $json ) {
@@ -371,7 +431,7 @@ final class Haa_API {
                                 'label'    => 'Google Gemini',
                                 'adapter'  => 'gemini',
                                 'base_url' => 'https://generativelanguage.googleapis.com/v1beta',
-                                'model'    => 'gemini-1.5-flash',
+                                'model'    => 'gemini-2.5-flash',
                                 'note'     => 'Gemini معمولاً از سرورهای ایران در دسترس نیست (خطای «مهلت اتصال» نشانه‌ی فیلتر بودن است، نه کندی) — پراکسی تنظیم کنید یا از رله‌ای که فرمت Gemini دارد استفاده کنید.',
                         ),
                         'claude'     => array(
@@ -489,6 +549,7 @@ final class Haa_API {
                         // time to heal — the visitor gets the honest message instantly
                         // and the host stays calm. The probe window re-opens within
                         // BENCH_PROBE_AFTER seconds, so recovery is never far away.
+                        self::remember_chat_error( 'haai_all_benched', __( 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.', 'hami-ai-assistant' ), (string) $opts['model'] );
                         $this->log_chat( $opts, $messages, '', $started, 0, 'haai_all_benched' );
                         return new WP_Error( 'haai_all_benched', __( 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.', 'hami-ai-assistant' ) );
                 }
@@ -510,6 +571,7 @@ final class Haa_API {
                                 if ( $was_benched ) {
                                         self::uncool( $cfg ); // the probe succeeded — full health (and budget) right away.
                                 }
+                                self::clear_chat_error(); // a healthy answer invalidates the diagnostic.
                                 $this->log_chat( $opts, $messages, $result, $started, 1, '' );
                                 return $result;
                         }
@@ -524,8 +586,43 @@ final class Haa_API {
                 }
 
                 $this->log_chat( $opts, $messages, '', $started, 0, $last ? $last->get_error_code() : 'unknown' );
+                if ( $last ) {
+                        self::remember_chat_error( $last->get_error_code(), $last->get_error_message(), (string) $opts['model'] );
+                }
 
                 return $last;
+        }
+
+        /** Transient key of the last failed chat() walk (admin diagnostic). */
+        const LAST_CHAT_ERROR = 'haai_last_chat_error';
+
+        /**
+         * Keep the real failure of the last chat walk for the provider tab.
+         * The visitor only ever sees the generic sentence (BL-05), so without
+         * this the true code/message existed only under WP_DEBUG — the admin
+         * had no way to see WHY the bot was down while the probe was green.
+         * Cleared by the next successful chat(); expires after a day.
+         *
+         * @param string $code Error code.
+         * @param string $msg  Error message.
+         * @return void
+         */
+        private static function remember_chat_error( $code, $msg, $model = '' ) {
+                set_transient(
+                        self::LAST_CHAT_ERROR,
+                        array(
+                                'code'  => substr( (string) $code, 0, 60 ),
+                                'msg'   => mb_substr( wp_strip_all_tags( (string) $msg ), 0, 300 ),
+                                'model' => (string) $model,
+                                'at'    => time(),
+                        ),
+                        DAY_IN_SECONDS
+                );
+        }
+
+        /** @return void */
+        private static function clear_chat_error() {
+                delete_transient( self::LAST_CHAT_ERROR );
         }
 
         /**
@@ -761,6 +858,11 @@ final class Haa_API {
                         'body'        => $adapter->body( $messages, $opts ),
                         'data_format' => 'body',
                 );
+                if ( ! is_string( $args['body'] ) || '' === trim( $args['body'] ) ) {
+                        // json_encode false on invalid UTF-8 or a payload that fell
+                        // apart: shipping it would mean an opaque provider 400.
+                        return new WP_Error( 'haai_body', __( 'بدنه‌ی درخواست ساخته نشد (معمولاً متن حاوی کاراکتر خراب است). دوباره تلاش کنید.', 'hami-ai-assistant' ) );
+                }
 
                 $url = $adapter->endpoint();
 
@@ -789,7 +891,18 @@ final class Haa_API {
 
                 $reply = $adapter->extract( is_array( $json ) ? $json : array() );
                 if ( ! is_string( $reply ) || '' === trim( $reply ) ) {
-                        return new WP_Error( 'haai_empty', __( 'پاسخ سرویس AI خالی یا بی‌ساختار بود. دوباره بزنید؛ اگر تکرار شد، «مدل چت» و تنظیمات ارائه‌دهنده را بررسی کنید.', 'hami-ai-assistant' ) );
+                        // Why was the 200 empty? Safety block, truncation, function
+                        // call without text — name it, so the diagnostic row tells
+                        // the truth instead of a shrug.
+                        $detail = '';
+                        if ( isset( $json['promptFeedback']['blockReason'] ) ) {
+                                $detail = ' [block: ' . (string) $json['promptFeedback']['blockReason'] . ']';
+                        } elseif ( isset( $json['candidates'][0]['finishReason'] ) && 'STOP' !== (string) $json['candidates'][0]['finishReason'] ) {
+                                $detail = ' [finish: ' . (string) $json['candidates'][0]['finishReason'] . ']';
+                        } elseif ( isset( $json['stop_reason'] ) && 'end_turn' !== (string) $json['stop_reason'] ) {
+                                $detail = ' [finish: ' . (string) $json['stop_reason'] . ']';
+                        }
+                        return new WP_Error( 'haai_empty', __( 'پاسخ سرویس AI خالی یا بی‌ساختار بود. دوباره بزنید؛ اگر تکرار شد، «مدل چت» و تنظیمات ارائه‌دهنده را بررسی کنید.', 'hami-ai-assistant' ) . $detail );
                 }
                 return trim( $reply );
         }

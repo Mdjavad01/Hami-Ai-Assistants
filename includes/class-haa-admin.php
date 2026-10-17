@@ -1605,6 +1605,26 @@ final class Haa_Admin {
                                         }
                                         ?>
                                 </div>
+                                <?php
+                                // The visitor only sees the generic sentence; the real
+                                // reason the bot went quiet lands here (cleared by the
+                                // next healthy chat, expires after a day).
+                                $last_chat_err = get_transient( Haa_API::LAST_CHAT_ERROR );
+                                if ( is_array( $last_chat_err ) && ! empty( $last_chat_err['code'] ) ) {
+                                        $lce_time = '';
+                                        if ( ! empty( $last_chat_err['at'] ) && function_exists( 'human_time_diff' ) ) {
+                                                /* translators: %s: human time diff. */
+                                                $lce_time = ' (' . sprintf( __( '%s پیش', 'hami-ai-assistant' ), human_time_diff( (int) $last_chat_err['at'] ) ) . ')';
+                                        }
+                                        echo '<p class="haai-fb__lasterr" style="margin:8px 0 0;padding:6px 10px;border-right:3px solid #dba617;background:#fff8e5;">'
+                                                . '<strong>' . esc_html__( 'آخرین خطای چت:', 'hami-ai-assistant' ) . '</strong> '
+                                                . '<code>' . esc_html( (string) $last_chat_err['code'] ) . '</code>'
+                                                . ( ! empty( $last_chat_err['msg'] ) ? ' — ' . esc_html( wp_html_excerpt( (string) $last_chat_err['msg'], 200, '…' ) ) : '' )
+                                                . ( ! empty( $last_chat_err['model'] ) ? ' · <em>' . esc_html( (string) $last_chat_err['model'] ) . '</em>' : '' )
+                                                . esc_html( $lce_time )
+                                                . '</p>';
+                                }
+                                ?>
                                 <div class="haai-fb__rows" data-haai-fb data-presets="<?php echo esc_attr( (string) wp_json_encode( $fb_presets ) ); ?>">
                                         <?php
                                         foreach ( $fb_stored as $fbi => $fbrow ) {
