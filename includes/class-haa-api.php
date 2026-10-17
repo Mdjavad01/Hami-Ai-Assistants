@@ -266,6 +266,16 @@ final class Haa_API {
         /** Seconds a source that just failed stays out of the rotation. */
         const FAILOVER_COOLDOWN = 300;
 
+        /**
+         * Seconds into a bench after which the source may be probed again.
+         * A source benched seconds ago has had no time to heal — retrying it
+         * with the full backoff budget is exactly how one provider outage
+         * turned every visitor request into a slow PHP pile-up (the user's
+         * "low speed, then the bot goes away" report). 60 s keeps recovery
+         * fast while capping the wasted work to one probe per minute.
+         */
+        const BENCH_PROBE_AFTER = 60;
+
         /** Transient prefix for the per-source failure cooldown. */
         const COOLDOWN_PREFIX = 'haai_fb_';
 
@@ -457,7 +467,9 @@ final class Haa_API {
                         )
                 );
 
-                $candidates = $this->candidates();
+                $started = microtime( true );
+                $fresh_only = false;
+                $candidates = $this->candidates( $fresh_only );
 
                 // The friendly configuration errors survive the walk: with a sole
                 // (unusable) candidate they surface exactly as before; with a
@@ -471,25 +483,44 @@ final class Haa_API {
                         }
                 }
 
+                if ( $fresh_only ) {
+                        // Every source was benched within the last minute. An HTTP
+                        // attempt now would just re-pay a timeout/403 that has had no
+                        // time to heal — the visitor gets the honest message instantly
+                        // and the host stays calm. The probe window re-opens within
+                        // BENCH_PROBE_AFTER seconds, so recovery is never far away.
+                        $this->log_chat( $opts, $messages, '', $started, 0, 'haai_all_benched' );
+                        return new WP_Error( 'haai_all_benched', __( 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.', 'hami-ai-assistant' ) );
+                }
+
                 // With a fallback configured, every source gets exactly one attempt
                 // so the switch stays immediate; the admin's retry/backoff budget
-                // only applies to a lone primary.
+                // only applies to a lone primary. A benched source on probe duty
+                // never gets the backoff budget — it failed moments ago.
                 $retries = count( $candidates ) > 1 ? 1 : max( 0, (int) $opts['retries'] );
 
-                $started = microtime( true );
-                $last    = null;
+                $last = null;
 
                 foreach ( $candidates as $cfg ) {
                         $this->cfg = $cfg; // request_once, the proxy and the error mapper all read the active source.
-                        $result    = $this->attempt( $messages, $opts, $retries );
+                        $was_benched = self::cooldown_left( $cfg ) > 0;
+                        $result    = $this->attempt( $messages, $opts, $was_benched ? 0 : $retries );
 
                         if ( ! is_wp_error( $result ) ) {
+                                if ( $was_benched ) {
+                                        self::uncool( $cfg ); // the probe succeeded — full health (and budget) right away.
+                                }
                                 $this->log_chat( $opts, $messages, $result, $started, 1, '' );
                                 return $result;
                         }
 
                         $last = $result;
-                        self::cool( $cfg );
+                        if ( ! $was_benched ) {
+                                self::cool( $cfg );
+                        }
+                        // A benched probe that failed again must NOT restart the
+                        // 5-minute clock — otherwise the "~N دقیقه تا بازگشت" badge
+                        // lies and a recovered source could never come back.
                 }
 
                 $this->log_chat( $opts, $messages, '', $started, 0, $last ? $last->get_error_code() : 'unknown' );
@@ -574,11 +605,18 @@ final class Haa_API {
          * entirely while a usable alternative exists; when nothing is usable
          * the primary stays so its standard error messages surface.
          *
+         * Sources benched within the last BENCH_PROBE_AFTER seconds are left
+         * out entirely; when that leaves nothing, $fresh_only comes back true
+         * and the caller fails fast — walking into an outage that started
+         * seconds ago only piles up slow PHP workers on the host.
+         *
+         * @param bool $fresh_only Set when every source is freshly benched.
          * @return array<int,array> Wire-ready config arrays.
          */
-        private function candidates() {
+        private function candidates( &$fresh_only = false ) {
                 $ordered = $this->source_list();
                 $usable  = array();
+                $fresh   = 0;
 
                 foreach ( $ordered as $cfg ) {
                         $no_key  = '' === ( $cfg['api_key'] ?? '' ) && ! self::cfg_is_keyless( $cfg );
@@ -586,14 +624,39 @@ final class Haa_API {
                         if ( ( $no_key || $no_base ) && count( $ordered ) > 1 ) {
                                 continue;
                         }
+                        // A source benched within the last minute gets no attempt at
+                        // all while anything else is available: it just failed, a
+                        // retry now would burn the visitor's time for nothing.
+                        if ( self::bench_fresh( $cfg ) ) {
+                                $fresh++;
+                                continue;
+                        }
                         $usable[] = $cfg;
                 }
 
                 if ( ! $usable ) {
+                        if ( $fresh > 0 ) {
+                                // Every source is inside the fresh-bench window: signal the
+                                // caller to fail fast instead of walking into a known outage.
+                                $fresh_only = true;
+                                return array();
+                        }
                         $usable = array( $this->cfg );
                 }
 
                 return $usable;
+        }
+
+        /**
+         * True while a source is inside its no-probe window: benched, and
+         * benched so recently that another attempt cannot plausibly succeed.
+         *
+         * @param array $cfg Source config.
+         * @return bool
+         */
+        private static function bench_fresh( $cfg ) {
+                $left = self::cooldown_left( $cfg );
+                return $left > 0 && $left > self::FAILOVER_COOLDOWN - self::BENCH_PROBE_AFTER;
         }
 
         /**
@@ -652,6 +715,18 @@ final class Haa_API {
          */
         private static function cool( $cfg ) {
                 set_transient( self::cooldown_key( $cfg ), time() + self::FAILOVER_COOLDOWN, self::FAILOVER_COOLDOWN );
+        }
+
+        /**
+         * Return a source to full health the moment a probe succeeds — the
+         * bench transient would otherwise keep demoting a recovered source
+         * (and stripping its retry budget) for up to five more minutes.
+         *
+         * @param array $cfg Source config.
+         * @return void
+         */
+        private static function uncool( $cfg ) {
+                delete_transient( self::cooldown_key( $cfg ) );
         }
 
         /**
@@ -755,14 +830,29 @@ final class Haa_API {
                         if ( 'claude' === ( $cfg['adapter'] ?? 'openai' ) ) {
                                 continue; // Anthropic has no image endpoint — never a "failure", just skip.
                         }
+                        if ( self::bench_fresh( $cfg ) ) {
+                                continue; // benched seconds ago — an attempt now is pure waste.
+                        }
                         $this->cfg = $cfg;
+                        $was_benched = self::cooldown_left( $cfg ) > 0;
                         $res       = 'gemini' === $cfg['adapter']
                                 ? $this->image_gemini( $prompt, $opts )
                                 : $this->image_openai( $prompt, $opts );
                         if ( ! is_wp_error( $res ) ) {
+                                if ( $was_benched ) {
+                                        self::uncool( $cfg );
+                                }
                                 break;
                         }
-                        self::cool( $cfg );
+                        if ( ! $was_benched ) {
+                                self::cool( $cfg ); // a failing probe must not restart the bench clock.
+                        }
+                }
+
+                if ( null === $res ) {
+                        // Nothing was even attempted (everything freshly benched or
+                        // Claude-only): report honestly instead of a fake success.
+                        $res = new WP_Error( 'haai_all_benched', __( 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.', 'hami-ai-assistant' ) );
                 }
 
                 $latency = (int) round( ( microtime( true ) - $started ) * 1000 );

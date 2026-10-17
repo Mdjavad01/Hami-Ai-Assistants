@@ -316,7 +316,14 @@ final class Haa_Search {
                         }
                 }
 
-                $out['content'] = $out['title'] . "\n\n" . Haa_Util::html_to_text( $post->post_content );
+                $body = Haa_Util::html_to_text( $post->post_content );
+                if ( '' === trim( (string) $body ) ) {
+                        // Page builders keep the copy in postmeta (Elementor's
+                        // _elementor_data); without this the knowledge base stays blind
+                        // to every builder-made page even after a re-save.
+                        $body = self::elementor_text( (string) get_post_meta( $post_id, '_elementor_data', true ) );
+                }
+                $out['content'] = $out['title'] . "\n\n" . $body;
                 return $out;
         }
 
@@ -603,7 +610,11 @@ final class Haa_Search {
                 $likes  = array();
                 $params = array();
                 foreach ( $tokens as $token ) {
-                        $likes[]  = '(p.post_title LIKE %s OR p.post_content LIKE %s)';
+                        // The ZWNJ inside the stored copy ("می‌خانه") would hide it from a
+                        // token that the normaliser already merged ("میخانه"); REPLACE with
+                        // UNHEX gives the LIKE the same merged view the token has. There is
+                        // no index to lose — a leading-wildcard LIKE is a scan either way.
+                        $likes[]  = "(REPLACE(p.post_title, UNHEX('E2808C'), '') LIKE %s OR REPLACE(p.post_content, UNHEX('E2808C'), '') LIKE %s)";
                         $like     = '%' . $wpdb->esc_like( (string) $token ) . '%';
                         $params[] = $like;
                         $params[] = $like;
@@ -616,31 +627,80 @@ final class Haa_Search {
 
                 // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
                 $rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
-                if ( ! $rows ) {
-                        return array();
+                $hits = $rows ? self::score_live_rows( $rows, $tokens ) : array();
+
+                // A title-only hit with an empty body (builder-made pages keep
+                // their copy in postmeta, not post_content) is not a real
+                // answer — it must not stop the builder pass from reading the
+                // meta where the actual café/menu/price copy lives.
+                $good = array_values( array_filter( $hits, function ( $h ) {
+                        return mb_strlen( trim( ltrim( (string) $h['content'], '…' ) ) ) >= 40;
+                } ) );
+                if ( $good ) {
+                        return $good;
                 }
 
+                // Page builders (Elementor above all) keep the copy in postmeta, not
+                // in post_content — on builder-made sites the query above scans empty
+                // columns and the bot keeps saying "no data" about pages that exist.
+                // This second bounded pass reads the builder JSON directly.
+                $builder = self::live_builder_search( $tokens, $in );
+                if ( $builder ) {
+                        return $builder;
+                }
+                return $hits; // last resort: title-only hits still name the page.
+        }
+
+        /**
+         * Score raw SQL rows into BM25 hit shape — shared by both live passes.
+         *
+         * Tokens are normalised (ZWNJ already split into spaces), so matching runs
+         * against the normalised text AND a space-merged variant of it, so that a
+         * token like "میخانه" still finds a row whose copy says "می‌خانه". Snippet
+         * offsets come from a ratio map — normalisation drifts from the raw text,
+         * the snippet only needs to START near the first match.
+         *
+         * @param array<int,array>  $rows   Rows with post_id, title, content (raw).
+         * @param array<int,string> $tokens Normalised tokens.
+         * @param bool              $raw_content_is_text True when the content column
+         *                                       is already readable text (builder
+         *                                       pass), false for post_content HTML.
+         * @return array<int,array>
+         */
+        private static function score_live_rows( $rows, $tokens, $raw_content_is_text = false ) {
                 $hits = array();
                 foreach ( $rows as $row ) {
-                        $pid    = (int) $row['post_id'];
-                        $raw    = wp_strip_all_tags( (string) $row['content'] );
+                        $pid = (int) $row['post_id'];
+                        if ( $raw_content_is_text ) {
+                                $raw = trim( (string) $row['content'] );
+                        } else {
+                                $raw = wp_strip_all_tags( (string) $row['content'] );
+                        }
                         $t_norm = self::normalize_text( (string) $row['title'] );
                         $c_norm = self::normalize_text( $raw );
+                        // Space-merged views: "می خانه" (normalised ZWNJ) matches "میخانه".
+                        $t_scan = str_replace( ' ', '', $t_norm );
+                        $c_scan = str_replace( ' ', '', $c_norm );
                         $score  = 0;
                         $pos    = false;
                         foreach ( $tokens as $token ) {
-                                $in_title = false !== strpos( $t_norm, $token );
-                                $in_body  = false !== strpos( $c_norm, $token );
+                                $in_title = ( false !== strpos( $t_norm, $token ) ) || ( '' !== $t_scan && false !== strpos( $t_scan, $token ) );
+                                $at       = strpos( $c_norm, $token );
+                                if ( false === $at && '' !== $c_scan ) {
+                                        $at = strpos( $c_scan, $token );
+                                        if ( false !== $at ) {
+                                                // Map the merged-haystack offset onto the normalised
+                                                // text by ratio; the raw window is derived from that.
+                                                $at = (int) ( $at / max( 1, mb_strlen( $c_scan ) ) * max( 1, mb_strlen( $c_norm ) ) );
+                                        }
+                                }
+                                $in_body = false !== $at;
                                 if ( $in_title ) {
                                         $score += 3;
                                 }
                                 if ( $in_body ) {
                                         $score += 1;
                                         if ( false === $pos ) {
-                                                // Normalised offsets drift from the raw text, so the snippet
-                                                // only needs to START near the first match: map the offset
-                                                // by ratio and cut a raw window around it.
-                                                $at  = (int) strpos( $c_norm, (string) $token );
                                                 $r   = $at / max( 1, mb_strlen( $c_norm ) );
                                                 $pos = (int) ( $r * max( 1, mb_strlen( $raw ) ) );
                                         }
@@ -665,6 +725,103 @@ final class Haa_Search {
                         );
                 }
                 return $hits;
+        }
+
+        /**
+         * Second live pass: page-builder copy stored in postmeta (Elementor's
+         * `_elementor_data`). Fires only when the post_content pass found
+         * nothing. Same bounded shape: one JOIN query, token-filtered, 12 rows.
+         *
+         * @param array<int,string> $tokens Normalised tokens.
+         * @param array<int,string> $in     Prepared post_type list.
+         * @return array<int,array>
+         */
+        private static function live_builder_search( $tokens, $in ) {
+                global $wpdb;
+
+                $likes  = array();
+                $params = array();
+                foreach ( $tokens as $token ) {
+                        $likes[]  = "(REPLACE(p.post_title, UNHEX('E2808C'), '') LIKE %s OR REPLACE(m.meta_value, UNHEX('E2808C'), '') LIKE %s)";
+                        $like     = '%' . $wpdb->esc_like( (string) $token ) . '%';
+                        $params[] = $like;
+                        $params[] = $like;
+                }
+
+                $sql = "SELECT p.ID AS post_id, p.post_title AS title, SUBSTRING(m.meta_value, 1, 300000) AS content FROM {$wpdb->posts} p"
+                        . " INNER JOIN {$wpdb->postmeta} m ON m.post_id = p.ID AND m.meta_key = '_elementor_data'"
+                        . " WHERE p.post_status = 'publish' AND p.post_password = '' AND p.post_type IN (" . implode( ',', $in ) . ')'
+                        . ' AND (' . implode( ' OR ', $likes ) . ')'
+                        . ' ORDER BY p.post_modified_gmt DESC LIMIT 12';
+
+                // phpcs:ignore WordPress.DB.PreparedSQL, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+                if ( ! $rows ) {
+                        return array();
+                }
+
+                foreach ( $rows as $i => $row ) {
+                        $rows[ $i ]['content'] = self::elementor_text( (string) $row['content'] );
+                }
+                return self::score_live_rows( $rows, $tokens, true );
+        }
+
+        /**
+         * Pull the human-readable copy out of a page-builder JSON blob
+         * (Elementor's element tree). Reads the decoded tree when possible and
+         * falls back to a regex sweep when the JSON is truncated or malformed.
+         *
+         * @param string $json Raw meta value.
+         * @return string Lines of copy, "\n"-joined ('' when nothing readable).
+         */
+        public static function elementor_text( $json ) {
+                $json = trim( (string) $json );
+                if ( '' === $json ) {
+                        return '';
+                }
+
+                $lines    = array();
+                $keys     = array( 'title', 'editor', 'text', 'description', 'subtitle', 'inner_content' );
+                $decoded  = json_decode( $json, true );
+                $budget   = 60000;
+
+                if ( is_array( $decoded ) ) {
+                        $stack = array( $decoded );
+                        while ( $stack ) {
+                                $cur = array_pop( $stack );
+                                if ( ! is_array( $cur ) ) {
+                                        continue;
+                                }
+                                foreach ( $cur as $k => $v ) {
+                                        if ( is_string( $v ) && in_array( (string) $k, $keys, true ) && '' !== trim( $v ) ) {
+                                                $lines[] = $v;
+                                        } elseif ( is_array( $v ) ) {
+                                                $stack[] = $v;
+                                        }
+                                }
+                        }
+                } elseif ( preg_match_all( '/"(?:title|editor|text|description|subtitle)"\s*:\s*"((?:[^"\\\\]|\\\\.)*)"/u', $json, $m ) ) {
+                        $lines = $m[1];
+                }
+
+                if ( ! $lines ) {
+                        return '';
+                }
+
+                $out = array();
+                $len = 0;
+                foreach ( array_unique( $lines ) as $line ) {
+                        $line = trim( wp_strip_all_tags( html_entity_decode( (string) $line, ENT_QUOTES, 'UTF-8' ) ) );
+                        if ( mb_strlen( $line ) < 2 ) {
+                                continue;
+                        }
+                        $out[] = $line;
+                        $len  += mb_strlen( $line ) + 1;
+                        if ( $len >= $budget ) {
+                                break;
+                        }
+                }
+                return implode( "\n", $out );
         }
 
         /**

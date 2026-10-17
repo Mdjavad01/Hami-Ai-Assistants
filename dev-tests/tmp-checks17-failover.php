@@ -170,6 +170,13 @@ $reply3 = $h5->chat( array( array( 'role' => 'user', 'content' => 'ping' ) ), ar
 ok( 'all sources down: WP_Error returned', is_wp_error( $reply3 ) );
 
 echo "\n=== F. image walk ===\n";
+// Section E left both sources benched; since 2.1.11 a fresh bench is skipped
+// entirely (no probe before BENCH_PROBE_AFTER). This section tests the HEALTHY
+// image walk — clear the benches first.
+unset(
+        $GLOBALS['saved'][ 'haai_fb_' . substr( md5( 'https://primary.example/v1|m-main' ), 0, 32 ) ],
+        $GLOBALS['saved'][ 'haai_fb_' . substr( md5( 'https://backup.example/v1|m-backup' ), 0, 32 ) ]
+);
 $img = $api->getMethod( 'image' );
 $GLOBALS['http_map'] = array(
         'primary.example'  => array(

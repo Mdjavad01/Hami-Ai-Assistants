@@ -236,7 +236,9 @@ class Fake_WPDB {
                         return $out;
                 }
                 // ---- Live wp_posts fallback (RAG without a built index) ----
-                if ( preg_match( '/FROM\s+\S*posts\s+p\s+WHERE/i', $q ) && false !== strpos( $q, 'post_title LIKE' ) ) {
+                // The real query wraps its columns in REPLACE(col, UNHEX('E2808C'), ''):
+                // the stub merges ZWNJ out of both sides, exactly like that SQL.
+                if ( preg_match( '/FROM\s+\S*posts\s+p\s+WHERE/i', $q ) && false !== strpos( $q, 'post_title' ) && false !== strpos( $q, 'LIKE' ) ) {
                         $types = array( 'post', 'page' );
                         if ( preg_match( '/post_type IN \(([^)]*)\)/i', $q, $tm ) ) {
                                 $types = array_map( 'trim', explode( ',', str_replace( "'", '', $tm[1] ) ) );
@@ -247,6 +249,9 @@ class Fake_WPDB {
                                         $needles[] = trim( stripslashes( (string) $n ), '%' );
                                 }
                         }
+                        $merge = function ( $s ) {
+                                return str_replace( "\xE2\x80\x8C", '', (string) $s ); // ZWNJ → gone, like the SQL REPLACE.
+                        };
                         $out = array();
                         foreach ( (array) $GLOBALS['posts'] as $p ) {
                                 $type   = isset( $p['type'] ) ? (string) $p['type'] : 'page';
@@ -255,9 +260,51 @@ class Fake_WPDB {
                                         continue;
                                 }
                                 $body = isset( $GLOBALS['post_content'][ (int) $p['id'] ] ) ? (string) $GLOBALS['post_content'][ (int) $p['id'] ] : '';
+                                $tm_  = $merge( $p['title'] );
+                                $bm_  = $merge( $body );
                                 foreach ( $needles as $n ) {
-                                        if ( '' !== $n && ( false !== stripos( (string) $p['title'], $n ) || false !== stripos( $body, $n ) ) ) {
+                                        $n = $merge( $n );
+                                        if ( '' !== $n && ( false !== stripos( $tm_, $n ) || false !== stripos( $bm_, $n ) ) ) {
                                                 $out[] = array( 'post_id' => (int) $p['id'], 'title' => (string) $p['title'], 'content' => $body );
+                                                break;
+                                        }
+                                }
+                        }
+                        return $out;
+                }
+                // ---- Live builder-meta fallback (Elementor copy lives in postmeta) ----
+                if ( false !== strpos( $q, '_elementor_data' ) && preg_match( '/FROM\s+\S*posts\s+p\s+INNER\s+JOIN/i', $q ) ) {
+                        $types = array( 'post', 'page' );
+                        if ( preg_match( '/post_type IN \(([^)]*)\)/i', $q, $tm ) ) {
+                                $types = array_map( 'trim', explode( ',', str_replace( "'", '', $tm[1] ) ) );
+                        }
+                        $needles = array();
+                        if ( preg_match_all( "/LIKE '([^']*)'/i", $q, $m ) ) {
+                                foreach ( $m[1] as $n ) {
+                                        $needles[] = trim( stripslashes( (string) $n ), '%' );
+                                }
+                        }
+                        $merge = function ( $s ) {
+                                return str_replace( "\xE2\x80\x8C", '', (string) $s );
+                        };
+                        $out = array();
+                        foreach ( (array) $GLOBALS['posts'] as $p ) {
+                                $type   = isset( $p['type'] ) ? (string) $p['type'] : 'page';
+                                $status = isset( $p['status'] ) ? (string) $p['status'] : 'publish';
+                                if ( ! in_array( $type, $types, true ) || 'publish' !== $status ) {
+                                        continue;
+                                }
+                                $meta = isset( $GLOBALS['post_elementor'][ (int) $p['id'] ] ) ? (string) $GLOBALS['post_elementor'][ (int) $p['id'] ] : '';
+                                if ( '' === $meta ) {
+                                        continue;
+                                }
+                                $tm_ = $merge( $p['title'] );
+                                $mm_ = $merge( $meta );
+                                foreach ( $needles as $n ) {
+                                        $n = $merge( $n );
+                                        if ( '' !== $n && ( false !== stripos( $tm_, $n ) || false !== stripos( $mm_, $n ) ) ) {
+                                                // The raw JSON travels back — the plugin extracts the copy.
+                                                $out[] = array( 'post_id' => (int) $p['id'], 'title' => (string) $p['title'], 'content' => $meta );
                                                 break;
                                         }
                                 }
