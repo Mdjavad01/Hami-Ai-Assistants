@@ -34,6 +34,7 @@ final class Haa_Crawl {
         const MIN_TEXT        = 80;      // Below this a fetched page is junk.
         const MAX_URLS        = 100;     // Hard ceiling regardless of settings.
         const MAX_CHUNKS      = 400;     // Total crawl chunks a site may hold.
+        const LOCK            = 'haai_crawl_lock'; // One batch at a time (2.1.16).
 
         /** @var array|null Cached crawl config for this request. */
         private static $config = null;
@@ -353,6 +354,7 @@ final class Haa_Crawl {
                                 'total'      => 0,
                                 'pages'      => 0,   // Successfully fetched pages.
                                 'chunks'     => 0,   // Chunk rows written so far.
+                                'failed'     => 0,   // Pages that could not be fetched (2.1.16).
                                 'urls'       => array(),
                                 'keys'       => array(), // Canonical keys of queued URLs.
                                 'facts'      => array(), // Accumulated contact-fact lines.
@@ -416,6 +418,7 @@ final class Haa_Crawl {
                                 'urls'        => $urls,
                                 'keys'        => array_fill_keys( array_map( array( __CLASS__, 'canon_url' ), $urls ), 1 ),
                                 'facts'       => array(),
+                                'failed'      => 0,
                                 'last_error'  => '',
                                 'finished_at' => 0,
                                 'current'     => '',
@@ -451,8 +454,18 @@ final class Haa_Crawl {
                                 $state['running'] = 0;
                                 self::save_state( $state );
                         }
+                        delete_transient( self::LOCK );
                         return self::progress();
                 }
+
+                // 2.1.16 — ONE batch at a time: the dashboard self-heal driver,
+                // the browser ticker and a second open tab must never race the
+                // same cursor. A concurrent caller simply reports progress; the
+                // lock self-expires in 45 s if a batch died mid-fetch.
+                if ( get_transient( self::LOCK ) ) {
+                        return self::progress();
+                }
+                set_transient( self::LOCK, 1, 45 );
 
                 $batch_size = max( 1, min( 4, (int) $batch_size ) );
                 $processed  = 0;
@@ -470,8 +483,12 @@ final class Haa_Crawl {
                         $html = self::fetch( $url );
 
                         if ( is_wp_error( $html ) ) {
-                                // One unreachable page must not poison the run — move on quietly.
-                                $state['last_error'] = '';
+                                // One unreachable page must not poison the run — but it
+                                // must not stay SILENT either: a host that refuses to
+                                // read its own site would otherwise "finish" at 0/0
+                                // with no trace of why (2.1.16).
+                                $state['failed']     = (int) ( $state['failed'] ?? 0 ) + 1;
+                                $state['last_error'] = substr( (string) $html->get_error_message(), 0, 120 );
                         } else {
                                 $stored = self::store_page( $url, $html );
                                 $state['pages']  += $stored['pages'];
@@ -508,6 +525,7 @@ final class Haa_Crawl {
                         $state['finished_at'] = time();
                 }
                 self::save_state( $state );
+                delete_transient( self::LOCK );
                 return self::progress();
         }
 
@@ -530,6 +548,7 @@ final class Haa_Crawl {
                         'pages_left'  => $left,
                         'pages'       => (int) $state['pages'],
                         'chunks'      => (int) $state['chunks'],
+                        'failed'      => (int) ( $state['failed'] ?? 0 ),
                         'percent'     => (int) min( 100, round( ( (int) $state['offset'] / $total ) * 100 ) ),
                         'current'     => (string) ( $state['current'] ?? '' ),
                         'current_at'  => (int) ( $state['current_at'] ?? 0 ),
@@ -546,12 +565,39 @@ final class Haa_Crawl {
                 return self::progress();
         }
 
+        /**
+         * 2.1.16 — Self-heal driver for the dashboard. A crawl marked running
+         * whose heartbeat is STALE (no live ticker: blocked/old-cached JS, or
+         * the tab was closed long ago) advances ONE batch inline so every
+         * dashboard load makes honest progress. The batch lock keeps this safe
+         * next to a healthy ticker, and the very first load after «شروع»
+         * (heartbeat still empty) shows real numbers immediately instead of a
+         * frozen 0%. No-ops when nothing is running or the ticker is clearly
+         * alive (heartbeat younger than 90 s).
+         *
+         * @return array Progress (possibly advanced by one batch).
+         */
+        public static function auto_drive() {
+                $state = self::get_state();
+                if ( empty( $state['running'] ) ) {
+                        return self::progress();
+                }
+                $stale = 0 === (int) ( $state['current_at'] ?? 0 )
+                        || ( time() - (int) ( $state['current_at'] ?? 0 ) ) > 90;
+                if ( ! $stale ) {
+                        return self::progress();
+                }
+                self::batch( 2 );
+                return self::progress();
+        }
+
         /** @return array Cancel a running crawl (progress already made is kept). */
         public static function cancel() {
                 $state                = self::get_state();
                 $state['running']     = 0;
                 $state['finished_at'] = time();
                 self::save_state( $state );
+                delete_transient( self::LOCK );
                 return self::progress();
         }
 
@@ -574,8 +620,11 @@ final class Haa_Crawl {
                 $state['running']     = 0;
                 $state['pages']       = 0;
                 $state['chunks']      = 0;
+                $state['failed']      = 0;
+                $state['last_error']  = '';
                 $state['finished_at'] = 0;
                 self::save_state( $state );
+                delete_transient( self::LOCK );
                 return self::progress();
         }
 

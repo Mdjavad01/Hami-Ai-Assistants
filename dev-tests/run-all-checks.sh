@@ -28,6 +28,7 @@ suites=(
   dev-tests/tmp-checks24-vault.php
   dev-tests/tmp-checks25-crawl.php
   dev-tests/tmp-checks26-crawlctl.php
+  dev-tests/tmp-checks27-crawlboot.php
 )
 for s in "${suites[@]}"; do
   out=$("$PHP" "$s" 2>&1)

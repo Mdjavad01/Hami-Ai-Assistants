@@ -24,7 +24,13 @@ final class Haa_Admin_Dashboard {
                 $queue   = Haa_Queue::stats();
                 $search  = Haa_Search::stats();
                 $crawl   = Haa_Crawl::stats();
-                $crawl_state = Haa_Crawl::progress();
+                // 2.1.16 — a running crawl with a stale heartbeat advances ONE
+                // batch inline right here: even with broken/blocked JS every
+                // dashboard load makes honest progress, and the load right after
+                // «شروع» already shows real numbers. Safe next to a healthy
+                // ticker (the batch lock serialises both drivers); no-ops when
+                // nothing is running.
+                $crawl_state = Haa_Crawl::auto_drive();
                 $health  = self::health();
                 $modules = Haa_Modules::describe_all();
                 ?>
@@ -246,7 +252,9 @@ final class Haa_Admin_Dashboard {
                                         return 'خزش: ' + p.percent + '% (' + p.offset + ' از ' + p.total + ' صفحه)'
                                                 + (fmtETA(p.eta_s) ? ' — ' + fmtETA(p.eta_s) + ' مانده' : '')
                                                 + ' — صفحه: ' + p.pages + '، تکه: ' + p.chunks
-                                                + (p.current ? ' — در حال خواندن: ' + short(p.current) : '');
+                                                + (p.failed ? '، خوانده‌نشده: ' + p.failed : '')
+                                                + (p.current ? ' — در حال خواندن: ' + short(p.current) : '')
+                                                + (p.last_error ? ' — آخرین خطا: ' + p.last_error : '');
                                 }
                                 function setButtons(run) {
                                         if (startBtn) startBtn.disabled = run;
@@ -255,7 +263,11 @@ final class Haa_Admin_Dashboard {
                                 function finish(p) {
                                         running = false; retries = 0; setButtons(false);
                                         if (bar) bar.style.width = '100%';
-                                        say('تمام شد — صفحه: ' + p.pages + '، تکه: ' + p.chunks + (p.stats ? '، مجموع تکه‌های خزش: ' + p.stats.chunks : '') + '. دستیار از این پس صفحات را با لینک می‌شناسد.');
+                                        if (!p.pages && p.failed) {
+                                                say('خزش تمام شد ولی هیچ صفحه‌ای خوانده نشد (' + p.failed + ' خطا' + (p.last_error ? ': ' + p.last_error : '') + '). معمولاً یعنی هاست اجازهٔ خواندن صفحات خودِ سایت را نمی‌دهد — از میزبانی بخواهید دسترسی خروجی به دامنه‌ی خودتان را باز کند، یا آدرس‌ها را با https کامل در تب «دانش سایت» بدهید.');
+                                                return;
+                                        }
+                                        say('تمام شد — صفحه: ' + p.pages + '، تکه: ' + p.chunks + (p.failed ? '، خوانده‌نشده: ' + p.failed : '') + (p.stats ? '، مجموع تکه‌های خزش: ' + p.stats.chunks : '') + '. دستیار از این پس صفحات را با لینک می‌شناسد.');
                                 }
                                 function retry(reason) {
                                         if (!running) return;
@@ -303,9 +315,35 @@ final class Haa_Admin_Dashboard {
                                                 .then(function () { setButtons(false); say('خزش متوقف شد و پیشرفت حفظ شد؛ با «ادامهِ خزش» از همان‌جا ادامه می‌دهد.'); })
                                                 .catch(function () { setButtons(false); say('خزش متوقف شد؛ با «ادامهِ خزش» از همان‌جا ادامه می‌دهد.'); });
                                 });
-                                setButtons(true);
-                                if (wrap) wrap.hidden = false;
-                                tick();
+                                // 2.1.16 — BOOT-ORDER FIX (the real «هیچ نواری جلو نمیره»
+                                // root cause): this inline script runs MID-PAGE, but the
+                                // localized haaiAdmin data prints in the FOOTER
+                                // (wp_enqueue_script with $in_footer = true) — at an
+                                // immediate boot window.haaiAdmin was ALWAYS undefined
+                                // and the ticker silently died on EVERY load, so no
+                                // batch was ever fetched («خزش در حال اجراست…» forever
+                                // at 0/0, not even a retry message). Boot after
+                                // DOMContentLoaded (footer scripts have run by then)
+                                // and keep a short retry window so a cached/deferred
+                                // footer still ends in an HONEST message, never
+                                // silence.
+                                var boots = 0;
+                                function boot() {
+                                        if (!running) return;
+                                        if (!window.haaiAdmin) {
+                                                if (++boots <= 20) { setTimeout(boot, 500); return; }
+                                                fail('اسکریپت پیشرفت بارگذاری نشد (کش یا بهینه‌ساز JS). صفحه را با Ctrl+F5 تازه‌سازی کنید؛ خزش با «ادامهِ خزش» از همین‌جا ادامه می‌یابد.');
+                                                return;
+                                        }
+                                        setButtons(true);
+                                        if (wrap) wrap.hidden = false;
+                                        tick();
+                                }
+                                if (document.readyState === 'loading') {
+                                        document.addEventListener('DOMContentLoaded', boot);
+                                } else {
+                                        boot();
+                                }
                         })();
                         </script>
                         <?php endif; ?>
