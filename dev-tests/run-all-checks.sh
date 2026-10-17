@@ -30,6 +30,7 @@ suites=(
   dev-tests/tmp-checks26-crawlctl.php
   dev-tests/tmp-checks27-crawlboot.php
   dev-tests/tmp-checks28-crawldb.php
+  dev-tests/tmp-checks29-catprices.php
 )
 for s in "${suites[@]}"; do
   out=$("$PHP" "$s" 2>&1)

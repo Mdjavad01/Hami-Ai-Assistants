@@ -19,45 +19,45 @@ require __DIR__ . '/tmp-wp-stubs.php';
 
 // tmp-wp-stubs.php has no header reader; the crawler only needs content-type.
 if ( ! function_exists( 'wp_remote_retrieve_header' ) ) {
-	/** @return string */
-	function wp_remote_retrieve_header( $r, $key ) {
-		$headers = ( is_array( $r ) && isset( $r['headers'] ) ) ? (array) $r['headers'] : array();
-		foreach ( $headers as $k => $v ) {
-			if ( strtolower( (string) $k ) === strtolower( (string) $key ) ) {
-				return (string) $v;
-			}
-		}
-		return '';
-	}
+        /** @return string */
+        function wp_remote_retrieve_header( $r, $key ) {
+                $headers = ( is_array( $r ) && isset( $r['headers'] ) ) ? (array) $r['headers'] : array();
+                foreach ( $headers as $k => $v ) {
+                        if ( strtolower( (string) $k ) === strtolower( (string) $key ) ) {
+                                return (string) $v;
+                        }
+                }
+                return '';
+        }
 }
 
 $fail = 0;
 function ok( $label, $cond, $extra = '' ) {
-	global $fail;
-	if ( ! $cond ) { $fail++; }
-	echo ( $cond ? '  ok   ' : '  FAIL ' ) . str_pad( $label, 60 ) . $extra . "\n";
+        global $fail;
+        if ( ! $cond ) { $fail++; }
+        echo ( $cond ? '  ok   ' : '  FAIL ' ) . str_pad( $label, 60 ) . $extra . "\n";
 }
 
 function reset_crawl_config() {
-	$rc = new ReflectionClass( 'Haa_Crawl' );
-	$p  = $rc->getProperty( 'config' );
-	$p->setAccessible( true );
-	$p->setValue( null, null );
+        $rc = new ReflectionClass( 'Haa_Crawl' );
+        $p  = $rc->getProperty( 'config' );
+        $p->setAccessible( true );
+        $p->setValue( null, null );
 }
 
 function reset_kb_config() {
-	$rc = new ReflectionClass( 'Haa_Search' );
-	$p  = $rc->getProperty( 'config' );
-	$p->setAccessible( true );
-	$p->setValue( null, null );
+        $rc = new ReflectionClass( 'Haa_Search' );
+        $p  = $rc->getProperty( 'config' );
+        $p->setAccessible( true );
+        $p->setValue( null, null );
 }
 
 function reset_search_statics() {
-	reset_kb_config();
-	$GLOBALS['opts']['hami_ai_crawl_state'] = array();
-	$GLOBALS['chunk_rows']                  = array();
-	$GLOBALS['http_log']                    = array();
-	$GLOBALS['http_map']                    = array();
+        reset_kb_config();
+        $GLOBALS['opts']['hami_ai_crawl_state'] = array();
+        $GLOBALS['chunk_rows']                  = array();
+        $GLOBALS['http_log']                    = array();
+        $GLOBALS['http_map']                    = array();
 }
 
 echo "=== A. safe_url — SSRF call-time guard ===\n";
@@ -91,21 +91,21 @@ ok( 'canon drops fragment', Haa_Crawl::canon_url( 'http://local.test/p#top' ) ==
 echo "=== C. settings — knowledge section round-trip (the «دانش سایت» tab) ===\n";
 reset_crawl_config();
 $ok_save = Haa_Settings::save_section( 'knowledge', array(
-	'urls'       => "https://local.test/contact-us\nlocal.test/shop\njavascript:alert(1)\nhttps://local.test/contact-us\n#comment",
-	'auto_crawl' => 1,
-	'max_pages'  => 500,
+        'urls'       => "https://local.test/contact-us\nlocal.test/shop\njavascript:alert(1)\nhttps://local.test/contact-us\n#comment",
+        'auto_crawl' => 1,
+        'max_pages'  => 5000,
 ) );
 ok( 'save_section accepts knowledge', $ok_save );
 $stored = Haa_Settings::get( 'knowledge.urls' );
 ok( 'URL list cleaned + deduped', 2 === count( array_filter( explode( "\n", $stored ) ) ), '(' . str_replace( "\n", ' | ', $stored ) . ')' );
 ok( 'scheme-less line kept as full URL', false !== strpos( $stored, 'https://local.test/shop' ) );
-ok( 'max_pages clamped to 100', 100 === (int) Haa_Settings::get( 'knowledge.max_pages' ) );
+ok( 'max_pages clamped to 2500', 2500 === (int) Haa_Settings::get( 'knowledge.max_pages' ) );
 Haa_Settings::save_section( 'knowledge', array( 'max_pages' => 30 ) );
 
 echo "=== D. chat.contact_instagram — deterministic channels ===\n";
 Haa_Settings::save_section( 'chat', array(
-	'contact_phone'     => '01333221100',
-	'contact_instagram' => 'https://instagram.com/gilan_shop',
+        'contact_phone'     => '01333221100',
+        'contact_instagram' => 'https://instagram.com/gilan_shop',
 ) );
 $rc  = new ReflectionMethod( 'Haa_Chat', 'contact_reply' );
 $rc->setAccessible( true );
@@ -120,15 +120,15 @@ ok( 'system block teaches instagram too', false !== strpos( $blk, '- اینست�
 echo "=== E. targets — homepage + pages + custom URLs, capped ===\n";
 reset_search_statics();
 $GLOBALS['posts'] = array(
-	array( 'id' => 700, 'title' => 'تماس با ما', 'type' => 'page', 'status' => 'publish' ),
-	array( 'id' => 701, 'title' => 'درباره ما', 'type' => 'page', 'status' => 'publish' ),
-	array( 'id' => 800, 'title' => 'مقاله وبلاگ', 'type' => 'post', 'status' => 'publish' ),
-	array( 'id' => 702, 'title' => 'پیش‌نویس برگه', 'type' => 'page', 'status' => 'draft' ),
+        array( 'id' => 700, 'title' => 'تماس با ما', 'type' => 'page', 'status' => 'publish' ),
+        array( 'id' => 701, 'title' => 'درباره ما', 'type' => 'page', 'status' => 'publish' ),
+        array( 'id' => 800, 'title' => 'مقاله وبلاگ', 'type' => 'post', 'status' => 'publish' ),
+        array( 'id' => 702, 'title' => 'پیش‌نویس برگه', 'type' => 'page', 'status' => 'draft' ),
 );
 Haa_Settings::save_section( 'knowledge', array(
-	'urls'       => "https://local.test/instagram\nhttp://local.test/contact-us",
-	'auto_crawl' => 1,
-	'max_pages'  => 5,
+        'urls'       => "https://local.test/instagram\nhttp://local.test/contact-us",
+        'auto_crawl' => 1,
+        'max_pages'  => 5,
 ) );
 reset_crawl_config();
 $targets = Haa_Crawl::targets();
@@ -143,20 +143,20 @@ ok( 'custom URL deduped against a page permalink', 1 === count( preg_grep( '#loc
 echo "=== F. end-to-end crawl — fetch, chunk, discover, distil contact facts ===\n";
 reset_search_statics();
 $GLOBALS['http_map'] = array(
-	// Specific patterns FIRST — fake_http_request() returns the first match.
-	'local.test/shop' => array( 'error' => 'timeout' ), // one dead page must not poison the run.
-	'?post=700'  => array( 'body' => '<html><head><title>تماس با ما — فروشگاه هدیه گیلان</title></head><body>'
-		. '<h1>تماس با ما</h1><p>آدرس: رشت، خیابان مطهری، مرکز هنر و خلاقیت. ساعت کاری ۹ تا ۱۸.</p>'
-		. '<p>شماره ثابت: 01333221100 — موبایل و واتساپ: 09113123456 — ایمیل: info@gilan.test</p></body></html>' ),
-	'?post=701'  => array( 'body' => '<html><head><title>درباره ما</title></head><body>'
-		. '<p>موسس مجموعه استاد محمدرضا خاموشیان، بافنده فرش‌های دستباف کاشان.</p></body></html>' ),
-	'local.test' => array( 'body' => '<html><head><title>فروشگاه هدیه گیلان</title></head><body>'
-		. '<nav><a href="/">خانه</a><a href="?post=700">تماس با ما</a><a href="?post=701">درباره ما</a>'
-		. '<a href="/shop">فروشگاه</a><a href="https://instagram.com/gilan_shop">اینستاگرام ما</a>'
-		. '<a href="https://wa.me/989113123456">واتساپ</a></nav>'
-		. '<footer>تلفن تماس: ۰۱۳-۳۳۲۲۱۱۰۰ | پیج اینستاگرام: instagram.com/gilan_shop | تلگرام: t.me/gilan_shop</footer>'
-		. '<p>فروشگاه هدیه گیلان انواع صنایع دستی و فرش دستباف را با ارسال سراسری عرضه می‌کند. برای سفارش تلفنی با ما تماس بگیرید و در اینستاگرام هم همراه ما باشید.</p>'
-		. '</body></html>' ),
+        // Specific patterns FIRST — fake_http_request() returns the first match.
+        'local.test/shop' => array( 'error' => 'timeout' ), // one dead page must not poison the run.
+        '?post=700'  => array( 'body' => '<html><head><title>تماس با ما — فروشگاه هدیه گیلان</title></head><body>'
+                . '<h1>تماس با ما</h1><p>آدرس: رشت، خیابان مطهری، مرکز هنر و خلاقیت. ساعت کاری ۹ تا ۱۸.</p>'
+                . '<p>شماره ثابت: 01333221100 — موبایل و واتساپ: 09113123456 — ایمیل: info@gilan.test</p></body></html>' ),
+        '?post=701'  => array( 'body' => '<html><head><title>درباره ما</title></head><body>'
+                . '<p>موسس مجموعه استاد محمدرضا خاموشیان، بافنده فرش‌های دستباف کاشان.</p></body></html>' ),
+        'local.test' => array( 'body' => '<html><head><title>فروشگاه هدیه گیلان</title></head><body>'
+                . '<nav><a href="/">خانه</a><a href="?post=700">تماس با ما</a><a href="?post=701">درباره ما</a>'
+                . '<a href="/shop">فروشگاه</a><a href="https://instagram.com/gilan_shop">اینستاگرام ما</a>'
+                . '<a href="https://wa.me/989113123456">واتساپ</a></nav>'
+                . '<footer>تلفن تماس: ۰۱۳-۳۳۲۲۱۱۰۰ | پیج اینستاگرام: instagram.com/gilan_shop | تلگرام: t.me/gilan_shop</footer>'
+                . '<p>فروشگاه هدیه گیلان انواع صنایع دستی و فرش دستباف را با ارسال سراسری عرضه می‌کند. برای سفارش تلفنی با ما تماس بگیرید و در اینستاگرام هم همراه ما باشید.</p>'
+                . '</body></html>' ),
 );
 Haa_Settings::save_section( 'knowledge', array( 'urls' => "https://local.test/shop", 'auto_crawl' => 1, 'max_pages' => 6 ) );
 reset_crawl_config();
@@ -173,7 +173,7 @@ $start = Haa_Crawl::start();
 ok( 'start() returns progress array', is_array( $start ) && isset( $start['running'] ) );
 $guard = 0;
 while ( ! empty( Haa_Crawl::progress()['running'] ) && $guard++ < 12 ) {
-	Haa_Crawl::batch( 2 );
+        Haa_Crawl::batch( 2 );
 }
 $prog  = Haa_Crawl::progress();
 $state = $GLOBALS['opts']['hami_ai_crawl_state'];
@@ -211,7 +211,7 @@ $hits2 = Haa_Search::search( 'ساعت کاری فروشگاه و آدرس دق�
 ok( 'rendered contact page answers address question', count( $hits2 ) > 0 );
 $found_crawl = false;
 foreach ( $hits2 as $h ) {
-	if ( (int) $h['post_id'] < 0 && false !== strpos( (string) $h['content'], 'ساعت کاری' ) ) { $found_crawl = true; }
+        if ( (int) $h['post_id'] < 0 && false !== strpos( (string) $h['content'], 'ساعت کاری' ) ) { $found_crawl = true; }
 }
 ok( 'a crawl row is among the hits', $found_crawl );
 
@@ -222,7 +222,7 @@ $GLOBALS['opts']['hami_ai_crawl_state'] = array();
 Haa_Crawl::start();
 $guard = 0;
 while ( ! empty( Haa_Crawl::progress()['running'] ) && $guard++ < 12 ) {
-	Haa_Crawl::batch( 4 );
+        Haa_Crawl::batch( 4 );
 }
 ok( 're-crawl does not duplicate rows', count( $GLOBALS['chunk_rows'] ) <= $before_rows, '(' . $before_rows . ' → ' . count( $GLOBALS['chunk_rows'] ) . ')' );
 Haa_Crawl::wipe();
@@ -247,7 +247,7 @@ $start2 = Haa_Crawl::start();
 ok( 'homepage-only target starts fine', is_array( $start2 ) && 1 === (int) $start2['total'] );
 $guard = 0;
 while ( ! empty( Haa_Crawl::progress()['running'] ) && $guard++ < 6 ) {
-	Haa_Crawl::batch( 2 );
+        Haa_Crawl::batch( 2 );
 }
 ok( 'unreachable homepage ends the run cleanly', 0 === (int) Haa_Crawl::progress()['running'] && 0 === (int) Haa_Crawl::progress()['pages'] );
 

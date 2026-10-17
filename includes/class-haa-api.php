@@ -636,6 +636,7 @@ final class Haa_API {
         private function attempt( $messages, $opts, $retries ) {
                 $attempt = 0;
                 $last    = null;
+                $widened = false;
 
                 while ( $attempt <= $retries ) {
                         $result = $this->request_once( $this->adapter(), $messages, $opts );
@@ -644,6 +645,22 @@ final class Haa_API {
                         }
 
                         $last = $result;
+
+                        // 2.1.18 — one widen-and-retry when the reply died at
+                        // MAX_TOKENS with ZERO visible text: thinking models burn
+                        // maxOutputTokens on invisible thought parts, so the tiny
+                        // admin probe (8 tokens, «ping») answers green while a real
+                        // chat with the full persona + RAG context starves into
+                        // «پاسخ‌دهنده‌ی هوشمند فعلاً در دسترس نیست» every time.
+                        // Doubling the budget (capped at 8192) gives the visible
+                        // answer room to exist; it does not consume the normal
+                        // retry budget and never fires twice in one walk.
+                        if ( ! $widened && self::$last_truncated && 'haai_empty' === $result->get_error_code()
+                                && (int) $opts['max_tokens'] < 8192 ) {
+                                $widened            = true;
+                                $opts['max_tokens'] = min( 8192, max( 512, (int) $opts['max_tokens'] * 2 ) );
+                                continue;
+                        }
 
                         // Only transient classes are worth retrying on the SAME
                         // source; anything else (bad key, no credit) moves the

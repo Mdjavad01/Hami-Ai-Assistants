@@ -27,56 +27,56 @@ require __DIR__ . '/tmp-wp-stubs.php';
 
 // tmp-wp-stubs.php has no header reader; the crawler only needs content-type.
 if ( ! function_exists( 'wp_remote_retrieve_header' ) ) {
-	/** @return string */
-	function wp_remote_retrieve_header( $r, $key ) {
-		$headers = ( is_array( $r ) && isset( $r['headers'] ) ) ? (array) $r['headers'] : array();
-		foreach ( $headers as $k => $v ) {
-			if ( strtolower( (string) $k ) === strtolower( (string) $key ) ) {
-				return (string) $v;
-			}
-		}
-		return '';
-	}
+        /** @return string */
+        function wp_remote_retrieve_header( $r, $key ) {
+                $headers = ( is_array( $r ) && isset( $r['headers'] ) ) ? (array) $r['headers'] : array();
+                foreach ( $headers as $k => $v ) {
+                        if ( strtolower( (string) $k ) === strtolower( (string) $key ) ) {
+                                return (string) $v;
+                        }
+                }
+                return '';
+        }
 }
 
 $fail = 0;
 function ok( $label, $cond, $extra = '' ) {
-	global $fail;
-	if ( ! $cond ) { $fail++; }
-	echo ( $cond ? '  ok   ' : '  FAIL ' ) . str_pad( $label, 58 ) . $extra . "\n";
+        global $fail;
+        if ( ! $cond ) { $fail++; }
+        echo ( $cond ? '  ok   ' : '  FAIL ' ) . str_pad( $label, 58 ) . $extra . "\n";
 }
 
 function reset_crawl_config() {
-	$rc = new ReflectionClass( 'Haa_Crawl' );
-	$p  = $rc->getProperty( 'config' );
-	$p->setAccessible( true );
-	$p->setValue( null, null );
+        $rc = new ReflectionClass( 'Haa_Crawl' );
+        $p  = $rc->getProperty( 'config' );
+        $p->setAccessible( true );
+        $p->setValue( null, null );
 }
 
 function reset_kb_config() {
-	$rc = new ReflectionClass( 'Haa_Search' );
-	$p  = $rc->getProperty( 'config' );
-	$p->setAccessible( true );
-	$p->setValue( null, null );
+        $rc = new ReflectionClass( 'Haa_Search' );
+        $p  = $rc->getProperty( 'config' );
+        $p->setAccessible( true );
+        $p->setValue( null, null );
 }
 
 function reset_all() {
-	reset_kb_config();
-	reset_crawl_config();
-	$GLOBALS['opts']['hami_ai_crawl_state'] = array();
-	$GLOBALS['chunk_rows']                  = array();
-	$GLOBALS['http_log']                    = array();
-	$GLOBALS['http_map']                    = array();
-	delete_transient( 'haai_crawl_lock' );
+        reset_kb_config();
+        reset_crawl_config();
+        $GLOBALS['opts']['hami_ai_crawl_state'] = array();
+        $GLOBALS['chunk_rows']                  = array();
+        $GLOBALS['http_log']                    = array();
+        $GLOBALS['http_map']                    = array();
+        delete_transient( 'haai_crawl_lock' );
 }
 
 function crawl_state() {
-	return $GLOBALS['opts']['hami_ai_crawl_state'];
+        return $GLOBALS['opts']['hami_ai_crawl_state'];
 }
 
 function good_body( $title, $words ) {
-	return '<html><head><title>' . $title . '</title></head><body><p>' . $words
-		. ' فروشگاه هدیه گیلان انواع صنایع دستی و فرش دستباف را با ارسال سراسری عرضه می‌کند و برای سفارش تلفنی در خدمت شماست.</p></body></html>';
+        return '<html><head><title>' . $title . '</title></head><body><p>' . $words
+                . ' فروشگاه هدیه گیلان انواع صنایع دستی و فرش دستباف را با ارسال سراسری عرضه می‌کند و برای سفارش تلفنی در خدمت شماست.</p></body></html>';
 }
 
 // RAG must be on or start() refuses.
@@ -93,11 +93,11 @@ ok( 'progress() carries failed key', isset( $p0['failed'] ) && 0 === (int) $p0['
 echo "=== B. batch LOCK — one driver at a time ===\n";
 reset_all();
 $GLOBALS['posts'] = array(
-	array( 'id' => 700, 'title' => 'درباره ما', 'type' => 'page', 'status' => 'publish' ),
-	array( 'id' => 701, 'title' => 'خدمات', 'type' => 'page', 'status' => 'publish' ),
+        array( 'id' => 700, 'title' => 'درباره ما', 'type' => 'page', 'status' => 'publish' ),
+        array( 'id' => 701, 'title' => 'خدمات', 'type' => 'page', 'status' => 'publish' ),
 );
 $GLOBALS['http_map'] = array(
-	'local.test' => array( 'body' => good_body( 'صفحه', 'محتوای آزمایشی صفحه برای پر کردن حداقل کاراکترها.' ) ),
+        'local.test' => array( 'body' => good_body( 'صفحه', 'محتوای آزمایشی صفحه برای پر کردن حداقل کاراکترها.' ) ),
 );
 Haa_Settings::save_section( 'knowledge', array( 'urls' => 'http://local.test/direct', 'auto_crawl' => 1, 'max_pages' => 6, 'crawl_types' => array( 'page' ) ) );
 reset_crawl_config();
@@ -117,18 +117,18 @@ ok( 'lock released after the batch', false === get_transient( 'haai_crawl_lock' 
 
 echo "=== C. auto_drive() — self-heal without JS ===\n";
 reset_all();
-// 2.1.17 — one DB batch covers up to 40 pages, so the auto_drive matrix
+// 2.1.18 — one DB batch covers up to 100 pages, so the auto_drive matrix
 // needs a queue BIGGER than one batch to keep its partial-progress shape.
 $GLOBALS['posts'] = array();
-for ( $i = 700; $i < 750; $i++ ) {
-	$GLOBALS['posts'][] = array( 'id' => $i, 'title' => 'برگه ' . $i, 'type' => 'page', 'status' => 'publish' );
-	$GLOBALS['written'][ $i ] = array( 'ID' => $i, 'post_title' => 'برگه ' . $i, 'post_type' => 'page', 'post_status' => 'publish',
-		'post_content' => '<p>محتوای آزمایشی برگه ' . $i . ' فروشگاه هدیه گیلان انواع صنایع دستی و فرش دستباف را با ارسال سراسری عرضه می‌کند و برای سفارش تلفنی در خدمت شماست.</p>' );
+for ( $i = 700; $i < 830; $i++ ) {
+        $GLOBALS['posts'][] = array( 'id' => $i, 'title' => 'برگه ' . $i, 'type' => 'page', 'status' => 'publish' );
+        $GLOBALS['written'][ $i ] = array( 'ID' => $i, 'post_title' => 'برگه ' . $i, 'post_type' => 'page', 'post_status' => 'publish',
+                'post_content' => '<p>محتوای آزمایشی برگه ' . $i . ' فروشگاه هدیه گیلان انواع صنایع دستی و فرش دستباف را با ارسال سراسری عرضه می‌کند و برای سفارش تلفنی در خدمت شماست.</p>' );
 }
 $GLOBALS['http_map'] = array(
-	'local.test' => array( 'body' => good_body( 'صفحه', 'محتوای آزمایشی صفحه برای پر کردن حداقل کاراکترها.' ) ),
+        'local.test' => array( 'body' => good_body( 'صفحه', 'محتوای آزمایشی صفحه برای پر کردن حداقل کاراکترها.' ) ),
 );
-Haa_Settings::save_section( 'knowledge', array( 'urls' => '', 'auto_crawl' => 1, 'max_pages' => 100, 'crawl_types' => array( 'page' ) ) );
+Haa_Settings::save_section( 'knowledge', array( 'urls' => '', 'auto_crawl' => 1, 'max_pages' => 150, 'crawl_types' => array( 'page' ) ) );
 reset_crawl_config();
 
 $idle = Haa_Crawl::auto_drive();
@@ -151,16 +151,16 @@ ok( 'stale heartbeat (>90s) drives again', (int) $d3['offset'] > (int) $d1['offs
 echo "=== D. fetch failures are counted, never silent ===\n";
 reset_all();
 $GLOBALS['http_map'] = array(
-	'local.test/dead' => array( 'error' => 'cURL error 28: timeout' ),
-	'local.test'      => array( 'body' => good_body( 'صفحه سالم', 'محتوای آزمایشی صفحه سالم برای پر کردن حداقل کاراکترهای لازم.' ) ),
+        'local.test/dead' => array( 'error' => 'cURL error 28: timeout' ),
+        'local.test'      => array( 'body' => good_body( 'صفحه سالم', 'محتوای آزمایشی صفحه سالم برای پر کردن حداقل کاراکترهای لازم.' ) ),
 );
 $GLOBALS['opts']['hami_ai_crawl_state'] = array(
-	'running' => 1, 'offset' => 0, 'total' => 2,
-	'urls'    => array( 'http://local.test/dead', 'http://local.test/good' ),
-	'keys'    => array(), 'facts' => array(),
-	'pages'   => 0, 'chunks' => 0, 'failed' => 0, 'last_error' => '',
-	'current' => '', 'current_at' => 0, 'ms_sum' => 0, 'ms_n' => 0,
-	'started_at' => time(), 'finished_at' => 0,
+        'running' => 1, 'offset' => 0, 'total' => 2,
+        'urls'    => array( 'http://local.test/dead', 'http://local.test/good' ),
+        'keys'    => array(), 'facts' => array(),
+        'pages'   => 0, 'chunks' => 0, 'failed' => 0, 'last_error' => '',
+        'current' => '', 'current_at' => 0, 'ms_sum' => 0, 'ms_n' => 0,
+        'started_at' => time(), 'finished_at' => 0,
 );
 $prog = Haa_Crawl::batch( 4 );
 $st   = crawl_state();

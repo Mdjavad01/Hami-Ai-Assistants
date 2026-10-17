@@ -13,7 +13,7 @@
  *   3. the DB path stores under the SAME deterministic negative slot via
  *      Haa_Search::build_source() (title/url/content_norm semantics
  *      identical to the HTTP path) and re-crawling REPLACES, never duplicates;
- *   4. per-tick admission: HTTP ≤ batch_size, DB ≤ 40 — a mixed 30-URL queue
+ *   4. per-tick admission: HTTP ≤ batch_size, DB ≤ 100 (2.1.18) — a mixed 30-URL queue
  *      drains in ONE tick;
  *   5. a queue saved by an older version (no pids) is backfilled from
  *      url_to_postid — homepage and custom URLs stay HTTP;
@@ -154,7 +154,7 @@ ok( 'thin DB page skipped (0 pages)', 0 === (int) $res2['pages'] );
 $res3 = Haa_Crawl::store_db_page( 99999, 'http://local.test/?post=99999' );
 ok( 'missing post is a no-op', 0 === (int) $res3['pages'] );
 
-echo "=== D. per-tick admission — HTTP ≤ batch_size, DB ≤ 40 ===\n";
+echo "=== D. per-tick admission — HTTP ≤ batch_size, DB ≤ 100 ===\n";
 reset_all();
 // Mixed queue: 1 HTTP + 4 DB → ONE batch drains it.
 $GLOBALS['written'][910] = array( 'ID' => 910, 'post_title' => 'برگه ۹۱۰', 'post_type' => 'page', 'post_status' => 'publish',
@@ -194,12 +194,12 @@ $GLOBALS['opts']['hami_ai_crawl_state'] = array(
 Haa_Crawl::batch( 2 );
 ok( 'HTTP-only tick stops at batch_size (2)', 2 === (int) crawl_state()['offset'] );
 
-// DB-only queue: batch(2) processes up to 40.
+// DB-only queue: batch(2) processes up to 100.
 reset_all(); // fresh ledger — the HTTP-only tick above already stored rows
 $GLOBALS['written'][920] = array( 'ID' => 920, 'post_title' => 'برگه ۹۲۰', 'post_type' => 'page', 'post_status' => 'publish',
         'post_content' => '<p>محتوای آزمایشی برگه ۹۲۰ فروشگاه هدیه گیلان انواع صنایع دستی و فرش دستباف را با ارسال سراسری عرضه می‌کند و برای سفارش تلفنی در خدمت شماست.</p>' );
 $st = array(
-        'running' => 1, 'offset' => 0, 'total' => 45,
+        'running' => 1, 'offset' => 0, 'total' => 115,
         'urls'    => array(),
         'pids'    => array(),
         'keys'    => array(), 'facts' => array(),
@@ -207,17 +207,17 @@ $st = array(
         'current' => '', 'current_at' => 0, 'ms_sum' => 0, 'ms_n' => 0,
         'started_at' => time(), 'finished_at' => 0,
 );
-for ( $i = 0; $i < 45; $i++ ) {
+for ( $i = 0; $i < 115; $i++ ) {
         $st['urls'][] = 'http://local.test/?post=9' . ( 20 + $i ); // distinct slots
         $st['pids'][] = 920;                                        // same DB source
 }
 $GLOBALS['opts']['hami_ai_crawl_state'] = $st;
 Haa_Crawl::batch( 2 );
-ok( 'DB-only tick stops at the 40 cap', 40 === (int) crawl_state()['offset'], '(offset=' . crawl_state()['offset'] . ')' );
-ok( 'DB rows stored for the first 40 slots', 40 === count( $GLOBALS['chunk_rows'] ), '(rows=' . count( $GLOBALS['chunk_rows'] ) . ')' );
+ok( 'DB-only tick stops at the 100 cap', 100 === (int) crawl_state()['offset'], '(offset=' . crawl_state()['offset'] . ')' );
+ok( 'DB rows stored for the first 100 slots', 100 === count( $GLOBALS['chunk_rows'] ), '(rows=' . count( $GLOBALS['chunk_rows'] ) . ')' );
 Haa_Crawl::batch( 2 );
-ok( 'next tick drains the rest', 45 === (int) crawl_state()['offset'] );
-ok( 'every DB slot stored exactly once', 45 === count( $GLOBALS['chunk_rows'] ) );
+ok( 'next tick drains the rest', 115 === (int) crawl_state()['offset'] );
+ok( 'every DB slot stored exactly once', 115 === count( $GLOBALS['chunk_rows'] ) );
 Haa_Crawl::cancel();
 
 echo "=== E. backfill — an old queue (no pids) gets the DB-fast path ===\n";
@@ -274,7 +274,7 @@ ok( 'scope preview uses targets_full', false !== strpos( $dash, 'Haa_Crawl::targ
 ok( 'ETA weights HTTP vs DB', false !== strpos( $dash, '$crawl_http * 3' ) );
 ok( 'finish() mentions the DB fallback', false !== strpos( $dash, 'از دیتابیس خوانده شده‌اند' ) );
 $src = (string) file_get_contents( __DIR__ . '/../includes/class-haa-crawl.php' );
-ok( 'batch admits 40 DB pages per tick', false !== strpos( $src, '$db_done >= 40' ) );
+ok( 'batch admits 100 DB pages per tick', false !== strpos( $src, '$db_done >= 100' ) );
 ok( 'DB path reuses build_source', false !== strpos( $src, 'Haa_Search::build_source' ) );
 ok( 'shared drop_slot helper exists', false !== strpos( $src, 'private static function drop_slot' ) );
 ok( 'fetch timeout unchanged (6s)', false !== strpos( $src, "'timeout'     => 6," ) );

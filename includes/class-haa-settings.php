@@ -1120,7 +1120,7 @@ final class Haa_Settings {
                         // Site knowledge crawler («دانش سایت»).
                         'knowledge.urls'           => array( 'cb' => array( 'Haa_Settings', 'sanitize_page_urls' ) ),
                         'knowledge.auto_crawl'     => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
-                        'knowledge.max_pages'      => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 5, 'max' => 100 ),
+                        'knowledge.max_pages'      => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 5, 'max' => 2500 ),
                         'knowledge.crawl_types'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_crawl_types' ) ),
                         'chat.tone'                => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'default', 'formal', 'friendly', 'playful' ) ),
                         'chat.page_context'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),

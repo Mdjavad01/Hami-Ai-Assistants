@@ -1031,9 +1031,20 @@ function get_categories( $a = array() ) {
 }
 function get_terms( $a = array() ) {
         if ( isset( $a['taxonomy'] ) && 'product_cat' === $a['taxonomy'] && isset( $GLOBALS['product_cats'] ) ) {
-                return $GLOBALS['product_cats'];
+                $rows = (array) $GLOBALS['product_cats'];
+                if ( ! empty( $a['hide_empty'] ) ) {
+                        // Real WP semantics: terms with zero published posts stay hidden.
+                        $rows = array_values( array_filter( $rows, function ( $t ) {
+                                return (int) ( is_object( $t ) ? ( $t->count ?? 0 ) : ( $t['count'] ?? 0 ) ) > 0;
+                        } ) );
+                }
+                return $rows;
         }
         return array();
+}
+if ( ! function_exists( 'WC' ) ) {
+        /** Marker so Haa_Util::woo() sees a live WooCommerce install. */
+        function WC() { return new WooCommerce(); }
 }
 function get_pages( $a = array() ) { return array(); }
 function get_posts( $a = array() ) { return stub_map_rows( stub_filter_posts( $a ), $a ); }
@@ -1183,7 +1194,49 @@ function update_post_meta( $id, $k, $v ) {
         $GLOBALS['post_meta'][ (int) $id ][ $k ] = $v;
         return true;
 }
-function wc_get_product( $id ) { return null; }
+
+/**
+ * Seedable product object (2.1.18): suites put rows into
+ * $GLOBALS['products'][ $id ] = array( 'name' =>, 'price' =>, 'stock' =>,
+ * 'short' =>, 'desc' =>, 'sku' => ) and wc_get_product() returns a minimal
+ * fake with the getters the plugin actually reads. Unseeded ids still return
+ * null — exactly the old behaviour, so older suites are unaffected.
+ */
+if ( ! class_exists( 'Haa_Stub_Product' ) ) {
+        class Haa_Stub_Product {
+                private $row;
+                public function __construct( $row ) { $this->row = (array) $row; }
+                public function get_name() { return (string) ( $this->row['name'] ?? '' ); }
+                public function get_short_description() { return (string) ( $this->row['short'] ?? '' ); }
+                public function get_description() { return (string) ( $this->row['desc'] ?? '' ); }
+                public function get_price() { return (string) ( $this->row['price'] ?? '' ); }
+                public function get_stock_status() { return (string) ( $this->row['stock'] ?? 'instock' ); }
+                public function get_sku() { return (string) ( $this->row['sku'] ?? '' ); }
+                public function get_attributes() { return (array) ( $this->row['attrs'] ?? array() ); }
+        }
+}
+function wc_get_product( $id ) {
+        $row = isset( $GLOBALS['products'] ) ? ( $GLOBALS['products'][ (int) $id ] ?? null ) : null;
+        if ( null === $row ) {
+                return null;
+        }
+        return new Haa_Stub_Product( $row );
+}
+/** @return string|WP_Error Archive link for a seeded term object. */
+function get_term_link( $term ) {
+        if ( is_wp_error( $term ) || ! is_object( $term ) || empty( $term->slug ) ) {
+                return new WP_Error( 'invalid_term', 'bad term' );
+        }
+        return 'http://local.test/product-cat/' . rawurlencode( (string) $term->slug );
+}
+if ( ! function_exists( 'wc_price' ) ) {
+        /** @return string */
+        function wc_price( $amount ) { return (string) $amount; }
+}
+if ( ! function_exists( 'get_woocommerce_currency_symbol' ) ) {
+        /** @return string */
+        function get_woocommerce_currency_symbol() { return 'تومان'; }
+}
 function wp_count_posts( $t ) { $o = new stdClass(); $o->publish = 0; return $o; }
 function absint( $v ) { return abs( (int) $v ); }
 function wp_send_json( $d, $s = 200 ) { $GLOBALS['json'] = $d; }

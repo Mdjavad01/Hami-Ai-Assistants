@@ -717,6 +717,13 @@ final class Haa_Chat {
          * Live product facts for a message that names a product or asks about
          * price/stock — this is what keeps answers from going stale.
          *
+         * 2.1.18 — a price question that names a PRODUCT CATEGORY
+         * («قیمت محصولات ابزار قالیبافی چقدره؟») gets a live digest of that
+         * category, and a bare «قیمت محصولات چقدره؟» gets the shop's real
+         * category index: before this, neither matched any product name, the
+         * model received nothing, and it improvised a plausible-looking
+         * category URL — the exact wrong answer the shop owner reported.
+         *
          * @param string $message Message.
          * @return string
          */
@@ -728,6 +735,17 @@ final class Haa_Chat {
                 $needs      = (bool) preg_match( '/قیمت|موجود|خرید|ارزان|گران|تومان|ریال|price|stock|buy/', $normalized );
                 if ( ! $needs && mb_strlen( $message ) > 80 ) {
                         return '';
+                }
+
+                // Category named? Its live digest beats name-matching: the
+                // category page holds every price the visitor is asking about.
+                $cat = self::matched_product_cat( $normalized );
+                if ( $cat ) {
+                        $digest = self::category_price_lines( $cat );
+                        if ( '' !== $digest ) {
+                                return $digest;
+                        }
+                        // Category exists but is empty — fall through to name search.
                 }
 
                 $args = array(
@@ -765,10 +783,31 @@ final class Haa_Chat {
                         $ids = self::fuzzy_product_ids( $normalized );
                 }
                 if ( ! $ids ) {
+                        // A bare price ask («قیمت محصولات چقدره؟») names neither a
+                        // product nor a category: hand the model the REAL category
+                        // index so it lays out actual choices (with links) instead of
+                        // inventing one plausible-looking URL out of twenty.
+                        if ( $needs ) {
+                                return self::category_index_lines();
+                        }
                         return '';
                 }
 
-                $lines = array();
+                $lines = self::product_lines( $ids );
+                return $lines ? implode( "\n", $lines ) : '';
+        }
+
+        /**
+         * The shared product-fact line format: name, price, stock, categories,
+         * link — identical for the name path and the category digest, so the
+         * model always sees one shape of fact.
+         *
+         * @param array<int,int> $ids Product IDs.
+         * @return array<int,string>
+         */
+        private static function product_lines( $ids ) {
+                $lines    = array();
+                $currency = function_exists( 'get_woocommerce_currency_symbol' ) ? get_woocommerce_currency_symbol() : '';
                 foreach ( (array) $ids as $pid ) {
                         if ( ! haa_is_woo() || ! function_exists( 'wc_get_product' ) ) {
                                 continue;
@@ -777,7 +816,6 @@ final class Haa_Chat {
                         if ( ! $p ) {
                                 continue;
                         }
-                        $currency = function_exists( 'get_woocommerce_currency_symbol' ) ? get_woocommerce_currency_symbol() : '';
                         $lines[] = sprintf(
                                 'محصول: %s | قیمت: %s %s | موجودی: %s | دسته: %s | لینک: %s',
                                 $p->get_name(),
@@ -788,7 +826,121 @@ final class Haa_Chat {
                                 get_permalink( $pid )
                         );
                 }
-                return $lines ? implode( "\n", $lines ) : '';
+                return $lines;
+        }
+
+        /**
+         * Does the message name one of the shop's product categories? One
+         * bounded terms query per request (cached in a static), matched on
+         * normalized text with Persian word boundaries; the LONGEST matching
+         * name wins so «ابزار قالیبافی» beats a generic «ابزار» when both are
+         * real categories.
+         *
+         * @param string $normalized Normalized message.
+         * @return WP_Term|null
+         */
+        private static function matched_product_cat( $normalized ) {
+                static $terms = null;
+                if ( null === $terms ) {
+                        $terms = get_terms(
+                                array(
+                                        'taxonomy'   => 'product_cat',
+                                        'hide_empty' => false,
+                                        'number'     => 200,
+                                        'orderby'    => 'count',
+                                        'order'      => 'DESC',
+                                )
+                        );
+                        if ( is_wp_error( $terms ) ) {
+                                $terms = array();
+                        }
+                }
+
+                $best   = null;
+                $best_n = 0;
+                foreach ( (array) $terms as $term ) {
+                        $name = trim( (string) Haa_Search::normalize_text( (string) $term->name ) );
+                        if ( mb_strlen( $name ) < 3 || mb_strlen( $name ) <= $best_n ) {
+                                continue;
+                        }
+                        $re = '#(?<!\p{L})' . preg_quote( $name, '#' ) . '(?!\p{L})#u';
+                        if ( preg_match( $re, (string) $normalized ) ) {
+                                $best   = $term;
+                                $best_n = mb_strlen( $name );
+                        }
+                }
+                return $best;
+        }
+
+        /**
+         * Live price digest for one product category: the category's own facts
+         * (size + archive link) then up to 12 newest products in the shared
+         * line format, with an honest truncation note when the catalogue is
+         * bigger — the model can quote real prices and end with the right link.
+         *
+         * @param WP_Term $term Category term.
+         * @return string '' when the category has no published products.
+         */
+        private static function category_price_lines( $term ) {
+                $ids = get_posts(
+                        array(
+                                'post_type'      => 'product',
+                                'post_status'    => 'publish',
+                                'posts_per_page' => 12,
+                                'fields'         => 'ids',
+                                'no_found_rows'  => true,
+                                'tax_query'      => array(
+                                        array(
+                                                'taxonomy' => 'product_cat',
+                                                'field'    => 'term_id',
+                                                'terms'    => (int) $term->term_id,
+                                        ),
+                                ),
+                        )
+                );
+                if ( ! $ids ) {
+                        return '';
+                }
+
+                $link  = get_term_link( $term );
+                $link  = ( is_wp_error( $link ) || ! is_string( $link ) ) ? '' : $link;
+                $count = (int) ( $term->count ?? 0 );
+
+                $lines = array( 'دسته: ' . $term->name . ' | تعداد محصولات: ' . $count . ( $link ? ' | لینک دسته: ' . $link : '' ) );
+                $lines = array_merge( $lines, self::product_lines( $ids ) );
+                if ( $count > count( $ids ) ) {
+                        $lines[] = sprintf( '(نمایش %d محصول از %d — برای بقیه، لینک دسته را ببینید)', count( $ids ), $count );
+                }
+                return implode( "\n", $lines );
+        }
+
+        /**
+         * The shop's real category index (top 20 by product count, each with
+         * its archive link) — the deterministic answer for a bare price ask
+         * that names nothing specific.
+         *
+         * @return string
+         */
+        private static function category_index_lines() {
+                $terms = get_terms(
+                        array(
+                                'taxonomy'   => 'product_cat',
+                                'hide_empty' => true,
+                                'number'     => 20,
+                                'orderby'    => 'count',
+                                'order'      => 'DESC',
+                        )
+                );
+                if ( is_wp_error( $terms ) || ! $terms ) {
+                        return '';
+                }
+                $lines = array( 'دسته‌بندی‌های فروشگاه (نام یک دسته را بپرس تا قیمت همان دسته را بگویی):' );
+                foreach ( (array) $terms as $term ) {
+                        $link = get_term_link( $term );
+                        $link = ( is_wp_error( $link ) || ! is_string( $link ) ) ? '' : $link;
+                        $lines[] = 'دسته: ' . $term->name . ' | تعداد محصولات: ' . (int) $term->count . ( $link ? ' | لینک: ' . $link : '' );
+                }
+                return implode( "\n", $lines );
         }
 
         /**

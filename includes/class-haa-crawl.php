@@ -36,8 +36,13 @@ final class Haa_Crawl {
         const CONTACT_POST_ID = -1;      // Fixed slot for the contact-facts chunk.
         const BODY_CAP        = 524288;  // 512 KB of HTML is plenty for one page.
         const MIN_TEXT        = 80;      // Below this a fetched page is junk.
-        const MAX_URLS        = 100;     // Hard ceiling regardless of settings.
-        const MAX_CHUNKS      = 400;     // Total crawl chunks a site may hold.
+        // 2.1.18 — the 100-URL ceiling silently excluded most of a real shop's
+        // catalogue: a 1,738-product store could only ever index ~85 products
+        // (home + pages first), so «قیمت محصولات دستهٔ X» stayed unanswerable.
+        // DB reads cost milliseconds apiece, so the ceiling now covers a full
+        // catalogue instead of a sample; the settings cap stays below it.
+        const MAX_URLS        = 2600;    // Hard ceiling regardless of settings.
+        const MAX_CHUNKS      = 8000;    // Total crawl chunks a site may hold (a product ≈ 1 chunk).
         const LOCK            = 'haai_crawl_lock'; // One batch at a time (2.1.16).
 
         /** @var array|null Cached crawl config for this request. */
@@ -67,7 +72,7 @@ final class Haa_Crawl {
                 // drops on a non-shop install (no CPT, no harm).
                 $types = array_intersect( (array) Haa_Settings::get( 'knowledge.crawl_types', array( 'page' ) ), array( 'page', 'product', 'post' ) );
                 self::$config = array(
-                        'pages'    => max( 5, min( 100, (int) Haa_Settings::get( 'knowledge.max_pages', 30 ) ) ),
+                        'pages'    => max( 5, min( 2500, (int) Haa_Settings::get( 'knowledge.max_pages', 30 ) ) ),
                         'urls'     => array_values( array_unique( $urls ) ),
                         'discover' => ! empty( Haa_Settings::get( 'knowledge.auto_crawl', 1 ) ),
                         'types'    => array_values( $types ? $types : array( 'page' ) ),
@@ -247,7 +252,9 @@ final class Haa_Crawl {
                                         'post_type'        => $type,
                                         'post_status'      => 'publish',
                                         'post_password'    => '',
-                                        'posts_per_page'   => min( 100, $cap - count( $out ) ),
+                                        // One ID-only query per type even for a full catalogue
+                                        // (no_found_rows keeps it cheap — 2.1.18).
+                                        'posts_per_page'   => min( 2000, $cap - count( $out ) ),
                                         'orderby'          => 'date',
                                         'order'            => 'page' === $type ? 'ASC' : 'DESC',
                                         'fields'           => 'ids',
@@ -522,12 +529,14 @@ final class Haa_Crawl {
                         // Per-source admission: an HTTP page is expensive (one
                         // network round-trip each, up to the 6 s timeout on a
                         // blocked host) — batch_size per tick. A DB page costs
-                        // milliseconds — 40 per tick, so a 30-URL queue ends in
-                        // ONE tick even on the slowest host.
+                        // milliseconds — 100 per tick (2.1.18, was 40), so a
+                        // 30-URL queue still ends in ONE tick and a full
+                        // 1,750-product catalogue drains in ~18 ticker rounds
+                        // (seconds), with the 10 s budget below as the real guard.
                         if ( $is_http && $http_done >= $batch_size ) {
                                 break;
                         }
-                        if ( ! $is_http && $db_done >= 40 ) {
+                        if ( ! $is_http && $db_done >= 100 ) {
                                 break;
                         }
 
