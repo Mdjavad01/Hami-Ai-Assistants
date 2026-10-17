@@ -26,6 +26,8 @@ suites=(
   dev-tests/tmp-checks22-relaybench-elementor.php
   dev-tests/tmp-checks23-alternation.php
   dev-tests/tmp-checks24-vault.php
+  dev-tests/tmp-checks25-crawl.php
+  dev-tests/tmp-checks26-crawlctl.php
 )
 for s in "${suites[@]}"; do
   out=$("$PHP" "$s" 2>&1)

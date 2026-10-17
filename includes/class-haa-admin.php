@@ -1505,17 +1505,35 @@ final class Haa_Admin {
                         $fields[] = array( 'key' => 'appearance.custom_icon', 'type' => 'media', 'label' => __( 'آیکون سفارشی', 'hami-ai-assistant' ) );
                         $fields[] = array( 'key' => 'appearance.custom_css', 'type' => 'textarea', 'label' => __( 'CSS سفارشی', 'hami-ai-assistant' ) );
                 } elseif ( 'knowledge' === $tab ) {
+                        // Crawl scope — the «اولویت‌بندی / انتخاب صفحه» control for
+                        // heavy sites: tick what joins the queue, see each type's
+                        // published count right in the label. Pages stay the default
+                        // (contact/about live there); products/posts are opt-in so a
+                        // big shop crawls light until the admin asks for more.
+                        $crawl_counts = Haa_Crawl::type_counts();
+                        $type_choices = array(
+                                'page'    => sprintf( 'برگه‌ها (%s)', number_format_i18n( $crawl_counts['page'] ) ),
+                                'product' => sprintf( 'محصولات (%s)', number_format_i18n( $crawl_counts['product'] ) ),
+                                'post'    => sprintf( 'نوشته‌ها (%s)', number_format_i18n( $crawl_counts['post'] ) ),
+                        );
+                        $fields[] = array(
+                                'key'     => 'knowledge.crawl_types',
+                                'type'    => 'multicheck',
+                                'label'   => __( 'چه محتوایی خزش شود؟ (اولویت: از راست به چپ)', 'hami-ai-assistant' ),
+                                'choices' => $type_choices,
+                                'hint'    => __( 'اولویت خزش: صفحه‌ی اول ← آدرس‌های دلخواه ← برگه‌ها ← محصولات ← نوشته‌ها. برای سایت‌های سنگین فقط «برگه‌ها» را روشن نگه دارید؛ محصولات و نوشته‌ها را هر وقت خواستید اضافه کنید. انتخابِ خالی خودکار به «برگه‌ها» برمی‌گردد.', 'hami-ai-assistant' ),
+                        );
                         $fields[] = array(
                                 'key'   => 'knowledge.urls',
                                 'type'  => 'textarea',
                                 'label' => __( 'آدرس صفحاتی که دستیار حتماً باید بلد باشد', 'hami-ai-assistant' ),
-                                'hint'  => __( 'هر خط یک آدرس کامل (مثل https://example.com/contact-us). محتوای رندرشده‌ی همین صفحات به پایگاه دانش اضافه می‌شود؛ برای شماره تماس، اینستاگرام و صفحه «تماس با ما» همین‌ها کافی است. حداکثر ۵۰ آدرس.', 'hami-ai-assistant' ),
+                                'hint'  => __( 'هر خط یک آدرس کامل (مثل https://example.com/contact-us). محتوای رندرشده‌ی همین صفحات به پایگاه دانش اضافه می‌شود؛ برای شماره تماس، اینستاگرام و صفحه «تماس با ما» همین‌ها کافی است. حداکثر ۵۰ آدرس. این آدرس‌ها اول از همه خزش می‌شوند.', 'hami-ai-assistant' ),
                         );
                         $fields[] = array(
                                 'key'   => 'knowledge.auto_crawl',
                                 'type'  => 'checkbox',
                                 'label' => __( 'کشف خودکار لینک‌های صفحه‌ی اول', 'hami-ai-assistant' ),
-                                'hint'  => __( 'صفحه‌ی نخست خزش، لینک‌های داخلی منو و فوتر را هم به فهرست اضافه می‌کند (تا سقف بودجه‌ی پایین).', 'hami-ai-assistant' ),
+                                'hint'  => __( 'صفحه‌ی نخست خزش، لینک‌های داخلی منو و فوتر را هم به فهرست اضافه می‌کند (تا سقف بودجه‌ی پایین). سبد خرید، پرداخت و حساب کاربری هرگز خزش نمی‌شوند.', 'hami-ai-assistant' ),
                         );
                         $fields[] = array(
                                 'key'   => 'knowledge.max_pages',
@@ -1523,7 +1541,7 @@ final class Haa_Admin {
                                 'label' => __( 'بودجه‌ی خزش (حداکثر صفحه)', 'hami-ai-assistant' ),
                                 'min'   => 5,
                                 'max'   => 100,
-                                'hint'  => __( 'سبک نگه داشته می‌شود: هر بار ۲ صفحه و هر صفحه فقط یک درخواست GET با سقف حجم. صفحات منتشرشده‌ی سایت همیشه جزو اولین خزش‌ها هستند.', 'hami-ai-assistant' ),
+                                'hint'  => __( 'سبک نگه داشته می‌شود: هر بار ۲ صفحه و هر صفحه فقط یک درخواست GET با سقف حجم. خزش هر لحظه قابل توقف است و با «ادامهِ خزش» از همان‌جا ادامه می‌یابد — هیچ‌چیز از نو خوانده نمی‌شود.', 'hami-ai-assistant' ),
                         );
                 } elseif ( 'advanced' === $tab ) {
                         $fields[] = array( 'key' => 'advanced.enable_rag', 'type' => 'checkbox', 'label' => __( 'استفاده از محتوای سایت در پاسخ', 'hami-ai-assistant' ) );

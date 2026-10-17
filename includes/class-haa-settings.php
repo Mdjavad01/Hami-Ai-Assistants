@@ -406,10 +406,14 @@ final class Haa_Settings {
                         // urls = pages the admin insists the bot must know; auto_crawl
                         // also picks up internal links found on the homepage; max_pages
                         // is the whole budget so a crawl stays light by construction.
+                        // crawl_types = which WP content joins the queue (pages first —
+                        // contact/about live there; products/posts are opt-in so a big
+                        // shop stays light by default).
                         'knowledge' => array(
-                                'urls'       => '',
-                                'auto_crawl' => 1,
-                                'max_pages'  => 30,
+                                'urls'        => '',
+                                'auto_crawl'  => 1,
+                                'max_pages'   => 30,
+                                'crawl_types' => array( 'page' ),
                         ),
                 );
         }
@@ -1117,6 +1121,7 @@ final class Haa_Settings {
                         'knowledge.urls'           => array( 'cb' => array( 'Haa_Settings', 'sanitize_page_urls' ) ),
                         'knowledge.auto_crawl'     => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'knowledge.max_pages'      => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 5, 'max' => 100 ),
+                        'knowledge.crawl_types'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_crawl_types' ) ),
                         'chat.tone'                => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'default', 'formal', 'friendly', 'playful' ) ),
                         'chat.page_context'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'chat.custom_knowledge'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_textarea' ) ),
@@ -1731,6 +1736,27 @@ final class Haa_Settings {
                 }
 
                 return implode( "\n", array_values( $out ) );
+        }
+
+        /**
+         * Which WP content types the crawler may queue. Whitelist + a sane floor:
+         * an empty selection would silently crawl nothing, so it degrades to
+         * pages only (the lightweight default the «دانش سایت» tab documents).
+         *
+         * @param mixed $raw Posted value (array of slugs).
+         * @return array<int,string>
+         */
+        public static function sanitize_crawl_types( $raw ) {
+                $allowed = array( 'page', 'product', 'post' );
+                $out     = array();
+                foreach ( (array) $raw as $slug ) {
+                        $slug = sanitize_key( (string) $slug );
+                        if ( in_array( $slug, $allowed, true ) ) {
+                                $out[] = $slug;
+                        }
+                }
+                $out = array_values( array_unique( $out ) );
+                return $out ? $out : array( 'page' );
         }
 
         /** @return array */
@@ -2366,7 +2392,7 @@ final class Haa_Settings {
                         'provider'  => array( 'provider.provider', 'provider.api_key', 'provider.base_url', 'provider.model', 'provider.embedding_model', 'provider.image_model', 'provider.timeout', 'provider.max_tokens', 'provider.allow_localhost', 'provider.adapter', 'provider.temperature', 'provider.retries', 'provider.proxy_host', 'provider.proxy_port', 'provider.proxy_username', 'provider.proxy_password', 'provider.failovers' ),
                         'appearance'=> array( 'appearance.skin', 'appearance.primary_color', 'appearance.secondary_color', 'appearance.bg_color', 'appearance.text_color', 'appearance.theme_mode', 'appearance.dark_bg', 'appearance.dark_text', 'appearance.dark_bubble', 'appearance.font', 'appearance.font_size', 'appearance.border_radius', 'appearance.button_size', 'appearance.welcome_message', 'appearance.placeholder', 'appearance.custom_icon', 'appearance.custom_css' ),
                         'advanced'  => array( 'advanced.enable_rag', 'advanced.kb_enabled', 'advanced.kb_post_types', 'advanced.kb_chunk_words', 'advanced.kb_overlap_words', 'advanced.kb_categories', 'advanced.kb_max_file_kb', 'advanced.enable_cache', 'advanced.cache_ttl', 'advanced.rate_limit_count', 'advanced.rate_limit_minutes', 'advanced.token_ttl_minutes', 'advanced.max_message_chars', 'advanced.daily_request_cap', 'advanced.daily_cap_message', 'advanced.daily_user_cap', 'advanced.daily_user_cap_message', 'advanced.log_conversations', 'advanced.log_retention_days', 'advanced.usage_retention', 'advanced.guest_access', 'advanced.login_required_message', 'advanced.ip_header' ),
-                        'knowledge' => array( 'knowledge.urls', 'knowledge.auto_crawl', 'knowledge.max_pages' ),
+                        'knowledge' => array( 'knowledge.urls', 'knowledge.auto_crawl', 'knowledge.max_pages', 'knowledge.crawl_types' ),
                 );
                 foreach ( $core as $tab_keys ) {
                         $keys = array_merge( $keys, $tab_keys );

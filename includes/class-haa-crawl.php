@@ -45,7 +45,7 @@ final class Haa_Crawl {
         /**
          * Crawl scope from the «دانش سایت» tab.
          *
-         * @return array{pages:int,urls:array<int,string>,discover:bool}
+         * @return array{pages:int,urls:array<int,string>,discover:bool,types:array<int,string>}
          */
         public static function config() {
                 if ( null !== self::$config ) {
@@ -58,10 +58,14 @@ final class Haa_Crawl {
                                 $urls[] = $url;
                         }
                 }
+                // Types the admin ticked; 'product' needs WooCommerce and silently
+                // drops on a non-shop install (no CPT, no harm).
+                $types = array_intersect( (array) Haa_Settings::get( 'knowledge.crawl_types', array( 'page' ) ), array( 'page', 'product', 'post' ) );
                 self::$config = array(
                         'pages'    => max( 5, min( 100, (int) Haa_Settings::get( 'knowledge.max_pages', 30 ) ) ),
                         'urls'     => array_values( array_unique( $urls ) ),
                         'discover' => ! empty( Haa_Settings::get( 'knowledge.auto_crawl', 1 ) ),
+                        'types'    => array_values( $types ? $types : array( 'page' ) ),
                 );
                 return self::$config;
         }
@@ -150,20 +154,51 @@ final class Haa_Crawl {
          * =============================================================== */
 
         /**
-         * Assemble the target list: homepage, admin-entered URLs, then published
-         * pages (small, and the contact/about pages the bot keeps being asked
-         * about are all pages). Discovery on the homepage adds more only when
-         * there is budget left.
+         * Published counts per crawlable type — labels in the «دانش سایت» tab and
+         * the dashboard scope preview («۳۲ برگه + ۹۵ محصول») so the admin sees
+         * the SCALE of what is about to be queued BEFORE pressing the button.
+         * wp_count_posts is a cached single-row read per type — dashboard-safe.
+         *
+         * @return array{page:int,post:int,product:int}
+         */
+        public static function type_counts() {
+                $out = array( 'page' => 0, 'post' => 0, 'product' => 0 );
+                foreach ( array_keys( $out ) as $type ) {
+                        if ( 'product' === $type && ! haa_is_woo() ) {
+                                continue;
+                        }
+                        $c = wp_count_posts( $type );
+                        $out[ $type ] = ( $c && isset( $c->publish ) ) ? (int) $c->publish : 0;
+                }
+                return $out;
+        }
+
+        /**
+         * Assemble the target list, PRIORITY-ORDERED (this is the «اولویت‌بندی»
+         * the admin asked for on heavy sites):
+         *
+         *   0. homepage           — always #0: link discovery reads its HTML;
+         *   1. admin URLs         — deliberate, asked-for knowledge first;
+         *   2. pages (opt-in)     — contact/about live here, oldest first so
+         *                           long-lived pages never lose their slot;
+         *   3. products (opt-in)  — newest first (a shop bot must know today's
+         *                           catalogue, not last year's);
+         *   4. posts (opt-in)     — newest first.
+         *
+         * Each step only consumes what budget (max_pages) remains, so a big site
+         * fills the queue with the pages that answer real questions and leaves
+         * the long tail out.
          *
          * @return array<int,string>
          */
         public static function targets() {
-                $cfg = self::config();
-                $cap = min( self::MAX_URLS, $cfg['pages'] );
+                $cfg   = self::config();
+                $cap   = min( self::MAX_URLS, $cfg['pages'] );
+                $types = (array) ( $cfg['types'] ?? array( 'page' ) );
 
-                $urls   = array();
-                $seen   = array();
-                $add    = function ( $url ) use ( &$urls, &$seen, $cap ) {
+                $urls = array();
+                $seen = array();
+                $add  = function ( $url ) use ( &$urls, &$seen, $cap ) {
                         $url = self::safe_url( (string) $url );
                         if ( ! $url ) {
                                 return false;
@@ -177,37 +212,41 @@ final class Haa_Crawl {
                         return true;
                 };
 
-                // 1) Homepage first — it also feeds link discovery.
+                // 0) Homepage — also feeds link discovery from offset 0.
                 $add( home_url( '/' ) );
 
-                // 2) The pages the bot is most often asked about, sorted oldest-first so
-                // long-lived pages (تماس با ما، درباره ما) never lose their slot.
-                $pages = get_posts(
-                        array(
-                                'post_type'        => 'page',
-                                'post_status'      => 'publish',
-                                'post_password'    => '',
-                                'posts_per_page'   => 40,
-                                'orderby'          => 'date',
-                                'order'            => 'ASC',
-                                'fields'           => 'ids',
-                                'no_found_rows'    => true,
-                                'suppress_filters' => true,
-                        )
-                );
-                foreach ( (array) $pages as $pid ) {
-                        if ( count( $urls ) >= $cap ) {
-                                break;
-                        }
-                        $add( (string) get_permalink( (int) $pid ) );
-                }
-
-                // 3) Admin-entered URLs win the remaining budget (they are deliberate).
+                // 1) Admin-entered URLs win right after the homepage (they are deliberate).
                 foreach ( $cfg['urls'] as $u ) {
                         if ( count( $urls ) >= $cap ) {
                                 break;
                         }
                         $add( $u );
+                }
+
+                // 2-4) Ticked content types, each bounded by the remaining budget.
+                foreach ( array( 'page', 'product', 'post' ) as $type ) {
+                        if ( ! in_array( $type, $types, true ) || count( $urls ) >= $cap ) {
+                                continue;
+                        }
+                        $ids = get_posts(
+                                array(
+                                        'post_type'        => $type,
+                                        'post_status'      => 'publish',
+                                        'post_password'    => '',
+                                        'posts_per_page'   => min( 100, $cap - count( $urls ) ),
+                                        'orderby'          => 'date',
+                                        'order'            => 'page' === $type ? 'ASC' : 'DESC',
+                                        'fields'           => 'ids',
+                                        'no_found_rows'    => true,
+                                        'suppress_filters' => true,
+                                )
+                        );
+                        foreach ( (array) $ids as $pid ) {
+                                if ( count( $urls ) >= $cap ) {
+                                        break;
+                                }
+                                $add( (string) get_permalink( (int) $pid ) );
+                        }
                 }
 
                 return $urls;
@@ -272,7 +311,11 @@ final class Haa_Crawl {
                         return $links;
                 }
 
-                $skip = '#(/\.(?:css|js|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|pdf|zip|xml|json)$|/wp-admin|/wp-login|/wp-json|/feed/?$|\?p=|\?page_id=|/comment|mailto:|tel:)#i';
+                // Utility/commerce URLs are NEVER knowledge: carts and checkouts are
+                // per-customer screens, add-to-cart links are actions, attachments and
+                // pagination are filler — on a heavy shop these would otherwise eat
+                // the whole budget without teaching the bot anything.
+                $skip = '#(/\.(?:css|js|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|pdf|zip|xml|json)$|/wp-admin|/wp-login|/wp-json|/feed/?$|\?p=|\?page_id=|\?attachment_id=|\?add-to-cart=|/comment|/cart/?$|/checkout|/my-account|/page/\d+|mailto:|tel:)#i';
                 $seen = array();
                 foreach ( $m[1] as $href ) {
                         if ( count( $links ) >= $remaining ) {
@@ -315,6 +358,15 @@ final class Haa_Crawl {
                                 'facts'      => array(), // Accumulated contact-fact lines.
                                 'last_error' => '',
                                 'finished_at' => 0,
+                                // Live heartbeat: what the crawler was last reading and
+                                // when — the dashboard shows it between batches so the
+                                // progress bar can never look frozen on a slow host.
+                                'current'    => '',
+                                'current_at' => 0,
+                                // Timing accumulator for the ETA (ms spent per page).
+                                'ms_sum'     => 0,
+                                'ms_n'       => 0,
+                                'started_at' => 0,
                         )
                 );
         }
@@ -325,14 +377,26 @@ final class Haa_Crawl {
         }
 
         /**
-         * Start a crawl. Never runs on the visitor path and never when RAG is
-         * disabled (the rows would simply never be searched).
+         * Start (or RESUME) a crawl. Never runs on the visitor path and never
+         * when RAG is disabled (the rows would simply never be searched).
          *
+         * A crawl that is still marked running is RESUMED as-is: the dashboard's
+         * «ادامهِ خزش» button must never throw away hours of a heavy site's
+         * progress (2.1.14 reset the offset on every click — fixed here). Only
+         * $reset=true (the explicit «شروع از نو» button) rebuilds the queue.
+         *
+         * @param bool $reset True = discard progress and rebuild the queue.
          * @return array|WP_Error Progress on success.
          */
-        public static function start() {
+        public static function start( $reset = false ) {
                 if ( ! Haa_Search::config()['enabled'] ) {
                         return new WP_Error( 'haai_crawl_rag_off', __( 'ابتدا «پایگاه دانش (RAG)» را در تب پیشرفته روشن کنید.', 'hami-ai-assistant' ) );
+                }
+
+                $state = self::get_state();
+                if ( ! $reset && ! empty( $state['running'] ) && (int) $state['offset'] > 0 && (int) $state['total'] > 0 ) {
+                        // Resume: keep the cursor exactly where it stopped.
+                        return self::progress();
                 }
 
                 $urls = self::targets();
@@ -354,6 +418,11 @@ final class Haa_Crawl {
                                 'facts'       => array(),
                                 'last_error'  => '',
                                 'finished_at' => 0,
+                                'current'     => '',
+                                'current_at'  => 0,
+                                'ms_sum'      => 0,
+                                'ms_n'        => 0,
+                                'started_at'  => time(),
                         )
                 );
                 return self::progress();
@@ -363,6 +432,11 @@ final class Haa_Crawl {
          * Fetch + index the next pages. Two pages per tick with a hard time
          * budget, so a 30 s host limit is never hit and the dashboard ticker can
          * drive the whole crawl with one AJAX call per batch.
+         *
+         * Every page gets a HEARTBEAT write (current URL + timestamp) BEFORE its
+         * fetch, plus a running timing average — so between batches the dashboard
+         * can say exactly what is being read and how long is left, and a batch
+         * that dies mid-fetch leaves an honest breadcrumb instead of silence.
          *
          * @param int $batch_size Pages per call.
          * @return array Progress.
@@ -384,7 +458,15 @@ final class Haa_Crawl {
                 $processed  = 0;
 
                 while ( $state['offset'] < count( $urls ) ) {
-                        $url  = (string) $urls[ $state['offset'] ];
+                        $url = (string) $urls[ $state['offset'] ];
+
+                        // Heartbeat FIRST — a fetch stuck at the server timeout still
+                        // left a trail the dashboard can show («در حال خواندن: …»). 
+                        $state['current']    = $url;
+                        $state['current_at'] = time();
+                        self::save_state( $state );
+
+                        $t0   = microtime( true );
                         $html = self::fetch( $url );
 
                         if ( is_wp_error( $html ) ) {
@@ -411,8 +493,10 @@ final class Haa_Crawl {
 
                         $state['offset']++;
                         $processed++;
+                        $state['ms_sum'] += (int) round( ( microtime( true ) - $t0 ) * 1000 );
+                        $state['ms_n']++;
 
-                        if ( $processed >= $batch_size || ( microtime( true ) - $started ) > 12 ) {
+                        if ( $processed >= $batch_size || ( microtime( true ) - $started ) > 10 ) {
                                 break;
                         }
                 }
@@ -431,14 +515,26 @@ final class Haa_Crawl {
         public static function progress() {
                 $state = self::get_state();
                 $total = max( 1, (int) $state['total'] );
+                $left  = max( 0, (int) $state['total'] - (int) $state['offset'] );
+
+                // ETA from the running per-page average (worst-case floor 2 s/page
+                // so the very first ticks already show a plausible number).
+                $avg_ms = ( (int) $state['ms_n'] > 0 ) ? ( (int) $state['ms_sum'] / (int) $state['ms_n'] ) : 3000.0;
+                $eta_s  = (int) round( $left * max( 2000.0, $avg_ms ) / 1000 );
+
                 return array(
                         'running'     => (int) $state['running'],
                         'done'        => (int) $state['offset'] >= (int) $state['total'] && ! $state['running'],
                         'offset'      => (int) $state['offset'],
                         'total'       => (int) $state['total'],
+                        'pages_left'  => $left,
                         'pages'       => (int) $state['pages'],
                         'chunks'      => (int) $state['chunks'],
                         'percent'     => (int) min( 100, round( ( (int) $state['offset'] / $total ) * 100 ) ),
+                        'current'     => (string) ( $state['current'] ?? '' ),
+                        'current_at'  => (int) ( $state['current_at'] ?? 0 ),
+                        'eta_s'       => $eta_s,
+                        'elapsed_s'   => ! empty( $state['started_at'] ) ? max( 0, time() - (int) $state['started_at'] ) : 0,
                         'last_error'  => (string) $state['last_error'],
                         'finished_at' => (int) $state['finished_at'],
                         'stats'       => self::stats(),
@@ -510,7 +606,7 @@ final class Haa_Crawl {
                 $res = wp_remote_get(
                         $url,
                         array(
-                                'timeout'     => 8,
+                                'timeout'     => 6,
                                 'redirection' => 2,
                                 'decompress'  => true,
                                 'limit_response_size' => self::BODY_CAP,
@@ -814,8 +910,10 @@ final class Haa_Crawl {
         /** @return void */
         public static function handle_start() {
                 Haa_Util::guard_admin_post( 'haai_admin' );
-                $res = self::start();
-                $msg = is_wp_error( $res )
+                // «شروع از نو» posts the reset flag; plain «ادامهِ خزش» resumes.
+                $reset = ! empty( $_POST['haai_crawl_reset'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- guard_admin_post verified the nonce.
+                $res   = self::start( $reset );
+                $msg   = is_wp_error( $res )
                         ? $res->get_error_message()
                         : __( 'خزش صفحات شروع شد؛ نوار پیشرفت آن را دنبال می‌کند.', 'hami-ai-assistant' );
                 wp_safe_redirect( add_query_arg( 'haai_msg', rawurlencode( $msg ), wp_get_referer() ? wp_get_referer() : admin_url( 'admin.php?page=hami-ai-assistant' ) ) );
