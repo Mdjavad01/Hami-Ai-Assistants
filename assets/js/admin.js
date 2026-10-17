@@ -244,17 +244,31 @@
                         e.preventDefault();
                         var slug = btn.getAttribute('data-haai-preset');
                         var sel = qs('select[name="provider[provider]"]');
-                        if (sel) sel.value = slug;
                         var base = qs('input[name="provider[base_url]"]');
                         var model = qs('input[name="provider[model]"]');
+                        // Order matters: switching the select fires the per-provider vault
+                        // swap FIRST (it must stash the old service's fields untouched and
+                        // load the new one's saved row), so the chip's own base/model data
+                        // only fills the case the change event cannot — clicking the
+                        // already-active chip to restore its preset defaults.
+                        if (sel) {
+                                var wasSel = sel.value;
+                                sel.value = slug;
+                                if (slug !== wasSel) sel.dispatchEvent(new Event('change'));
+                                else {
+                                        if (base && btn.getAttribute('data-base')) base.value = btn.getAttribute('data-base');
+                                        if (model && btn.getAttribute('data-model')) model.value = btn.getAttribute('data-model');
+                                }
+                        } else {
+                                if (base && btn.getAttribute('data-base')) base.value = btn.getAttribute('data-base');
+                                if (model && btn.getAttribute('data-model')) model.value = btn.getAttribute('data-model');
+                        }
                         var opt = sel ? sel.options[sel.selectedIndex] : null;
-                        // The presets carry their own base_url/model; the labels alone are
-                        // not enough, so a tiny map lives on the button's data attributes.
-                        if (base && btn.getAttribute('data-base')) base.value = btn.getAttribute('data-base');
-                        if (model && btn.getAttribute('data-model')) model.value = btn.getAttribute('data-model');
                         if (opt) opt.selected = true;
                         // Reachability note: providers that are commonly filtered from
                         // Iranian servers warn the admin BEFORE the timeout does.
+                        // (The change handler mirrors the note too; this covers the
+                        // no-change case of clicking the already-active chip.)
                         if (presetNote) {
                                 var note = btn.getAttribute('data-note') || '';
                                 presetNote.textContent = note;
@@ -262,6 +276,115 @@
                         }
                 });
         });
+
+        /* ------------------------------------------------------------------
+         * Per-provider credential vault
+         *
+         * Every preset keeps its own api_key/base_url/models server-side
+         * (provider.vault). Switching «سرویس» swaps that service's saved
+         * values into the form, so each provider's key stays bound to it
+         * until the admin changes it — filling Grok's key can never clobber
+         * Gemini's. Unsaved edits are stashed per provider in memory, so
+         * toggling back and forth never loses typing. The plaintext keys
+         * never reach the browser: a saved key shows as the same
+         * haai-unchanged mask the secret fields already speak.
+         * ------------------------------------------------------------------ */
+
+        (function () {
+                var sel = qs('select[name="provider[provider]"]');
+                if (!sel) return;
+
+                var FIELDS = ['api_key', 'base_url', 'model', 'embedding_model', 'image_model'];
+                var MASK = 'haai-unchanged';
+                var vault = C.vault || {};
+                var presets = C.presets || {};
+                var stash = {};
+                var current = sel.value;
+                var fromInput = qs('input[name="provider[vault_from]"]');
+
+                function el(k) { return qs('[name="provider[' + k + ']"]'); }
+
+                function noteEl() {
+                        var n = qs('[data-haai-vault-note]');
+                        if (!n) {
+                                var key = el('api_key');
+                                if (!key || !key.parentNode) return null;
+                                n = document.createElement('p');
+                                n.className = 'description haai-vault-note';
+                                n.setAttribute('data-haai-vault-note', '');
+                                key.parentNode.insertBefore(n, key.nextSibling);
+                        }
+                        return n;
+                }
+
+                function say(msg) {
+                        var n = noteEl();
+                        if (n) n.textContent = msg;
+                }
+
+                function readRow() {
+                        var row = {};
+                        FIELDS.forEach(function (k) {
+                                var f = el(k);
+                                row[k] = f ? f.value : '';
+                        });
+                        return row;
+                }
+
+                function writeRow(row) {
+                        FIELDS.forEach(function (k) {
+                                var f = el(k);
+                                if (!f) return;
+                                var v = row && row[k] !== undefined && row[k] !== null ? String(row[k]) : '';
+                                if (f.value === v) return;
+                                f.value = v;
+                        });
+                }
+
+                on(sel, 'change', function () {
+                        var next = sel.value;
+                        if (!next || next === current) return;
+
+                        // Keep the old provider's unsaved edits in memory.
+                        stash[current] = readRow();
+
+                        // Load order: unsaved edits > saved vault row > preset defaults.
+                        var row = stash[next] || vault[next] || null;
+                        if (row) {
+                                writeRow(row);
+                        } else {
+                                writeRow({
+                                        api_key: '',
+                                        base_url: (presets[next] && presets[next].base_url) || '',
+                                        model: (presets[next] && presets[next].model) || '',
+                                        embedding_model: '',
+                                        image_model: ''
+                                });
+                        }
+
+                        current = next;
+                        // Tell the server the form now really holds THIS service's values.
+                        if (fromInput) fromInput.value = next;
+
+                        // Mirror the reachability note the preset chips carry.
+                        if (presetNote) {
+                                var chip = qs('[data-haai-preset="' + next + '"]');
+                                var note = chip ? (chip.getAttribute('data-note') || '') : '';
+                                presetNote.textContent = note;
+                                presetNote.hidden = !note;
+                        }
+
+                        // One honest sentence about what the key field now holds.
+                        var stashed = stash[next];
+                        if (stashed && stashed.api_key && stashed.api_key !== MASK) {
+                                say('تغییرات ذخیره‌نشده‌ی این سرویس برگردانده شد.');
+                        } else if (vault[next] && vault[next].has_key) {
+                                say('کلید ذخیره‌شده‌ی همین سرویس بارگذاری شد — تا خودتان تغییرش ندهید همین می‌ماند.');
+                        } else {
+                                say('این سرویس هنوز کلید ذخیره‌شده ندارد — کلیدش را وارد و ذخیره کنید. کلید سرویس قبلی جدا نگه داشته می‌شود.');
+                        }
+                });
+        })();
 
         /* ------------------------------------------------------------------
          * Secret fields: never submit the mask by accident

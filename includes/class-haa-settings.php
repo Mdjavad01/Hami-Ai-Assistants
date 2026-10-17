@@ -96,6 +96,15 @@ final class Haa_Settings {
                                 // (encrypted), model, hash (stable row id for the
                                 // masked-key round-trip).
                                 'failovers'       => array(),
+                                // Per-provider credential vault: one saved row per
+                                // preset slug (gemini, xai, deepseek, …) holding that
+                                // service's OWN api_key (encrypted), base_url and
+                                // models. Switching «سرویس» swaps this row into the
+                                // form, so each provider keeps its key until the admin
+                                // changes it — filling Grok's key can never clobber
+                                // Gemini's. Written by the server on every provider-tab
+                                // save (see provider_vault_write), never posted directly.
+                                'vault'           => array(),
                         ),
 
                         // Derived from Haa_Modules::catalog(): a new module can never be
@@ -618,6 +627,14 @@ final class Haa_Settings {
                         }
                 }
 
+                // The per-provider vault is rebuilt on every provider-tab save: the
+                // active credentials migrate into their own slot, the posted
+                // provider's row is refreshed, and a service switch can never copy
+                // the previous provider's key onto the new one.
+                if ( 'provider' === $section ) {
+                        $clean = self::provider_vault_write( $clean, is_array( $data ) ? $data : array() );
+                }
+
                 $all[ $section ] = $clean;
                 $ok              = self::persist( $all );
 
@@ -879,6 +896,20 @@ final class Haa_Settings {
                 // secret field keeps the stored one; a typed one is used as typed.
                 foreach ( array( 'api_key', 'proxy_password' ) as $field ) {
                         $raw = isset( $posted[ $field ] ) ? (string) $posted[ $field ] : '';
+
+                        if ( 'api_key' === $field && ( '' === $raw || self::KEY_MASK === $raw ) ) {
+                                // The mask means "keep THIS service's key": when the form
+                                // switched to a different provider, test against that
+                                // provider's own vaulted key — never the previous service's.
+                                $form_slug = isset( $cfg['provider'] ) && is_scalar( $cfg['provider'] ) ? (string) $cfg['provider'] : '';
+                                if ( '' !== $form_slug && $form_slug !== (string) self::get( 'provider.provider', '' ) ) {
+                                        $cfg['api_key'] = self::decrypt( (string) self::get( 'provider.vault.' . $form_slug . '.api_key', '' ) );
+                                } else {
+                                        $cfg['api_key'] = $stored['api_key'];
+                                }
+                                continue;
+                        }
+
                         $cfg[ $field ] = ( '' === $raw || self::KEY_MASK === $raw )
                                 ? $stored[ $field ]
                                 : self::decrypt( $cfg[ $field ] );
@@ -1024,6 +1055,7 @@ final class Haa_Settings {
                         'provider.proxy_password'  => array( 'cb' => array( 'Haa_Settings', 'sanitize_secret' ) ),
                         'provider.allow_localhost' => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'provider.failovers'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_failovers' ) ),
+                        'provider.vault'           => array( 'cb' => array( 'Haa_Settings', 'sanitize_vault' ) ),
 
                         // Appearance.
                         'appearance.primary_color'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_color' ) ),
@@ -1782,6 +1814,193 @@ final class Haa_Settings {
         }
 
         /**
+         * Per-provider credential vault: one saved row per preset slug.
+         *
+         * Each row is the credential set of exactly ONE service — api_key
+         * (encrypted), base_url and the models the admin picked for it. Rows
+         * only exist for known presets; an unknown or empty row is dropped.
+         * Keys follow the same round-trip as the failover rows: a masked
+         * (untouched) field keeps the stored key of the SAME slug, an already
+         * encrypted `haaienc:` value passes through (import), a typed value is
+         * encrypted.
+         *
+         * The settings FORM never posts this key — the section save rebuilds
+         * the vault server-side (provider_vault_write). This sanitizer exists
+         * for the import path, where a full settings file may carry the vault.
+         *
+         * @param mixed $raw Raw provider.vault array.
+         * @return array<string,array{api_key:string,base_url:string,model:string,embedding_model:string,image_model:string}>
+         */
+        public static function sanitize_vault( $raw ) {
+                $stored  = (array) self::get( 'provider.vault', array() );
+                $presets = Haa_API::presets();
+                $out     = array();
+
+                foreach ( (array) $raw as $slug => $row ) {
+                        $slug = sanitize_key( (string) $slug );
+                        if ( '' === $slug || ! isset( $presets[ $slug ] ) || ! is_array( $row ) ) {
+                                continue;
+                        }
+
+                        $key_raw = isset( $row['api_key'] ) && is_scalar( $row['api_key'] ) ? (string) $row['api_key'] : '';
+                        $key_raw = preg_replace( '/[\x00-\x1F\x7F]/', '', $key_raw );
+
+                        if ( '' === $key_raw || self::KEY_MASK === $key_raw ) {
+                                // Untouched field: keep the stored key of this exact slug.
+                                $key = isset( $stored[ $slug ]['api_key'] ) ? (string) $stored[ $slug ]['api_key'] : '';
+                        } elseif ( 0 === strpos( $key_raw, 'haaienc:' ) ) {
+                                $key = $key_raw; // Already encrypted (import round-trip).
+                        } else {
+                                $key = self::encrypt( $key_raw );
+                        }
+
+                        $out[ $slug ] = array(
+                                'api_key'         => $key,
+                                'base_url'        => self::sanitize_url( isset( $row['base_url'] ) && is_scalar( $row['base_url'] ) ? (string) $row['base_url'] : '' ),
+                                'model'           => self::sanitize_model( isset( $row['model'] ) && is_scalar( $row['model'] ) ? (string) $row['model'] : '' ),
+                                'embedding_model' => self::sanitize_model( isset( $row['embedding_model'] ) && is_scalar( $row['embedding_model'] ) ? (string) $row['embedding_model'] : '' ),
+                                'image_model'     => self::sanitize_model( isset( $row['image_model'] ) && is_scalar( $row['image_model'] ) ? (string) $row['image_model'] : '' ),
+                        );
+
+                        // A row with nothing in it is not worth remembering.
+                        if ( '' === $out[ $slug ]['api_key'] && '' === $out[ $slug ]['base_url'] && '' === $out[ $slug ]['model']
+                                && '' === $out[ $slug ]['embedding_model'] && '' === $out[ $slug ]['image_model'] ) {
+                                unset( $out[ $slug ] );
+                        }
+                }
+
+                return $out;
+        }
+
+        /**
+         * Rebuild the per-provider vault during a provider-tab save and decide
+         * what the ACTIVE provider slot ends up holding.
+         *
+         * Three things happen, in order:
+         *
+         *  1. Migration — whatever the single active slot holds today belongs
+         *     to the STORED provider, so before anything is replaced it gets a
+         *     home in the vault under that provider's slug. An install that
+         *     upgrades keeps its Gemini key when it later switches to Grok.
+         *  2. Coherence — the form may still carry the PREVIOUS provider's
+         *     field values (a «سرویس» change without JavaScript). Those values
+         *     are never written onto the new provider: the vault row (or empty
+         *     fields) wins, exactly like the key below.
+         *  3. Write-through — the posted provider's own row is written from the
+         *     form: a typed key becomes the new secret, an untouched (masked)
+         *     field restores THAT provider's saved key — never the previous
+         *     provider's — and with no saved key the slot starts clean instead
+         *     of silently reusing the old service's credentials.
+         *
+         * @param array $clean Sanitized provider section.
+         * @param array $raw   Raw posted provider array.
+         * @return array Provider section with `vault` rebuilt (and `api_key` /
+         *               base_url / models corrected when the service changed).
+         */
+        public static function provider_vault_write( $clean, $raw ) {
+                $presets = Haa_API::presets();
+                $slug    = isset( $clean['provider'] ) && is_scalar( $clean['provider'] ) ? (string) $clean['provider'] : '';
+
+                // The form never posts the vault; start from what is stored so the
+                // other providers' rows survive the section replace untouched.
+                $vault = (array) self::get( 'provider.vault', array() );
+
+                $stored_slug = (string) self::get( 'provider.provider', '' );
+                $stored_key  = (string) self::get( 'provider.api_key', '' ); // Encrypted form.
+
+                // (1) Migration: give the current active credentials their own row.
+                if ( '' !== $stored_slug && isset( $presets[ $stored_slug ] ) && '' !== $stored_key ) {
+                        $have = isset( $vault[ $stored_slug ]['api_key'] ) ? (string) $vault[ $stored_slug ]['api_key'] : '';
+                        if ( '' === $have ) {
+                                $vault[ $stored_slug ] = array(
+                                        'api_key'         => $stored_key,
+                                        'base_url'        => (string) self::get( 'provider.base_url', '' ),
+                                        'model'           => (string) self::get( 'provider.model', '' ),
+                                        'embedding_model' => (string) self::get( 'provider.embedding_model', '' ),
+                                        'image_model'     => (string) self::get( 'provider.image_model', '' ),
+                                );
+                        }
+                }
+
+                if ( ! isset( $presets[ $slug ] ) ) {
+                        $clean['vault'] = $vault;
+                        return $clean;
+                }
+
+                $raw_key = isset( $raw['api_key'] ) && is_scalar( $raw['api_key'] ) ? (string) $raw['api_key'] : '';
+                $raw_key = preg_replace( '/[\x00-\x1F\x7F]/', '', $raw_key );
+
+                // (2) Coherence: does the form actually hold THIS provider's values?
+                // JS stamps provider[vault_from] with the slug it swapped in; without
+                // JS the stamp still names the previous provider, so its base_url /
+                // models must not bleed onto the new service.
+                $coherent = $slug === $stored_slug
+                        || ( isset( $raw['vault_from'] ) && is_scalar( $raw['vault_from'] ) && (string) $raw['vault_from'] === $slug );
+
+                if ( ! $coherent ) {
+                        $row = isset( $vault[ $slug ] ) && is_array( $vault[ $slug ] ) ? $vault[ $slug ] : array();
+                        $clean['base_url']        = (string) ( isset( $row['base_url'] ) ? $row['base_url'] : '' );
+                        $clean['model']           = (string) ( isset( $row['model'] ) ? $row['model'] : '' );
+                        $clean['embedding_model'] = (string) ( isset( $row['embedding_model'] ) ? $row['embedding_model'] : '' );
+                        $clean['image_model']     = (string) ( isset( $row['image_model'] ) ? $row['image_model'] : '' );
+                }
+
+                // (3) Key resolution for the provider the form just saved.
+                if ( '' !== $raw_key && self::KEY_MASK !== $raw_key ) {
+                        // A typed key is the new secret of this provider.
+                        $row_key = (string) $clean['api_key']; // sanitize_secret already encrypted it.
+                } elseif ( $slug === $stored_slug || '' === $stored_slug ) {
+                        // Untouched field on the SAME provider: the active key stays.
+                        $row_key = $stored_key;
+                } elseif ( isset( $vault[ $slug ]['api_key'] ) && '' !== (string) $vault[ $slug ]['api_key'] ) {
+                        // Switched provider, untouched field: restore that provider's own key.
+                        $row_key = (string) $vault[ $slug ]['api_key'];
+                } else {
+                        // Switched to a service with no saved key: start clean rather
+                        // than reusing the previous provider's credentials.
+                        $row_key = '';
+                }
+                $clean['api_key'] = $row_key;
+
+                $vault[ $slug ] = array(
+                        'api_key'         => $row_key,
+                        'base_url'        => (string) ( isset( $clean['base_url'] ) ? $clean['base_url'] : '' ),
+                        'model'           => (string) ( isset( $clean['model'] ) ? $clean['model'] : '' ),
+                        'embedding_model' => (string) ( isset( $clean['embedding_model'] ) ? $clean['embedding_model'] : '' ),
+                        'image_model'     => (string) ( isset( $clean['image_model'] ) ? $clean['image_model'] : '' ),
+                );
+
+                $clean['vault'] = $vault;
+                return $clean;
+        }
+
+        /**
+         * The vault as the admin JS may see it: which service has a key (shown
+         * through the same mask placeholder) plus its plain base_url/models.
+         * The plaintext key itself never leaves the server.
+         *
+         * @return array<string,array{has_key:bool,api_key:string,base_url:string,model:string,embedding_model:string,image_model:string}>
+         */
+        public static function vault_for_js() {
+                $out = array();
+                foreach ( (array) self::get( 'provider.vault', array() ) as $slug => $row ) {
+                        if ( ! is_array( $row ) ) {
+                                continue;
+                        }
+                        $key          = isset( $row['api_key'] ) ? (string) $row['api_key'] : '';
+                        $out[ $slug ] = array(
+                                'has_key'         => '' !== $key,
+                                'api_key'         => '' !== $key ? self::KEY_MASK : '',
+                                'base_url'        => isset( $row['base_url'] ) ? (string) $row['base_url'] : '',
+                                'model'           => isset( $row['model'] ) ? (string) $row['model'] : '',
+                                'embedding_model' => isset( $row['embedding_model'] ) ? (string) $row['embedding_model'] : '',
+                                'image_model'     => isset( $row['image_model'] ) ? (string) $row['image_model'] : '',
+                        );
+                }
+                return $out;
+        }
+
+        /**
          * Stored failover rows → wire-ready configs. Presets fill the blanks
          * exactly like provider() fills the primary; a row without any preset
          * and without a base URL is skipped; a custom row speaks the OpenAI
@@ -2068,6 +2287,7 @@ final class Haa_Settings {
         public static function intentional_no_ui() {
                 return array(
                         'autopilot.lock_ttl' => 'فنی: عمر میتکس (mutex) صف است. کوتاه‌شدن بیش از حد باعث اجرای همزمان دو نوبت و بلندشدنش باعث گیرکردن صف می‌شود؛ با کد پیش‌فرض ۹۰۰ ثانیه می‌ماند و فقط توسعه‌دهنده در صورت نیاز آن را فیلتر می‌کند.',
+                        'provider.vault' => 'فنی: گاوصندوق کلید هر سرویس. فرم هرگز آن را پست نمی‌کند — هنگام هر ذخیره‌ی تب سرویس، سرور خودش ردیف سرویس فعال را بازسازی می‌کند (provider_vault_write) و سوییچ «سرویس» در جاوااسکریپت مقادیر هر ردیف را در فرم برمی‌گرداند؛ نمایش مستقیم آن فقط محل خطاست.',
                 );
         }
 
@@ -2127,6 +2347,16 @@ final class Haa_Settings {
                 $all = self::get();
                 $all['provider']['api_key']        = '';
                 $all['provider']['proxy_password'] = '';
+                // The per-provider vault holds real (encrypted) keys — an export file
+                // is meant to be shareable, so like the primary key the vault keys
+                // are stripped while the URL/model preferences survive.
+                if ( isset( $all['provider']['vault'] ) && is_array( $all['provider']['vault'] ) ) {
+                        foreach ( $all['provider']['vault'] as $slug => $row ) {
+                                if ( is_array( $row ) ) {
+                                        $all['provider']['vault'][ $slug ]['api_key'] = '';
+                                }
+                        }
+                }
                 $all['appearance']['custom_icon']  = (int) $all['appearance']['custom_icon'];
 
                 return wp_json_encode(

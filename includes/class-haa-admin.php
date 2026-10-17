@@ -157,6 +157,20 @@ final class Haa_Admin {
                         array(
                                 'ajax'   => admin_url( 'admin-ajax.php' ),
                                 'nonce'  => wp_create_nonce( 'haai_admin' ),
+                                // Per-provider credential vault (masked) + the preset
+                                // defaults, so switching «سرویس» can swap each service's
+                                // own key/base_url/models into the form client-side. The
+                                // plaintext keys never leave the server.
+                                'vault'  => Haa_Settings::vault_for_js(),
+                                'presets' => array_map(
+                                        static function ( $p ) {
+                                                return array(
+                                                        'base_url' => isset( $p['base_url'] ) ? (string) $p['base_url'] : '',
+                                                        'model'    => isset( $p['model'] ) ? (string) $p['model'] : '',
+                                                );
+                                        },
+                                        Haa_API::presets()
+                                ),
                                 'i18n'   => array(
                                         'copied'  => __( 'کپی شد', 'hami-ai-assistant' ),
                                         'confirm' => __( 'مطمئنید؟ این کار برگشت‌پذیر نیست.', 'hami-ai-assistant' ),
@@ -1456,7 +1470,7 @@ final class Haa_Admin {
                                 $choices[ $slug ] = $p['label'];
                         }
                         $fields[] = array( 'key' => 'provider.provider', 'type' => 'select', 'label' => __( 'سرویس', 'hami-ai-assistant' ), 'choices' => $choices );
-                        $fields[] = array( 'key' => 'provider.api_key', 'type' => 'secret', 'label' => __( 'کلید API', 'hami-ai-assistant' ) );
+                        $fields[] = array( 'key' => 'provider.api_key', 'type' => 'secret', 'label' => __( 'کلید API', 'hami-ai-assistant' ), 'hint' => __( 'کلید هر سرویس جدا ذخیره می‌شود: با عوض کردن «سرویس»، کلید و مدل همان سرویس بارگذاری می‌شود و کلید بقیه‌ی سرویس‌ها دست‌نخورده می‌ماند تا خودتان تغییرشان دهید.', 'hami-ai-assistant' ) );
                         $fields[] = array( 'key' => 'provider.base_url', 'type' => 'text', 'label' => __( 'آدرس سرویس (اختیاری)', 'hami-ai-assistant' ) );
                         $fields[] = array( 'key' => 'provider.model', 'type' => 'text', 'label' => __( 'مدل چت', 'hami-ai-assistant' ), 'hint' => __( 'برای دریافت فهرست مدل‌ها از دکمه‌ی «تست اتصال» استفاده کنید.', 'hami-ai-assistant' ) );
                         $fields[] = array( 'key' => 'provider.embedding_model', 'type' => 'text', 'label' => __( 'مدل بردارسازی', 'hami-ai-assistant' ), 'hint' => __( 'برای جستجوی معنایی. اگر خالی باشد از همان مدل چت استفاده می‌شود.', 'hami-ai-assistant' ) );
@@ -1546,6 +1560,9 @@ final class Haa_Admin {
                                 <div class="haai-test-result" data-haai-test-result></div>
                                 <p class="description"><?php esc_html_e( 'فهرست مدل‌های دریافتی:', 'hami-ai-assistant' ); ?></p>
                                 <select multiple size="8" data-haai-model-list class="haai-model-list"></select>
+                                <?php // JS stamps the slug whose values the form currently holds, so the
+                                        // server can tell a real «سرویس» switch from a no-JS stale form. ?>
+                                <input type="hidden" name="provider[vault_from]" value="<?php echo esc_attr( (string) Haa_Settings::get( 'provider.provider', '' ) ); ?>">
                                 <div class="haai-presets">
                                         <?php foreach ( Haa_API::presets() as $slug => $p ) : ?>
                                                 <button type="button" class="button" data-haai-preset="<?php echo esc_attr( $slug ); ?>"
