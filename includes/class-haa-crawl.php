@@ -1105,6 +1105,67 @@ final class Haa_Crawl {
          * Admin plumbing
          * =============================================================== */
 
+        /**
+         * 2.1.19 — Why is the knowledge base empty? The dashboard used to show
+         * a bare «0 صفحه / 0 تکه» with zero explanation, and every «empty after
+         * a finished crawl» report turned into guesswork. This gathers every
+         * fact needed for an honest verdict in one place:
+         *
+         *   - is RAG even on (start() refuses to run without it);
+         *   - does the chunks table exist (a failed migration means every
+         *     insert silently writes nothing and the crawl still "finishes");
+         *   - what did the LAST run actually do (pages stored, chunks, HTTP
+         *     failures) — a finished run with 0 pages is a verdict, not a
+         *     mystery;
+         *   - queue scale vs the crawl budget (a 30-page budget on a
+         *     1,700-product shop indexes almost nothing even when green).
+         *
+         * @return array{
+         *   rag_on:bool,table_ok:bool,rows_all:int,rows_crawl:int,
+         *   queue:int,http:int,budget:int,counts:array,
+         *   last:array{finished_at:int,pages:int,chunks:int,failed:int,total:int,last_error:string}
+         * }
+         */
+        public static function diagnose() {
+                global $wpdb;
+
+                $cfg   = self::config();
+                $table = Haa_DB::table( 'chunks' );
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                $table_ok = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+
+                $rows_all   = -1;
+                $rows_crawl = 0;
+                if ( $table_ok ) {
+                        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                        $rows_all = (int) $wpdb->get_var( "SELECT COUNT(*) FROM $table" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                        $rows_crawl = (int) $wpdb->get_var( "SELECT COUNT(*) FROM $table WHERE post_id < 0" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                }
+
+                $targets = self::targets_full();
+                $state   = self::get_state();
+
+                return array(
+                        'rag_on'     => ! empty( Haa_Search::config()['enabled'] ),
+                        'table_ok'   => $table_ok,
+                        'rows_all'   => $rows_all,
+                        'rows_crawl' => $rows_crawl,
+                        'queue'      => count( $targets ),
+                        'http'       => count( array_filter( $targets, function ( $t ) { return empty( $t['pid'] ); } ) ),
+                        'budget'     => (int) $cfg['pages'],
+                        'counts'     => self::type_counts(),
+                        'last'       => array(
+                                'finished_at' => (int) ( $state['finished_at'] ?? 0 ),
+                                'pages'       => (int) ( $state['pages'] ?? 0 ),
+                                'chunks'      => (int) ( $state['chunks'] ?? 0 ),
+                                'failed'      => (int) ( $state['failed'] ?? 0 ),
+                                'total'       => (int) ( $state['total'] ?? 0 ),
+                                'last_error'  => (string) ( $state['last_error'] ?? '' ),
+                        ),
+                );
+        }
+
         /** @return void Registers the admin-post + AJAX handlers (admin only). */
         public static function hooks() {
                 add_action( 'admin_post_haai_crawl_start', array( __CLASS__, 'handle_start' ) );

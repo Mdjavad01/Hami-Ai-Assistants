@@ -165,6 +165,73 @@ final class Haa_Admin_Dashboard {
                                 }
                                 ?>
                         </p>
+                        <?php
+                        // 2.1.19 — «0 صفحه / 0 تکه» alone taught the admin nothing.
+                        // Every empty-KB report turned into guesswork; these verdicts
+                        // name the cause in plain Persian next to the badge itself.
+                        $diag = Haa_Crawl::diagnose();
+                        if ( ! $diag['table_ok'] ) {
+                                // A missing chunks table silently swallows every insert —
+                                // the crawl "finishes" at 0/0 with no error anywhere. Repair
+                                // it right here (dbDelta is idempotent and only runs when
+                                // the table is actually absent).
+                                Haa_DB::create();
+                                $diag['table_ok'] = true;
+                                ?>
+                                <p class="description" style="color:#b32d2e;">
+                                        <?php esc_html_e( 'جدول پایگاه دانش موجود نبود و همین حالا بازسازی شد؛ لطفاً یک بار دیگر «کرال و به‌روزرسانی دانش سایت» را بزنید.', 'hami-ai-assistant' ); ?>
+                                </p>
+                                <?php
+                        }
+                        if ( ! $diag['rag_on'] ) {
+                                ?>
+                                <p class="description" style="color:#b32d2e;">
+                                        <?php esc_html_e( '«پایگاه دانش (RAG)» خاموش است — تا روشنش نکنید هیچ صفحه‌ای ایندکس نمی‌شود و دستیار هم از دانش سایت چیزی نمی‌داند. کلید در تب پیشرفته است.', 'hami-ai-assistant' ); ?>
+                                </p>
+                                <?php
+                        }
+                        if ( ! empty( $diag['last']['finished_at'] ) && 0 === (int) $diag['last']['pages'] ) {
+                                $l = $diag['last'];
+                                if ( $l['failed'] > 0 ) {
+                                        ?>
+                                        <p class="description" style="color:#b32d2e;">
+                                                <?php esc_html_e( 'آخرین خزش هیچ صفحه‌ای را ذخیره نکرد — درخواست‌های شبکه به خودِ سایت ناموفق بود.', 'hami-ai-assistant' ); ?>
+                                                <?php
+                                                if ( '' !== (string) $l['last_error'] ) {
+                                                        echo esc_html( sprintf( 'آخرین خطا: %s.', $l['last_error'] ) );
+                                                }
+                                                esc_html_e( 'برگه‌ها، محصولات و نوشته‌ها از دیتابیس خوانده می‌شوند؛ دکمه‌ی «شروع از نو» را بزنید تا صف از نو ساخته شود.', 'hami-ai-assistant' );
+                                                ?>
+                                        </p>
+                                        <?php
+                                } else {
+                                        ?>
+                                        <p class="description" style="color:#b32d2e;">
+                                                <?php esc_html_e( 'آخرین خزش کامل شد اما هیچ صفحه‌ای ذخیره نشد. اگر «پایگاه دانش (RAG)» روشن است، یک بار «شروع از نو» بزنید؛ اگر تکرار شد، متن یکی از برگه‌ها را بررسی کنید.', 'hami-ai-assistant' ); ?>
+                                        </p>
+                                        <?php
+                                }
+                        }
+                        // Budget hint: a 30-page budget on a 1,700-product shop indexes
+                        // almost nothing even when everything works. Say the number.
+                        if ( in_array( 'product', (array) $crawl_cfg['types'], true ) && haa_is_woo()
+                                && (int) $diag['budget'] < (int) $diag['counts']['product'] + 50 ) {
+                                $want = (int) $diag['counts']['product'] + 50;
+                                ?>
+                                <p class="description" style="color:#996800;">
+                                        <?php
+                                        echo esc_html( sprintf(
+                                                /* translators: 1: current budget, 2: product count, 3: suggested budget. */
+                                                __( 'بودجه‌ی خزش فعلی %1$s صفحه است ولی فروشگاه شما %2$s محصول دارد — ربات فقط بخشی را می‌بیند. برای پوشش کامل، بودجه را در تب «دانش سایت» حدود %3$s بگذارید.', 'hami-ai-assistant' ),
+                                                number_format_i18n( (int) $diag['budget'] ),
+                                                number_format_i18n( (int) $diag['counts']['product'] ),
+                                                number_format_i18n( $want )
+                                        ) );
+                                        ?>
+                                </p>
+                                <?php
+                        }
+                        ?>
 
                         <h2 class="haai-sec-title">
                                 <?php esc_html_e( 'ماژول‌ها', 'hami-ai-assistant' ); ?>

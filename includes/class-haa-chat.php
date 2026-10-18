@@ -63,6 +63,24 @@ final class Haa_Chat {
                         );
                 }
 
+                // "دسته بندی محصولاتت کدوما هستن؟" class of questions: the shop's
+                // REAL category index, answered deterministically (no model call,
+                // no retrieval). 2.1.19 — before this, an empty crawl KB meant the
+                // model received nothing and claimed «اطلاعاتی درباره دسته‌بندی‌ها
+                // نداریم» for a shop with twenty real categories.
+                $cats = self::categories_reply( $message );
+                if ( '' !== $cats ) {
+                        self::log_turn( $identifier, $message, $cats, array( 'provider' => 'local', 'model' => 'categories' ), 'ok', '' );
+                        return array_merge(
+                                $out,
+                                array(
+                                        'ok'     => true,
+                                        'cached' => false,
+                                        'reply'  => $cats,
+                                )
+                        );
+                }
+
                 $provider = Haa_Settings::provider();
                 if ( '' === $provider['api_key'] && '' === $provider['base_url'] ) {
                         $out['error'] = __( 'دستیار هنوز به سرویس AI متصل نشده است. لطفاً با مدیر سایت تماس بگیرید.', 'hami-ai-assistant' );
@@ -264,18 +282,23 @@ final class Haa_Chat {
          * Deterministic "reach a human" reply. Strong contact intents (WhatsApp,
          * Telegram, phone, the contact page, "connect me to support") are answered
          * with the exact configured links even when the provider is unreachable.
-         * Returns '' when nothing matches or nothing is configured.
+         *
+         * 2.1.19 — when the admin has NOT filled any channel, the reply no longer
+         * silently falls through to the model (which improvises «اطلاعاتی درباره
+         * راه‌های ارتباطی در دسترس نیست» for a shop whose contact page is one
+         * click away). Fallback order: the crawler's harvested contact facts,
+         * then the stored contact chunk from the last crawl, then a real WP page
+         * titled «تماس با ما» (or a standard contact slug). Returns '' only when
+         * nothing true exists to say.
          *
          * @param string $message Raw message.
          * @return string
          */
         private static function contact_reply( $message ) {
-                $ch = self::contact_channels();
-                if ( '' === $ch['whatsapp'] . $ch['telegram'] . $ch['phone'] . $ch['instagram'] . $ch['page'] ) {
-                        return '';
-                }
-                $text = Haa_Search::normalize_text( (string) $message );
-                $want = (bool) preg_match(
+                $ch     = self::contact_channels();
+                $filled = '' !== $ch['whatsapp'] . $ch['telegram'] . $ch['phone'] . $ch['instagram'] . $ch['page'];
+                $text   = Haa_Search::normalize_text( (string) $message );
+                $want   = (bool) preg_match(
                         '/واتس|whats|تلگرام|telegram|اینستا|insta|تماس با ما|شماره تماس|شماره تلفن|صفحه تماس|های? ارتباطی|وصل.{0,12}(پشتیبانی|کارشناس|اپراتور)|(پشتیبانی|کارشناس|اپراتور).{0,12}(انسانی|واقعی|وصل)/u',
                         $text
                 );
@@ -283,27 +306,208 @@ final class Haa_Chat {
                         return '';
                 }
 
-                $lines = array( __( 'برای ارتباط با پشتیبانی از این راه‌ها استفاده کنید:', 'hami-ai-assistant' ) );
-                if ( '' !== $ch['phone'] ) {
-                        $lines[] = '• تلفن: ' . $ch['phone'];
+                if ( $filled ) {
+                        $lines = array( __( 'برای ارتباط با پشتیبانی از این راه‌ها استفاده کنید:', 'hami-ai-assistant' ) );
+                        if ( '' !== $ch['phone'] ) {
+                                $lines[] = '• تلفن: ' . $ch['phone'];
+                        }
+                        if ( '' !== $ch['instagram'] ) {
+                                $lines[] = '• اینستاگرام: ' . $ch['instagram'];
+                        }
+                        if ( '' !== $ch['telegram'] ) {
+                                $lines[] = '• تلگرام: ' . $ch['telegram'];
+                        }
+                        if ( '' !== $ch['whatsapp'] ) {
+                                $lines[] = '• واتساپ: ' . $ch['whatsapp'];
+                        }
+                        if ( '' !== $ch['page'] ) {
+                                $lines[] = '• صفحه «تماس با ما»: ' . $ch['page'];
+                        }
+                        if ( '' !== $ch['note'] ) {
+                                $lines[] = $ch['note'];
+                        }
+                        return implode( "\n", $lines );
                 }
-                if ( '' !== $ch['instagram'] ) {
-                        $lines[] = '• اینستاگرام: ' . $ch['instagram'];
+
+                // --- Nothing configured: use what the crawler actually saw. -----
+                $facts = self::crawl_contact_facts();
+                if ( $facts ) {
+                        $lines = array( __( 'راه‌های ارتباطی این فروشگاه:', 'hami-ai-assistant' ) );
+                        foreach ( $facts as $line ) {
+                                $lines[] = '• ' . $line;
+                        }
+                        return implode( "\n", $lines );
                 }
-                if ( '' !== $ch['telegram'] ) {
-                        $lines[] = '• تلگرام: ' . $ch['telegram'];
+
+                $page = self::find_contact_page();
+                if ( $page ) {
+                        return __( 'صفحه «تماس با ما» اینجاست — از همین صفحه می‌توانید با ما در ارتباط باشید:', 'hami-ai-assistant' ) . "\n" . $page;
                 }
-                if ( '' !== $ch['whatsapp'] ) {
-                        $lines[] = '• واتساپ: ' . $ch['whatsapp'];
+                return '';
+        }
+
+        /**
+         * Contact signals the crawler harvested, without touching the search
+         * index: first the live run state (facts accumulated during the last
+         * crawl), then the stored contact chunk of the last finished crawl.
+         * Either source is already verified data — the visitor gets exactly
+         * what the site shows, nothing invented.
+         *
+         * @return array<int,string> Ready-to-show lines ('تلفن: 0912…'), [] when none.
+         */
+        private static function crawl_contact_facts() {
+                $state = Haa_Crawl::get_state();
+                $lines = array();
+                foreach ( (array) ( $state['facts'] ?? array() ) as $fact ) {
+                        $fact = trim( (string) $fact );
+                        $pos  = strpos( $fact, ':' );
+                        if ( false === $pos ) {
+                                continue;
+                        }
+                        $kind = substr( $fact, 0, $pos );
+                        $val  = trim( substr( $fact, $pos + 1 ) );
+                        if ( '' === $val ) {
+                                continue;
+                        }
+                        if ( 'phone' === $kind ) {
+                                $lines[] = 'تلفن: ' . $val;
+                        } elseif ( 'email' === $kind ) {
+                                $lines[] = 'ایمیل: ' . $val;
+                        } elseif ( 'contact_page' === $kind ) {
+                                $lines[] = 'صفحه «تماس با ما»: ' . $val;
+                        } elseif ( 'instagram' === $kind ) {
+                                $lines[] = 'اینستاگرام: ' . $val;
+                        } elseif ( 'telegram' === $kind ) {
+                                $lines[] = 'تلگرام: ' . $val;
+                        } elseif ( 'whatsapp' === $kind ) {
+                                $lines[] = 'واتساپ: ' . $val;
+                        }
                 }
-                if ( '' !== $ch['page'] ) {
-                        $lines[] = '• صفحه «تماس با ما»: ' . $ch['page'];
+                if ( $lines ) {
+                        return array_slice( array_values( array_unique( $lines ) ), 0, 8 );
                 }
-                if ( '' !== $ch['note'] ) {
-                        $lines[] = $ch['note'];
+
+                // Second source: the contact chunk the last crawl wrote (it
+                // survives start()/finish cycles until a wipe).
+                global $wpdb;
+                $table = Haa_DB::table( 'chunks' );
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                $row = $wpdb->get_var( $wpdb->prepare( "SELECT content FROM {$table} WHERE post_id = %d AND source = %s", Haa_Crawl::CONTACT_POST_ID, 'contact' ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                if ( ! $row ) {
+                        return array();
                 }
-                return implode( "
-", $lines );
+                foreach ( preg_split( '/\r?\n/', (string) $row ) as $line ) {
+                        $line = trim( (string) $line );
+                        // Skip the chunk's header and its instruction-to-model line.
+                        if ( '' === $line || false !== strpos( $line, 'عیناً' ) || false !== strpos( $line, 'شماره تماس و راه‌های ارتباطی' ) ) {
+                                continue;
+                        }
+                        $lines[] = $line;
+                }
+                return array_slice( array_values( array_unique( $lines ) ), 0, 8 );
+        }
+
+        /**
+         * A real WP page that plays the contact role, even when neither settings
+         * nor the crawler recorded it: title match first («تماس با ما»,
+         * «ارتباط با ما»), then the usual slugs. Two bounded queries, worst case.
+         *
+         * @return string Permalink, '' when no such page exists.
+         */
+        private static function find_contact_page() {
+                $titles = get_posts(
+                        array(
+                                'post_type'        => 'page',
+                                'post_status'      => 'publish',
+                                'posts_per_page'   => 10,
+                                's'                => 'تماس',
+                                'fields'           => 'ids',
+                                'no_found_rows'    => true,
+                                'suppress_filters' => true,
+                        )
+                );
+                foreach ( (array) $titles as $pid ) {
+                        if ( false !== mb_strpos( (string) get_the_title( (int) $pid ), 'تماس' ) || false !== mb_strpos( (string) get_the_title( (int) $pid ), 'ارتباط' ) ) {
+                                return (string) get_permalink( (int) $pid );
+                        }
+                }
+                $by_slug = get_posts(
+                        array(
+                                'post_type'        => 'page',
+                                'post_status'      => 'publish',
+                                'posts_per_page'   => 1,
+                                'post_name__in'    => array( 'contact', 'contact-us', 'contactus', 'tamas', 'temas' ),
+                                'fields'           => 'ids',
+                                'no_found_rows'    => true,
+                                'suppress_filters' => true,
+                        )
+                );
+                if ( $by_slug ) {
+                        return (string) get_permalink( (int) $by_slug[0] );
+                }
+                return '';
+        }
+
+        /**
+         * «دسته بندی محصولاتت کدوما هستن؟» — the deterministic answer: the
+         * shop's real, non-empty product categories with counts and archive
+         * links. Fires only for category-LISTING intent: a message that names
+         * a category or asks about prices keeps the richer product_facts
+         * digest path (real prices beat a bare list).
+         *
+         * @param string $message Raw message.
+         * @return string '' when the intent does not match or the shop has no categories.
+         */
+        private static function categories_reply( $message ) {
+                if ( ! Haa_Util::woo() ) {
+                        return '';
+                }
+                $text = Haa_Search::normalize_text( (string) $message );
+                // دسته بندی / دسته‌بندی / دسته‌ها / دسته‌هایی / دسته‌های / چه دسته — with
+                // space or ZWNJ; a bare «دسته» never triggers on its own.
+                $listing = (bool) preg_match( '/دسته[\s\x{200C}]?(بندی|ها|هات|هایی|های)|چه دسته|categories/u', $text );
+                if ( ! $listing ) {
+                        return '';
+                }
+                // Price/stock questions get the live digest instead of a list.
+                if ( preg_match( '/قیمت|موجود|ارزان|گران|تومان|ریال|هزینه|خرید|price|stock|buy/u', $text ) ) {
+                        return '';
+                }
+                // The message names a REAL category (e.g. «محصولات دسته ابزار») —
+                // that is a question about one category, not a list request.
+                if ( self::matched_product_cat( $text ) ) {
+                        return '';
+                }
+
+                $terms = get_terms(
+                        array(
+                                'taxonomy'   => 'product_cat',
+                                'hide_empty' => true,
+                                'number'     => 15,
+                                'orderby'    => 'count',
+                                'order'      => 'DESC',
+                        )
+                );
+                if ( is_wp_error( $terms ) || ! $terms ) {
+                        return '';
+                }
+
+                $lines = array( __( 'دسته‌بندی‌های فروشگاه ما:', 'hami-ai-assistant' ) );
+                $i     = 0;
+                foreach ( (array) $terms as $term ) {
+                        $link = get_term_link( $term );
+                        $link = ( is_wp_error( $link ) || ! is_string( $link ) ) ? '' : $link;
+                        $i++;
+                        $lines[] = sprintf(
+                                '%1$d) %2$s (%3$s)%4$s',
+                                $i,
+                                $term->name,
+                                number_format_i18n( (int) $term->count ) . ' محصول',
+                                $link ? ' — ' . $link : ''
+                        );
+                }
+                $lines[] = __( 'اگر دنبال قیمت یا محصول خاصی هستید، نام همان دسته یا محصول را بپرسید.', 'hami-ai-assistant' );
+                return implode( "\n", $lines );
         }
 
         /**

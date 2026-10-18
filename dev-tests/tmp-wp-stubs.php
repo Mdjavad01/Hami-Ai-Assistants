@@ -49,6 +49,21 @@ class Fake_WPDB {
                 if ( preg_match( '/SHOW TABLES LIKE .*posts/i', $q ) ) {
                         return $GLOBALS['wpdb']->prefix . 'posts';
                 }
+                // 2.1.19 — the chunks table exists unless a test forces it missing.
+                if ( preg_match( '/SHOW TABLES LIKE .*haai_chunks/i', $q ) ) {
+                        return empty( $GLOBALS['chunks_table_missing'] ) ? $GLOBALS['wpdb']->prefix . 'haai_chunks' : null;
+                }
+                // 2.1.19 — the crawler's stored contact chunk (post_id = -1).
+                if ( preg_match( "/SELECT content FROM \S*haai_chunks WHERE post_id = ('?-?\d+'?) AND source = '([^']+)'/i", $q, $m ) ) {
+                        $want_id = (int) str_replace( "'", '', $m[1] );
+                        $want_sr = stripslashes( (string) $m[2] );
+                        foreach ( (array) $GLOBALS['chunk_rows'] as $c ) {
+                                if ( (int) $c['post_id'] === $want_id && (string) $c['source'] === $want_sr ) {
+                                        return (string) $c['content'];
+                                }
+                        }
+                        return null;
+                }
                 // Planner: "is this title already proposed?"
                 if ( preg_match( '/SELECT id FROM \w+_topics WHERE title/i', $q ) ) {
                         preg_match( "/WHERE title = '([^']*)'/i", $q, $m );
@@ -1103,6 +1118,17 @@ function stub_filter_posts( $a ) {
         if ( isset( $a['post__in'] ) ) {
                 $want = array_map( 'intval', (array) $a['post__in'] );
                 $all  = array_values( array_filter( $all, function ( $p ) use ( $want ) { return in_array( (int) $p['id'], $want, true ); } ) );
+        }
+
+        // 2.1.19 — post_name__in (contact-page slug fallback). Rows carry an
+        // optional 'slug'; without one it is derived from the title the way WP
+        // derives slugs for ASCII titles (spaces → dashes).
+        if ( ! empty( $a['post_name__in'] ) ) {
+                $want = array_map( 'sanitize_title', array_map( 'strval', (array) $a['post_name__in'] ) );
+                $all  = array_values( array_filter( $all, function ( $p ) use ( $want ) {
+                        $slug = isset( $p['slug'] ) ? sanitize_title( (string) $p['slug'] ) : sanitize_title( (string) $p['title'] );
+                        return in_array( $slug, $want, true );
+                } ) );
         }
 
         if ( ! empty( $a['s'] ) ) {
