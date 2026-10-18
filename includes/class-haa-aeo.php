@@ -586,7 +586,10 @@ final class Haa_Aeo {
                 if ( function_exists( 'haa_is_woo' ) && haa_is_woo() ) {
                         $types[] = 'product';
                 }
-                $in = implode( ', ', array_fill( 0, count( $types ), '%s' ) );
+                // 2.1.24 — wpdb::prepare() never adds quotes around %s: without the
+                // literal quotes below the live query was `IN (post, page)` → a MySQL
+                // syntax error the stub harness tolerated but every real site errored.
+                $in = implode( ', ', array_fill( 0, count( $types ), "'%s'" ) );
 
                 // phpcs:ignore WordPress.DB.DirectDatabaseQuery
                 $ids = $wpdb->get_col( $wpdb->prepare(
@@ -937,7 +940,10 @@ final class Haa_Aeo {
 
                 $content = (string) get_post_field( 'post_content', $pid );
                 $faq     = get_post_meta( $pid, '_haai_faq', true );
-                if ( ( is_array( $faq ) && $faq ) || false !== mb_stripos( $content, 'متداول' ) ) {
+                // 2.1.24 — stripos (core) instead of mb_stripos: WordPress polyfills
+                // mb_strlen/mb_substr only, so a host without the mbstring extension
+                // fatals right here. Byte-wise matching is exact for UTF-8 needles.
+                if ( ( is_array( $faq ) && $faq ) || false !== stripos( $content, 'متداول' ) ) {
                         $score += 20;
                 } else {
                         $issues[] = __( 'پرسش‌های متداول ندارد', 'hami-ai-assistant' );
