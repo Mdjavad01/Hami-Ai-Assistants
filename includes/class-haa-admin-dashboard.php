@@ -143,10 +143,16 @@ final class Haa_Admin_Dashboard {
                                 <button type="submit" class="button button-primary" data-haai-crawl-start>
                                         <?php echo empty( $crawl_state['running'] ) ? esc_html__( 'کرال و به‌روزرسانی دانش سایت', 'hami-ai-assistant' ) : esc_html__( 'ادامهِ خزش', 'hami-ai-assistant' ); ?>
                                 </button>
-                                <?php if ( ! empty( $crawl_state['running'] ) ) : ?>
-                                        <button type="button" class="button" data-haai-crawl-stop><?php esc_html_e( 'توقف خزش', 'hami-ai-assistant' ); ?></button>
-                                        <button type="submit" class="button" name="haai_crawl_reset" value="1" onclick="return confirm('از نو شروع شود؟ پیشرفت فعلی صفر می‌شود.');"><?php esc_html_e( 'شروع از نو', 'hami-ai-assistant' ); ?></button>
-                                <?php endif; ?>
+                                <?php
+                                // 2.1.20 — stop/reset ALWAYS render so a JS start can
+                                // reveal them without a reload; when nothing runs they
+                                // are display:none (inline style wins over WP admin's
+                                // .button{display:inline-block}, the hidden attribute
+                                // would not). With JS dead they behave exactly as before:
+                                // visible only after a classic POST lands on running=1.
+                                ?>
+                                <button type="button" class="button" data-haai-crawl-stop<?php echo empty( $crawl_state['running'] ) ? ' style="display:none"' : ''; ?>><?php esc_html_e( 'توقف خزش', 'hami-ai-assistant' ); ?></button>
+                                <button type="submit" class="button" name="haai_crawl_reset" value="1" onclick="if (confirm('از نو شروع شود؟ پیشرفت فعلی صفر می‌شود.')) { window.haaiResetClicked = true; return true; } return false;"<?php echo empty( $crawl_state['running'] ) ? ' style="display:none"' : ''; ?>><?php esc_html_e( 'شروع از نو', 'hami-ai-assistant' ); ?></button>
                                 <a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => Haa_Admin::PAGE, 'tab' => 'knowledge' ), admin_url( 'admin.php' ) ) ); ?>">
                                         <?php esc_html_e( 'انتخاب صفحات و نوع‌ها', 'hami-ai-assistant' ); ?>
                                 </a>
@@ -288,28 +294,42 @@ final class Haa_Admin_Dashboard {
                         <?php self::render_diagnostics(); ?>
                 </div>
                         <?php
-                        // Dashboard crawl ticker: the classic POST above starts (or
-                        // RESUMES) the cursor, this script drives the remaining batches
-                        // over AJAX. 2.1.15 hardening for heavy sites:
+                        // Dashboard crawl control — 2.1.20: START went AJAX too. The
+                        // classic POST to admin-post.php redirected back with
+                        // ?haai_msg=… : the URL changed, the whole admin reloaded and
+                        // every press killed the running ticker («چند بار زدم، نوار
+                        // پیشرفت ادامه نیاورد») — while the dashboard never even
+                        // printed haai_msg. Now JS intercepts the submit and starts
+                        // over admin-ajax: no reload, no URL change, the ticker (and
+                        // this script's state) stay alive; the classic POST remains
+                        // the no-JS fallback. 2.1.15 hardening kept:
                         //   - never silent: percent, page count, the URL being read
                         //     right now and a live ETA between batches;
                         //   - never frozen: server/network hiccups are retried with
                         //     backoff instead of dying on the first bad response;
                         //   - resumable: stop keeps the cursor, resume continues from
                         //     it, and restart is an explicit reset button.
-                        if ( ! empty( $crawl_state['running'] ) ) : ?>
+                        ?>
                         <script>
                         (function () {
-                                if (!window.haaiAdmin) return;
                                 var bar = document.querySelector('[data-haai-crawl-bar]');
                                 var wrap = document.querySelector('[data-haai-crawl-progress]');
                                 var status = document.querySelector('[data-haai-crawl-status]');
+                                var form = document.querySelector('[data-haai-crawl-form]');
                                 var startBtn = document.querySelector('[data-haai-crawl-start]');
                                 var stopBtn = document.querySelector('[data-haai-crawl-stop]');
-                                var running = true, retries = 0;
-                                var MAX_RETRY = 6;
+                                var resetBtn = form ? form.querySelector('button[name="haai_crawl_reset"]') : null;
+                                var running = <?php echo empty( $crawl_state['running'] ) ? 'false' : 'true'; ?>;
+                                var starting = false, retries = 0, boots = 0, epoch = 0;
+                                var MAX_RETRY = 6, BOOT_TRIES = 20;
+                                var L_IDLE = <?php echo wp_json_encode( __( 'کرال و به‌روزرسانی دانش سایت', 'hami-ai-assistant' ) ); ?>;
+                                var L_RESUME = <?php echo wp_json_encode( __( 'ادامهِ خزش', 'hami-ai-assistant' ) ); ?>;
 
-                                function say(t) { if (status) status.textContent = t; }
+                                function say(t, isErr) {
+                                        if (!status) return;
+                                        status.textContent = t;
+                                        status.style.color = isErr ? '#b32d2e' : '';
+                                }
                                 function fmtETA(s) {
                                         s = parseInt(s || 0, 10);
                                         if (s <= 0) return '';
@@ -329,10 +349,15 @@ final class Haa_Admin_Dashboard {
                                 }
                                 function setButtons(run) {
                                         if (startBtn) startBtn.disabled = run;
-                                        if (stopBtn) stopBtn.disabled = !run;
+                                        // Inline display, not the hidden attribute — WP
+                                        // admin's .button{display:inline-block} would beat it.
+                                        if (stopBtn) stopBtn.style.display = run ? '' : 'none';
+                                        if (resetBtn) resetBtn.style.display = run ? '' : 'none';
                                 }
                                 function finish(p) {
-                                        running = false; retries = 0; setButtons(false);
+                                        running = false; retries = 0; starting = false; epoch++;
+                                        setButtons(false);
+                                        if (startBtn) startBtn.textContent = L_IDLE;
                                         if (bar) bar.style.width = '100%';
                                         if (!p.pages && p.failed) {
                                                 say('خزش تمام شد ولی هیچ صفحه‌ای خوانده نشد (' + p.failed + ' خطا' + (p.last_error ? ': ' + p.last_error : '') + '). معمولاً یعنی هاست اجازهٔ خواندن صفحات خودِ سایت را نمی‌دهد — از میزبانی بخواهید دسترسی خروجی به دامنه‌ی خودتان را باز کند، یا آدرس‌ها را با https کامل در تب «دانش سایت» بدهید.');
@@ -348,16 +373,17 @@ final class Haa_Admin_Dashboard {
                                         say('توجه: ' + reason + '؛ تلاش مجدد تا ' + wait + ' ثانیه دیگر (تلاش ' + retries + ' از ' + MAX_RETRY + '). پیشرفت حفظ شده است.');
                                         setTimeout(tick, wait * 1000);
                                 }
-                                function fail(t) { running = false; retries = 0; setButtons(false); say(t); }
+                                function fail(t) { running = false; retries = 0; starting = false; setButtons(false); say(t, true); }
                                 function tick() {
                                         if (!running) return;
+                                        var e0 = epoch;
                                         var body = new FormData();
                                         body.append('action', 'haai_crawl_tick');
                                         body.append('nonce', haaiAdmin.nonce);
                                         fetch(haaiAdmin.ajax, { method: 'POST', credentials: 'same-origin', body: body })
                                                 .then(function (r) { return r.text().then(function (t) { return { status: r.status, text: t }; }); })
                                                 .then(function (res) {
-                                                        if (!running) return;
+                                                        if (!running || e0 !== epoch) return;
                                                         var d = null;
                                                         try { d = JSON.parse(res.text); } catch (e) { d = null; }
                                                         var p = d && d.progress ? d.progress : null;
@@ -377,15 +403,70 @@ final class Haa_Admin_Dashboard {
                                                 .catch(function () { retry('اتصال به سرور قطع شد'); });
                                 }
                                 if (stopBtn) stopBtn.addEventListener('click', function () {
-                                        running = false;
+                                        running = false; starting = false; epoch++;
                                         var body = new FormData();
                                         body.append('action', 'haai_crawl_stop');
                                         body.append('nonce', haaiAdmin.nonce);
                                         fetch(haaiAdmin.ajax, { method: 'POST', credentials: 'same-origin', body: body })
                                                 .then(function (r) { return r.json(); })
-                                                .then(function () { setButtons(false); say('خزش متوقف شد و پیشرفت حفظ شد؛ با «ادامهِ خزش» از همان‌جا ادامه می‌دهد.'); })
-                                                .catch(function () { setButtons(false); say('خزش متوقف شد؛ با «ادامهِ خزش» از همان‌جا ادامه می‌دهد.'); });
+                                                .then(function () { setButtons(false); if (startBtn) startBtn.textContent = L_RESUME; say('خزش متوقف شد و پیشرفت حفظ شد؛ با «ادامهِ خزش» از همان‌جا ادامه می‌دهد.'); })
+                                                .catch(function () { setButtons(false); if (startBtn) startBtn.textContent = L_RESUME; say('خزش متوقف شد؛ با «ادامهِ خزش» از همان‌جا ادامه می‌دهد.'); });
                                 });
+                                // 2.1.20 — AJAX start: the intercept lives on the FORM, so
+                                // both «کرال/ادامه» and «شروع از نو» (submitter detection +
+                                // the onclick flag for old Safari) land here instead of a
+                                // reload. A plain press while ticking is IGNORED — that
+                                // reload was killing the ticker on every press.
+                                if (form) form.addEventListener('submit', function (e) {
+                                        var isReset = !!(e.submitter && e.submitter.name === 'haai_crawl_reset') || window.haaiResetClicked === true;
+                                        window.haaiResetClicked = false;
+                                        if (running && !isReset) { e.preventDefault(); return; }
+                                        if (!window.haaiAdmin) return; // no-JS env: classic POST fallback (URL changes, still works)
+                                        e.preventDefault();
+                                        startAjax(isReset);
+                                });
+                                function startAjax(isReset) {
+                                        if (starting) return;
+                                        if (running && !isReset) return;
+                                        starting = true;
+                                        say('در حال آغاز خزش…');
+                                        var e0 = epoch;
+                                        var body = new FormData();
+                                        body.append('action', 'haai_crawl_start');
+                                        body.append('nonce', haaiAdmin.nonce);
+                                        if (isReset) body.append('reset', '1');
+                                        fetch(haaiAdmin.ajax, { method: 'POST', credentials: 'same-origin', body: body })
+                                                .then(function (r) { return r.text().then(function (t) { return { status: r.status, text: t }; }); })
+                                                .then(function (res) {
+                                                        starting = false;
+                                                        if (e0 !== epoch) return; // a stop landed meanwhile
+                                                        var d = null;
+                                                        try { d = JSON.parse(res.text); } catch (err) { d = null; }
+                                                        if (!d) {
+                                                                if (parseInt(res.status, 10) === 403 || (res.text || '').indexOf('-1') === 0) {
+                                                                        fail('نشست مدیریت منقضی شده است؛ صفحه را تازه‌سازی (F5) کنید و دوباره تلاش کنید.');
+                                                                        return;
+                                                                }
+                                                                say('پاسخ نامعتبر از سرور (کش/فایروال) — به مسیر کلاسیک برمی‌گردیم…', true);
+                                                                if (form) form.submit(); // does NOT fire submit → no loop
+                                                                return;
+                                                        }
+                                                        if (!d.ok) { fail(d.message || 'شروع خزش ناموفق بود.'); return; }
+                                                        epoch++;
+                                                        running = true; retries = 0;
+                                                        if (startBtn) startBtn.textContent = L_RESUME;
+                                                        setButtons(true);
+                                                        if (wrap) wrap.hidden = false;
+                                                        if (bar && d.progress) bar.style.width = Math.max(0, Math.min(100, d.progress.percent)) + '%';
+                                                        say(d.message || 'خزش شروع شد.');
+                                                        if (d.progress && !d.progress.running) { finish(d.progress); } else { setTimeout(tick, 500); }
+                                                })
+                                                .catch(function () {
+                                                        starting = false;
+                                                        say('ارسال درخواست ناموفق بود — به مسیر کلاسیک برمی‌گردیم…', true);
+                                                        if (form) form.submit();
+                                                });
+                                }
                                 // 2.1.16 — BOOT-ORDER FIX (the real «هیچ نواری جلو نمیره»
                                 // root cause): this inline script runs MID-PAGE, but the
                                 // localized haaiAdmin data prints in the FOOTER
@@ -398,11 +479,10 @@ final class Haa_Admin_Dashboard {
                                 // and keep a short retry window so a cached/deferred
                                 // footer still ends in an HONEST message, never
                                 // silence.
-                                var boots = 0;
                                 function boot() {
-                                        if (!running) return;
+                                        if (!running) { setButtons(false); return; }
                                         if (!window.haaiAdmin) {
-                                                if (++boots <= 20) { setTimeout(boot, 500); return; }
+                                                if (++boots <= BOOT_TRIES) { setTimeout(boot, 500); return; }
                                                 fail('اسکریپت پیشرفت بارگذاری نشد (کش یا بهینه‌ساز JS). صفحه را با Ctrl+F5 تازه‌سازی کنید؛ خزش با «ادامهِ خزش» از همین‌جا ادامه می‌یابد.');
                                                 return;
                                         }
@@ -417,7 +497,6 @@ final class Haa_Admin_Dashboard {
                                 }
                         })();
                         </script>
-                        <?php endif; ?>
                         <?php
         }
 

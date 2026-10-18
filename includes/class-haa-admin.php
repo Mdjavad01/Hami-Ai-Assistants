@@ -438,14 +438,32 @@ final class Haa_Admin {
                         'restore-none'     => array( 'error', __( 'نسخه‌ی پشتیبانی برای بازگردانی وجود ندارد.', 'hami-ai-assistant' ) ),
                         'module-saved'     => array( 'success', __( 'ماژول‌ها به‌روزرسانی شد.', 'hami-ai-assistant' ) ),
                 );
-                if ( ! isset( $map[ $ok ] ) ) {
+                if ( isset( $map[ $ok ] ) ) {
+                        printf(
+                                '<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>',
+                                esc_attr( $map[ $ok ][0] ),
+                                esc_html( $map[ $ok ][1] )
+                        );
                         return;
                 }
-                printf(
-                        '<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>',
-                        esc_attr( $map[ $ok ][0] ),
-                        esc_html( $map[ $ok ][1] )
-                );
+                // 2.1.20 — crawl start/wipe redirect back with ?haai_msg=…, but the
+                // dashboard never printed it (only module screens read haai_msg),
+                // so the URL changed for nothing. Print it on exactly the three
+                // haai screens that render no copy of their own; module screens
+                // keep their inline renderer, so no double notices appear.
+                $page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+                if ( ! in_array( $page, array( 'haai-dashboard', 'haai-settings', 'haai-modules' ), true ) ) {
+                        return;
+                }
+                $err = isset( $_GET['haai_err'] ) ? sanitize_text_field( wp_unslash( $_GET['haai_err'] ) ) : '';
+                $msg = isset( $_GET['haai_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['haai_msg'] ) ) : '';
+                if ( '' !== $err ) {
+                        printf( '<div class="notice notice-error is-dismissible"><p>%s</p></div>', esc_html( $err ) );
+                        return;
+                }
+                if ( '' !== $msg ) {
+                        printf( '<div class="notice notice-success is-dismissible"><p>%s</p></div>', esc_html( $msg ) );
+                }
         }
 
         /* ------------------------------------------------------------------

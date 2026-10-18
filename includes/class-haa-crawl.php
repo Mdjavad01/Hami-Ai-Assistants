@@ -1170,6 +1170,7 @@ final class Haa_Crawl {
         public static function hooks() {
                 add_action( 'admin_post_haai_crawl_start', array( __CLASS__, 'handle_start' ) );
                 add_action( 'admin_post_haai_crawl_wipe', array( __CLASS__, 'handle_wipe' ) );
+                add_action( 'wp_ajax_haai_crawl_start', array( __CLASS__, 'ajax_start' ) );
                 add_action( 'wp_ajax_haai_crawl_tick', array( __CLASS__, 'ajax_tick' ) );
                 add_action( 'wp_ajax_haai_crawl_stop', array( __CLASS__, 'ajax_stop' ) );
         }
@@ -1193,6 +1194,36 @@ final class Haa_Crawl {
                 self::wipe();
                 wp_safe_redirect( add_query_arg( 'haai_msg', rawurlencode( __( 'تکه‌های خزش‌شده پاک شد.', 'hami-ai-assistant' ) ), wp_get_referer() ? wp_get_referer() : admin_url( 'admin.php?page=hami-ai-assistant' ) ) );
                 exit;
+        }
+
+        /**
+         * 2.1.20 — AJAX start for the dashboard button. The classic POST to
+         * admin-post.php redirected back with ?haai_msg=… : the URL changed,
+         * the whole admin reloaded and the running ticker JS died on every
+         * press («چند بار زدم، نوار پیشرفت ادامه نیاورد») — while the
+         * dashboard never even printed haai_msg (only module screens read
+         * it), so the URL churn bought literally nothing. Starting over AJAX
+         * keeps the page and the ticker alive; the POST stays as the no-JS
+         * fallback and still carries its message through the now-printed
+         * dashboard notice.
+         *
+         * Body: nonce (guard_admin_ajax), optional reset=1 for «شروع از نو».
+         *
+         * @return void Sends {ok:bool, message:string, progress?:array}.
+         */
+        public static function ajax_start() {
+                Haa_Util::guard_admin_ajax();
+                $reset = ! empty( $_POST['reset'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- guard_admin_ajax verified the nonce.
+                $res   = self::start( $reset );
+                if ( is_wp_error( $res ) ) {
+                        wp_send_json( array( 'ok' => false, 'message' => $res->get_error_message() ) );
+                        return; // wp_send_json dies in production; the return keeps the shape unambiguous everywhere.
+                }
+                wp_send_json( array(
+                        'ok'       => true,
+                        'message'  => __( 'خزش صفحات شروع شد؛ نوار پیشرفت آن را دنبال می‌کند.', 'hami-ai-assistant' ),
+                        'progress' => $res,
+                ) );
         }
 
         /** @return void One batch per AJAX call (dashboard ticker). */
