@@ -97,7 +97,7 @@ final class Haa_Admin_Dashboard {
                                 <span class="haai-badge"><?php echo esc_html( sprintf( '%s صفحه / %s تکه', number_format_i18n( (int) $crawl['pages'] ), number_format_i18n( (int) $crawl['chunks'] ) ) ); ?></span>
                         </h2>
                         <p class="description">
-                                <?php esc_html_e( 'خزش، محتوای رندرشدهٔ صفحات سایت (منو، فوتر، ویجت‌ها و صفحه تماس) را به پایگاه دانش اضافه می‌کند و شماره تماس، اینستاگرام و لینک صفحه تماس را یک‌جا برای دستیار خلاصه می‌کند. آدرس‌های دلخواه را در تب «دانش سایت» بدهید.', 'hami-ai-assistant' ); ?>
+                                <?php esc_html_e( 'خزش، محتوای رندرشدهٔ صفحات سایت (منو، فوتر، ویجت‌ها و صفحه تماس) را به پایگاه دانش اضافه می‌کند و شماره تماس، اینستاگرام و لینک صفحه تماس را یک‌جا برای دستیار خلاصه می‌کند. آدرس‌های دلخواه را در تب «دانش سایت» بدهید. ایندکس کاملاً روی دیتابیس خودِ سایت انجام می‌شود و به هیچ سرویس هوش مصنوعی وابسته نیست.', 'hami-ai-assistant' ); ?>
                         </p>
                         <?php
                         // Scope preview — the «اولویت‌بندی / انتخاب صفحه» control sits in
@@ -172,10 +172,49 @@ final class Haa_Admin_Dashboard {
                                 ?>
                         </p>
                         <?php
+                        // 2.1.21 — engine honesty: the crawl no longer depends on an
+                        // open browser tab. Say which drivers exist RIGHT NOW, and call
+                        // out a stalled run explicitly instead of showing a frozen bar.
+                        // diagnose() is fetched HERE so both the engine block and the
+                        // 2.1.19 verdict block below share one call.
+                        $diag = Haa_Crawl::diagnose();
+                        if ( ! empty( $crawl_state['running'] ) ) {
+                                $hb_age  = ! empty( $crawl_state['current_at'] ) ? ( time() - (int) $crawl_state['current_at'] ) : 0;
+                                $stalled = ( $hb_age > 300 ) && ( empty( $diag['cron_last'] ) || ( time() - (int) $diag['cron_last'] ) > 300 );
+                                if ( ! empty( $diag['cron_scheduled'] ) ) {
+                                        ?>
+                                        <p class="description" style="color:#00707a;">
+                                                <?php esc_html_e( 'موتور سرور (کرون دقیقه‌ای) فعال است — خزش حتی با بسته‌بودن مرورگر پیش می‌رود؛ نوار پیشرفت فقط هنگام بازبودن همین صفحه به‌روز می‌شود.', 'hami-ai-assistant' ); ?>
+                                        </p>
+                                        <?php
+                                } elseif ( ! empty( $diag['wp_cron_disabled'] ) ) {
+                                        ?>
+                                        <p class="description" style="color:#996800;">
+                                                <?php esc_html_e( 'WP-Cron روی این هاست غیرفعال است (DISABLE_WP_CRON) — برای پیشرفت خودکار، این صفحه را باز نگه دارید یا از میزبانی بخواهید wp-cron.php را هر دقیقه فراخوانی کند.', 'hami-ai-assistant' ); ?>
+                                        </p>
+                                        <?php
+                                }
+                                if ( $stalled ) {
+                                        ?>
+                                        <p class="description" style="color:#b32d2e;">
+                                                <?php
+                                                $hb_min = (int) max( 1, round( $hb_age / 60 ) );
+                                                echo esc_html( sprintf(
+                                                        /* translators: %d: minutes since the crawler last moved. */
+                                                        __( 'خزش حدود %d دقیقه است بی‌حرکت مانده و کرون هم دسته‌ای اجرا نکرده است. یک بار «شروع از نو» بزنید؛ اگر تکرار شد، ظرفیت PHP (memory_limit) یا فعالیت افزونه‌های امنیتی را بررسی کنید.', 'hami-ai-assistant' ),
+                                                        $hb_min
+                                                ) );
+                                                ?>
+                                        </p>
+                                        <?php
+                                }
+                        }
+                        ?>
+                        <?php
                         // 2.1.19 — «0 صفحه / 0 تکه» alone taught the admin nothing.
                         // Every empty-KB report turned into guesswork; these verdicts
                         // name the cause in plain Persian next to the badge itself.
-                        $diag = Haa_Crawl::diagnose();
+                        // ($diag was fetched in the engine block above — shared call.)
                         if ( ! $diag['table_ok'] ) {
                                 // A missing chunks table silently swallows every insert —
                                 // the crawl "finishes" at 0/0 with no error anywhere. Repair

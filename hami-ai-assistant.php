@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.20
+ * Version:           2.1.21
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.20' );
+define( 'HAAI_VERSION', '2.1.21' );
 define( 'HAAI_DB_VERSION', '7' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
@@ -459,6 +459,7 @@ final class Haa_Plugin {
                 wp_clear_scheduled_hook( 'haai_autopilot_tick' );
                 wp_clear_scheduled_hook( 'haai_aw_tick' );
                 wp_clear_scheduled_hook( 'haai_queue_tick' );
+                wp_clear_scheduled_hook( 'haai_crawl_cron' ); // 2.1.21 — server crawl driver.
         }
 
         /**
@@ -517,6 +518,12 @@ final class Haa_Plugin {
                         $this->frontend_hooks();
                 }
 
+                // 2.1.21 — the crawl's server-side driver registers in BOTH contexts:
+                // wp-cron.php boots through the front-end, so an is_admin()-only
+                // registration would strand the minute tick that now guarantees a
+                // running crawl advances even with every browser closed.
+                Haa_Crawl::cron_hooks();
+
                 /**
                  * Fires once the plugin and every enabled module have booted.
                  */
@@ -561,6 +568,12 @@ final class Haa_Plugin {
                 $schedules['haai_five_minutes'] = array(
                         'interval' => 5 * MINUTE_IN_SECONDS,
                         'display'  => __( 'هر ۵ دقیقه (Hami AI)', 'hami-ai-assistant' ),
+                );
+                // 2.1.21 — one-minute interval for the site-knowledge crawl driver:
+                // the browser ticker stays the fast path, this is the guarantee.
+                $schedules['haai_minute'] = array(
+                        'interval' => MINUTE_IN_SECONDS,
+                        'display'  => __( 'هر ۱ دقیقه (Hami AI)', 'hami-ai-assistant' ),
                 );
                 return $schedules;
         }

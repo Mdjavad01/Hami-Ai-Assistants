@@ -868,9 +868,15 @@ function wp_is_mobile() { return ! empty( $GLOBALS['is_mobile'] ); }
 function wp_salt( $s ) { return 'salt-' . $s; }
 function wp_get_attachment_url( $id ) { return ''; }
 function wp_get_attachment_image( $id, $s = '', $x = false, $a = array() ) { return '<img src="" alt="">'; }
-function wp_next_scheduled( $h ) { return false; }
-function wp_schedule_event( $t, $r, $h ) { return true; }
-function wp_clear_scheduled_hook( $h ) {}
+// 2.1.21 — seedable cron: $GLOBALS['crons'][hook] = next-run timestamp; actions
+// recorded in $GLOBALS['cron_fired'][] so suites can assert start()/cancel()
+// scheduling and that batch_cron() actually drives.
+$GLOBALS['crons']      = array();
+$GLOBALS['cron_fired'] = array();
+function wp_next_scheduled( $h ) { return empty( $GLOBALS['crons'][ $h ] ) ? false : (int) $GLOBALS['crons'][ $h ]; }
+function wp_schedule_event( $t, $r, $h ) { $GLOBALS['crons'][ $h ] = (int) $t; return true; }
+function wp_clear_scheduled_hook( $h ) { unset( $GLOBALS['crons'][ $h ] ); }
+function haai_stub_fire_cron( $h ) { if ( isset( $GLOBALS['crons'][ $h ] ) ) { $GLOBALS['cron_fired'][] = $h; return call_user_func( array( 'Haa_Crawl', 'batch_cron' ) ); } return false; }
 function wp_register_style( ...$a ) { return true; }
 function wp_enqueue_style( ...$a ) { return true; }
 function wp_enqueue_script( ...$a ) { return true; }
@@ -1492,6 +1498,11 @@ function wp_remote_retrieve_response_code( $r ) {
 /** @return string */
 function wp_remote_retrieve_body( $r ) {
         return is_array( $r ) && isset( $r['body'] ) ? (string) $r['body'] : '';
+}
+
+/** 2.1.21 — crawl fetch() reads the content-type header. */
+function wp_remote_retrieve_header( $r, $name ) {
+        return is_array( $r ) && isset( $r['headers'][ strtolower( (string) $name ) ] ) ? $r['headers'][ strtolower( (string) $name ) ] : '';
 }
 
 /** @return string|int|null */

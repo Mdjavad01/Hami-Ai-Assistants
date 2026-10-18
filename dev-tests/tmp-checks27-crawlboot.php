@@ -68,6 +68,8 @@ function reset_all() {
         $GLOBALS['http_log']                    = array();
         $GLOBALS['http_map']                    = array();
         delete_transient( 'haai_crawl_lock' );
+        $GLOBALS['crons']      = array(); // 2.1.21 — cron bookkeeping.
+        $GLOBALS['cron_fired'] = array();
 }
 
 function crawl_state() {
@@ -104,7 +106,7 @@ reset_crawl_config();
 $start = Haa_Crawl::start();
 ok( 'crawl started and running', ! empty( $start['running'] ) );
 
-set_transient( 'haai_crawl_lock', 1, 45 );
+set_transient( 'haai_crawl_lock', time(), 45 ); // 2.1.21 — live holder: value is a fresh timestamp.
 $before = (int) crawl_state()['offset'];
 $held   = Haa_Crawl::batch( 2 );
 ok( 'locked batch does NOT advance the cursor', (int) $held['offset'] === $before, '(offset=' . $held['offset'] . ')' );
@@ -183,10 +185,10 @@ ok( 'reset clears failed', 0 === (int) $st['failed'] );
 ok( 'reset clears last_error', '' === (string) $st['last_error'] );
 
 echo "=== F. cancel() and wipe() release the lock ===\n";
-set_transient( 'haai_crawl_lock', 1, 45 );
+set_transient( 'haai_crawl_lock', time(), 45 ); // 2.1.21 — live holder: value is a fresh timestamp.
 Haa_Crawl::cancel();
 ok( 'cancel() released the lock', false === get_transient( 'haai_crawl_lock' ) );
-set_transient( 'haai_crawl_lock', 1, 45 );
+set_transient( 'haai_crawl_lock', time(), 45 ); // 2.1.21 — live holder: value is a fresh timestamp.
 Haa_Crawl::wipe();
 ok( 'wipe() released the lock', false === get_transient( 'haai_crawl_lock' ) );
 ok( 'wipe() reset the failure counter', 0 === (int) crawl_state()['failed'] );

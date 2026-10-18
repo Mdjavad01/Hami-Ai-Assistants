@@ -44,6 +44,13 @@ final class Haa_Crawl {
         const MAX_URLS        = 2600;    // Hard ceiling regardless of settings.
         const MAX_CHUNKS      = 8000;    // Total crawl chunks a site may hold (a product ≈ 1 chunk).
         const LOCK            = 'haai_crawl_lock'; // One batch at a time (2.1.16).
+        // 2.1.21 — server-side driver. The browser ticker is a FAST path, never
+        // a REQUIREMENT: a minute cron advances the queue even when the tab is
+        // closed, the JS never booted or admin-ajax is firewalled. This ends the
+        // fourth consecutive "crawl sits at «در حال اجرا» forever" report that
+        // traced back to a browser-only engine.
+        const CRON_HOOK       = 'haai_crawl_cron';
+        const CRON_LAST       = 'haai_crawl_cron_last'; // Transient: last cron batch time.
 
         /** @var array|null Cached crawl config for this request. */
         private static $config = null;
@@ -427,7 +434,10 @@ final class Haa_Crawl {
 
                 $state = self::get_state();
                 if ( ! $reset && ! empty( $state['running'] ) && (int) $state['offset'] > 0 && (int) $state['total'] > 0 ) {
-                        // Resume: keep the cursor exactly where it stopped.
+                        // Resume: keep the cursor exactly where it stopped. The cron
+                        // driver is (re-)scheduled here too — deactivation or a cron
+                        // cleanup may have dropped it while the crawl sat mid-queue.
+                        self::schedule_cron();
                         return self::progress();
                 }
 
@@ -461,7 +471,42 @@ final class Haa_Crawl {
                                 'started_at'  => time(),
                         )
                 );
+                self::schedule_cron();
                 return self::progress();
+        }
+
+        /**
+         * 2.1.21 — make sure the minute cron driver exists while a crawl runs.
+         * Idempotent; safe to call from start()/resume paths on every press.
+         *
+         * @return void
+         */
+        private static function schedule_cron() {
+                if ( wp_next_scheduled( self::CRON_HOOK ) ) {
+                        return;
+                }
+                wp_schedule_event( time() + MINUTE_IN_SECONDS, 'haai_minute', self::CRON_HOOK );
+        }
+
+        /**
+         * 2.1.21 — the server-side heartbeat of the crawler. Runs every minute
+         * through WP-Cron and advances ONE batch with a 20 s budget, so a real
+         * catalogue drains without ANY browser open (~18 fires for 1,760 DB
+         * pages; the browser ticker, when it works, stays far faster and the
+         * batch lock serialises both drivers).
+         *
+         * @return void
+         */
+        public static function batch_cron() {
+                $state = self::get_state();
+                if ( empty( $state['running'] ) ) {
+                        // Crawl finished/cancelled elsewhere — drop the schedule so
+                        // the cron list stays honest.
+                        wp_clear_scheduled_hook( self::CRON_HOOK );
+                        return;
+                }
+                set_transient( self::CRON_LAST, time(), 6 * HOUR_IN_SECONDS );
+                self::batch( 2, 20 );
         }
 
         /**
@@ -474,10 +519,12 @@ final class Haa_Crawl {
          * can say exactly what is being read and how long is left, and a batch
          * that dies mid-fetch leaves an honest breadcrumb instead of silence.
          *
-         * @param int $batch_size Pages per call.
+         * @param int $batch_size  HTTP pages per call (DB pages have their own cap).
+         * @param int $time_budget Hard wall-clock budget in seconds (2.1.21: the
+         *                         cron driver uses 20 s, the browser paths keep 10).
          * @return array Progress.
          */
-        public static function batch( $batch_size = 2 ) {
+        public static function batch( $batch_size = 2, $time_budget = 10 ) {
                 $started = microtime( true );
                 $state   = self::get_state();
                 $urls    = (array) ( $state['urls'] ?? array() );
@@ -492,13 +539,20 @@ final class Haa_Crawl {
                 }
 
                 // 2.1.16 — ONE batch at a time: the dashboard self-heal driver,
-                // the browser ticker and a second open tab must never race the
-                // same cursor. A concurrent caller simply reports progress; the
-                // lock self-expires in 45 s if a batch died mid-fetch.
-                if ( get_transient( self::LOCK ) ) {
+                // the browser ticker, the cron driver and a second open tab must
+                // never race the same cursor. 2.1.21 — the lock carries its
+                // TIMESTAMP as the value: some persistent object caches mishandle
+                // short TTLs, which made a lock left by a batch that died mid-fetch
+                // effectively immortal and froze the whole queue at «در حال اجرا»
+                // forever. A lock older than 60 s is provably dead and gets stolen.
+                $held = get_transient( self::LOCK );
+                if ( $held && ( time() - (int) $held ) < 60 ) {
                         return self::progress();
                 }
-                set_transient( self::LOCK, 1, 45 );
+                if ( $held ) {
+                        delete_transient( self::LOCK );
+                }
+                set_transient( self::LOCK, time(), 45 );
 
                 $batch_size = max( 1, min( 4, (int) $batch_size ) );
                 $pids       = (array) ( $state['pids'] ?? array() );
@@ -536,16 +590,24 @@ final class Haa_Crawl {
                         if ( $is_http && $http_done >= $batch_size ) {
                                 break;
                         }
-                        if ( ! $is_http && $db_done >= 100 ) {
+                        $db_cap = ( (int) $time_budget > 15 ) ? 200 : 100; // 2.1.21: the 20 s cron fire admits more per pass.
+                        if ( ! $is_http && $db_done >= $db_cap ) {
                                 break;
                         }
 
                         // Heartbeat FIRST — a fetch stuck at the server timeout still
                         // left a trail the dashboard can show («در حال خواندن: …»).
-                        $state['current']    = $url;
-                        $state['current_at'] = time();
-                        $state['pids']       = $pids;
-                        self::save_state( $state );
+                        // 2.1.21 — throttled for DB pages: with a 1,760-entry queue the
+                        // state option is ~400 KB, and writing it PER PAGE meant tens of
+                        // megabytes of wp_options churn per tick on shared MySQL. HTTP
+                        // pages keep the per-page heartbeat (≤4 per tick); DB pages
+                        // refresh it every 20.
+                        if ( $is_http || 0 === ( $db_done % 20 ) ) {
+                                $state['current']    = $url;
+                                $state['current_at'] = time();
+                                $state['pids']       = $pids;
+                                self::save_state( $state );
+                        }
 
                         $t0 = microtime( true );
 
@@ -597,7 +659,7 @@ final class Haa_Crawl {
                         $state['ms_sum'] += (int) round( ( microtime( true ) - $t0 ) * 1000 );
                         $state['ms_n']++;
 
-                        if ( ( microtime( true ) - $started ) > 10 ) {
+                        if ( ( microtime( true ) - $started ) > (int) $time_budget ) {
                                 break;
                         }
                 }
@@ -607,6 +669,9 @@ final class Haa_Crawl {
                 if ( $state['offset'] >= count( $urls ) ) {
                         $state['running']     = 0;
                         $state['finished_at'] = time();
+                        // 2.1.21 — the queue drained; the minute cron has no business
+                        // waking up for an idle crawl.
+                        wp_clear_scheduled_hook( self::CRON_HOOK );
                 }
                 self::save_state( $state );
                 delete_transient( self::LOCK );
@@ -682,6 +747,7 @@ final class Haa_Crawl {
                 $state['finished_at'] = time();
                 self::save_state( $state );
                 delete_transient( self::LOCK );
+                wp_clear_scheduled_hook( self::CRON_HOOK ); // 2.1.21.
                 return self::progress();
         }
 
@@ -709,6 +775,7 @@ final class Haa_Crawl {
                 $state['finished_at'] = 0;
                 self::save_state( $state );
                 delete_transient( self::LOCK );
+                wp_clear_scheduled_hook( self::CRON_HOOK ); // 2.1.21.
                 return self::progress();
         }
 
@@ -1155,6 +1222,11 @@ final class Haa_Crawl {
                         'http'       => count( array_filter( $targets, function ( $t ) { return empty( $t['pid'] ); } ) ),
                         'budget'     => (int) $cfg['pages'],
                         'counts'     => self::type_counts(),
+                        // 2.1.21 — engine telemetry: is the server driver scheduled,
+                        // when did it last fire, and does this host even run WP-Cron.
+                        'cron_scheduled'   => (bool) wp_next_scheduled( self::CRON_HOOK ),
+                        'cron_last'        => (int) get_transient( self::CRON_LAST ),
+                        'wp_cron_disabled' => defined( 'DISABLE_WP_CRON' ) && constant( 'DISABLE_WP_CRON' ),
                         'last'       => array(
                                 'finished_at' => (int) ( $state['finished_at'] ?? 0 ),
                                 'pages'       => (int) ( $state['pages'] ?? 0 ),
@@ -1173,6 +1245,17 @@ final class Haa_Crawl {
                 add_action( 'wp_ajax_haai_crawl_start', array( __CLASS__, 'ajax_start' ) );
                 add_action( 'wp_ajax_haai_crawl_tick', array( __CLASS__, 'ajax_tick' ) );
                 add_action( 'wp_ajax_haai_crawl_stop', array( __CLASS__, 'ajax_stop' ) );
+        }
+
+        /**
+         * 2.1.21 — registers the cron driver. MUST run outside is_admin():
+         * wp-cron.php boots through the front-end context, so an admin-only
+         * hook registration would silently strand the server driver.
+         *
+         * @return void
+         */
+        public static function cron_hooks() {
+                add_action( self::CRON_HOOK, array( __CLASS__, 'batch_cron' ) );
         }
 
         /** @return void */

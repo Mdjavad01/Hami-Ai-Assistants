@@ -274,7 +274,7 @@ ok( 'scope preview uses targets_full', false !== strpos( $dash, 'Haa_Crawl::targ
 ok( 'ETA weights HTTP vs DB', false !== strpos( $dash, '$crawl_http * 3' ) );
 ok( 'finish() mentions the DB fallback', false !== strpos( $dash, 'از دیتابیس خوانده شده‌اند' ) );
 $src = (string) file_get_contents( __DIR__ . '/../includes/class-haa-crawl.php' );
-ok( 'batch admits 100 DB pages per tick', false !== strpos( $src, '$db_done >= 100' ) );
+ok( 'batch admits 100 DB pages per tick (200 on the 20 s cron pass)', false !== strpos( $src, '$db_cap = ( (int) $time_budget > 15 ) ? 200 : 100;' ) && false !== strpos( $src, '$db_done >= $db_cap' ) );
 ok( 'DB path reuses build_source', false !== strpos( $src, 'Haa_Search::build_source' ) );
 ok( 'shared drop_slot helper exists', false !== strpos( $src, 'private static function drop_slot' ) );
 ok( 'fetch timeout unchanged (6s)', false !== strpos( $src, "'timeout'     => 6," ) );
