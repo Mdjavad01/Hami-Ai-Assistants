@@ -410,10 +410,15 @@ final class Haa_Settings {
                         // contact/about live there; products/posts are opt-in so a big
                         // shop stays light by default).
                         'knowledge' => array(
-                                'urls'        => '',
-                                'auto_crawl'  => 1,
-                                'max_pages'   => 30,
-                                'crawl_types' => array( 'page' ),
+                                'urls'          => '',
+                                'auto_crawl'    => 1,
+                                'max_pages'     => 30,
+                                'crawl_types'   => array( 'page' ),
+                                // 2.1.23 — AEO toolkit: all on by default; each one is a
+                                // bounded, cached job the admin can switch off.
+                                'llms_enabled'  => 1,
+                                'bots_enabled'  => 1,
+                                'links_enabled' => 1,
                         ),
                 );
         }
@@ -1122,6 +1127,10 @@ final class Haa_Settings {
                         'knowledge.auto_crawl'     => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'knowledge.max_pages'      => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 5, 'max' => 2500 ),
                         'knowledge.crawl_types'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_crawl_types' ) ),
+                        // 2.1.23 — AEO toolkit toggles.
+                        'knowledge.llms_enabled'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
+                        'knowledge.bots_enabled'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
+                        'knowledge.links_enabled'  => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'chat.tone'                => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'default', 'formal', 'friendly', 'playful' ) ),
                         'chat.page_context'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'chat.custom_knowledge'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_textarea' ) ),
@@ -2392,7 +2401,7 @@ final class Haa_Settings {
                         'provider'  => array( 'provider.provider', 'provider.api_key', 'provider.base_url', 'provider.model', 'provider.embedding_model', 'provider.image_model', 'provider.timeout', 'provider.max_tokens', 'provider.allow_localhost', 'provider.adapter', 'provider.temperature', 'provider.retries', 'provider.proxy_host', 'provider.proxy_port', 'provider.proxy_username', 'provider.proxy_password', 'provider.failovers' ),
                         'appearance'=> array( 'appearance.skin', 'appearance.primary_color', 'appearance.secondary_color', 'appearance.bg_color', 'appearance.text_color', 'appearance.theme_mode', 'appearance.dark_bg', 'appearance.dark_text', 'appearance.dark_bubble', 'appearance.font', 'appearance.font_size', 'appearance.border_radius', 'appearance.button_size', 'appearance.welcome_message', 'appearance.placeholder', 'appearance.custom_icon', 'appearance.custom_css' ),
                         'advanced'  => array( 'advanced.enable_rag', 'advanced.kb_enabled', 'advanced.kb_post_types', 'advanced.kb_chunk_words', 'advanced.kb_overlap_words', 'advanced.kb_categories', 'advanced.kb_max_file_kb', 'advanced.enable_cache', 'advanced.cache_ttl', 'advanced.rate_limit_count', 'advanced.rate_limit_minutes', 'advanced.token_ttl_minutes', 'advanced.max_message_chars', 'advanced.daily_request_cap', 'advanced.daily_cap_message', 'advanced.daily_user_cap', 'advanced.daily_user_cap_message', 'advanced.log_conversations', 'advanced.log_retention_days', 'advanced.usage_retention', 'advanced.guest_access', 'advanced.login_required_message', 'advanced.ip_header' ),
-                        'knowledge' => array( 'knowledge.urls', 'knowledge.auto_crawl', 'knowledge.max_pages', 'knowledge.crawl_types' ),
+                        'knowledge' => array( 'knowledge.urls', 'knowledge.auto_crawl', 'knowledge.max_pages', 'knowledge.crawl_types', 'knowledge.llms_enabled', 'knowledge.bots_enabled', 'knowledge.links_enabled' ),
                 );
                 foreach ( $core as $tab_keys ) {
                         $keys = array_merge( $keys, $tab_keys );

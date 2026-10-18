@@ -680,6 +680,9 @@ final class Haa_Crawl {
                         // «اطلاعاتی نداریم» answers would otherwise outlive it and be
                         // re-served for up to cache_ttl seconds.
                         Haa_DB::flush_cache();
+                        // 2.1.23 — the shop description changed; the next llms.txt
+                        // request rebuilds instead of serving yesterday's file.
+                        Haa_Aeo::mark_llms_stale();
                 }
                 self::save_state( $state );
                 delete_transient( self::LOCK );

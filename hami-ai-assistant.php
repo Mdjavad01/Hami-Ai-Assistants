@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.22
+ * Version:           2.1.23
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.22' );
+define( 'HAAI_VERSION', '2.1.23' );
 define( 'HAAI_DB_VERSION', '7' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
@@ -460,6 +460,7 @@ final class Haa_Plugin {
                 wp_clear_scheduled_hook( 'haai_aw_tick' );
                 wp_clear_scheduled_hook( 'haai_queue_tick' );
                 wp_clear_scheduled_hook( 'haai_crawl_cron' ); // 2.1.21 — server crawl driver.
+                wp_clear_scheduled_hook( 'haai_nightly_links' ); // 2.1.23 — broken-link checker.
         }
 
         /**
@@ -498,6 +499,10 @@ final class Haa_Plugin {
 
                 // Generic SEO: robots + Article schema for _haai_generated posts.
                 Haa_Seo::hooks();
+
+                // 2.1.23 — AEO toolkit: FAQPage schema, /llms.txt, AI-bot counting,
+                // nightly link checker + the reports screen's AJAX endpoint.
+                Haa_Aeo::hooks();
 
                 // REST runs in both contexts: the cached frontend calls /token and /chat.
                 Haa_REST::hooks();
@@ -555,6 +560,12 @@ final class Haa_Plugin {
                 // Same for the article-writer's batch tick.
                 if ( Haa_Settings::is_module_enabled( 'article-writer' ) && ! wp_next_scheduled( 'haai_aw_tick' ) ) {
                         wp_schedule_event( time() + MINUTE_IN_SECONDS, 'haai_five_minutes', 'haai_aw_tick' );
+                }
+                // 2.1.23 — nightly broken-link checker. The nightly handler itself
+                // clears the event when the admin switches the feature off, so an
+                // abandoned schedule can never wake the site again.
+                if ( Haa_Settings::get( 'knowledge.links_enabled', 1 ) && ! wp_next_scheduled( 'haai_nightly_links' ) ) {
+                        wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', 'haai_nightly_links' );
                 }
         }
 

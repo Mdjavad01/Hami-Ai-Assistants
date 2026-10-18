@@ -32,6 +32,7 @@ final class Haa_Util {
                         'settings'        => 'haai-settings',
                         'dashboard'       => 'haai-dashboard',
                         'modules'         => 'haai-modules',
+                        'reports'         => 'haai-reports',
                         'leads'           => 'haai-leads',
                         'discount'        => 'haai-discount',
                         'autopilot'       => 'haai-autopilot',

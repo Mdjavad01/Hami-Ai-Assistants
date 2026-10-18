@@ -126,6 +126,15 @@ final class Haa_Admin {
                         array( $this, 'render_modules' )
                 );
 
+                add_submenu_page(
+                        self::PAGE,
+                        __( 'گزارش‌ها', 'hami-ai-assistant' ),
+                        __( 'گزارش‌ها', 'hami-ai-assistant' ),
+                        'manage_options',
+                        Haa_Util::screen( 'reports' ),
+                        array( 'Haa_Admin_Reports', 'render' )
+                );
+
                 /**
                  * Modules add their own top-level screens (Leads, Articles, Coupons…)
                  * here so a disabled module never registers a menu slug.
@@ -452,7 +461,7 @@ final class Haa_Admin {
                 // haai screens that render no copy of their own; module screens
                 // keep their inline renderer, so no double notices appear.
                 $page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
-                if ( ! in_array( $page, array( 'haai-dashboard', 'haai-settings', 'haai-modules' ), true ) ) {
+                if ( ! in_array( $page, array( 'haai-dashboard', 'haai-settings', 'haai-modules', 'haai-reports' ), true ) ) {
                         return;
                 }
                 $err = isset( $_GET['haai_err'] ) ? sanitize_text_field( wp_unslash( $_GET['haai_err'] ) ) : '';
@@ -1560,6 +1569,27 @@ final class Haa_Admin {
                                 'min'   => 5,
                                 'max'   => 2500,
                                 'hint'  => __( 'برگه‌ها، محصولات و نوشته‌ها مستقیم از دیتابیس خوانده می‌شوند (بدون HTTP، تقریباً فوری)؛ فقط صفحه‌ی اول و آدرس‌های دلخواه یک درخواست شبکه دارند. برای اینکه ربات قیمت همهٔ محصولات را بداند، بودجه را بالاتر از تعداد محصولات بگذارید (مثلاً ۲۰۰۰). خزش هر لحظه قابل توقف است و با «ادامهِ خزش» از همان‌جا ادامه می‌یابد.', 'hami-ai-assistant' ),
+                        );
+                        // 2.1.23 — the AEO toolkit: three cheap, bounded services that
+                        // make the shop legible to AI crawlers and keep the reports
+                        // screen («گزارش‌ها») alive.
+                        $fields[] = array(
+                                'key'   => 'knowledge.llms_enabled',
+                                'type'  => 'checkbox',
+                                'label' => __( 'فایل llms.txt برای ربات‌های هوش مصنوعی', 'hami-ai-assistant' ),
+                                'hint'  => __( 'آدرس your-site/llms.txt معرفی متنی سایت را به ChatGPT و Perplexity می‌دهد: صفحات کلیدی، راه‌های ارتباطی، دسته‌بندی‌ها و محتوای تازه. پایان هر خزش خودکار به‌روز می‌شود.', 'hami-ai-assistant' ),
+                        );
+                        $fields[] = array(
+                                'key'   => 'knowledge.bots_enabled',
+                                'type'  => 'checkbox',
+                                'label' => __( 'شمارش ربات‌های هوش مصنوعی', 'hami-ai-assistant' ),
+                                'hint'  => __( 'بازدید GPTBot، PerplexityBot، ClaudeBot و… شمرده می‌شود و در «گزارش‌ها» تا ۳۰ روز نمایش می‌یابد. برای بازدیدکنندگان عادی هیچ هزینه‌ای ندارد.', 'hami-ai-assistant' ),
+                        );
+                        $fields[] = array(
+                                'key'   => 'knowledge.links_enabled',
+                                'type'  => 'checkbox',
+                                'label' => __( 'چکر پیوندهای خراب (شبانه)', 'hami-ai-assistant' ),
+                                'hint'  => __( 'هر شب فقط چند لینک از محتوای منتشرشده بررسی می‌شود (بدون فشار به هاست)؛ لینک‌های ۴۰۴/۴۱۰/۵xx در «گزارش‌ها» با نام نوشته فهرست می‌شوند.', 'hami-ai-assistant' ),
                         );
                 } elseif ( 'advanced' === $tab ) {
                         $fields[] = array( 'key' => 'advanced.enable_rag', 'type' => 'checkbox', 'label' => __( 'استفاده از محتوای سایت در پاسخ', 'hami-ai-assistant' ) );

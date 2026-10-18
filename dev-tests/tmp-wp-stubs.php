@@ -374,6 +374,51 @@ class Fake_WPDB {
                         }
                         return $out;
                 }
+                // 2.1.23 — AEO broken-link walker: published posts with at least one
+                // href in the body, after the cursor, ID order, bounded LIMIT.
+                if ( preg_match( "/SELECT ID FROM \S*posts WHERE post_status = 'publish' AND post_type IN \(([^)]*)\) AND ID > ('?\d+'?) AND post_content LIKE '%href=%' ORDER BY ID ASC LIMIT ('?\d+'?)/i", $q, $m ) ) {
+                        $types = array_map( function ( $t ) { return trim( $t, "' " ); }, explode( ',', $m[1] ) );
+                        $after = (int) str_replace( "'", '', $m[2] );
+                        $limit = (int) str_replace( "'", '', $m[3] );
+                        $out   = array();
+                        foreach ( (array) $GLOBALS['posts'] as $p ) {
+                                $id = (int) $p['id'];
+                                if ( $id <= $after ) {
+                                        continue;
+                                }
+                                if ( ! in_array( (string) ( $p['type'] ?? 'page' ), $types, true ) ) {
+                                        continue;
+                                }
+                                if ( ( $p['status'] ?? 'publish' ) !== 'publish' ) {
+                                        continue;
+                                }
+                                if ( false === stripos( (string) ( $GLOBALS['post_content'][ $id ] ?? '' ), 'href=' ) ) {
+                                        continue;
+                                }
+                                $out[] = $id;
+                        }
+                        sort( $out );
+                        return array_slice( $out, 0, $limit );
+                }
+                // 2.1.23 — AEO product-score cursor: published products after the
+                // cursor, ID order, bounded LIMIT.
+                if ( preg_match( "/SELECT ID FROM \S*posts WHERE post_status = 'publish' AND post_type = 'product' AND ID > ('?\d+'?) ORDER BY ID ASC LIMIT ('?\d+'?)/i", $q, $m ) ) {
+                        $after = (int) str_replace( "'", '', $m[1] );
+                        $limit = (int) str_replace( "'", '', $m[2] );
+                        $out   = array();
+                        foreach ( (array) $GLOBALS['posts'] as $p ) {
+                                $id = (int) $p['id'];
+                                if ( $id <= $after || 'product' !== (string) ( $p['type'] ?? '' ) ) {
+                                        continue;
+                                }
+                                if ( ( $p['status'] ?? 'publish' ) !== 'publish' ) {
+                                        continue;
+                                }
+                                $out[] = $id;
+                        }
+                        sort( $out );
+                        return array_slice( $out, 0, $limit );
+                }
                 return array();
         }
         public function get_row( $q = '', $m = null ) {
@@ -1246,6 +1291,14 @@ function wp_insert_attachment( $a, $f = '', $p = 0 ) { return 1; }
 function wp_update_attachment_metadata( $id, $m ) { return true; }
 function update_post_meta( $id, $k, $v ) {
         $GLOBALS['post_meta'][ (int) $id ][ $k ] = $v;
+        return true;
+}
+
+/** 2.1.23 — Haa_Seo::write retires a stale `_haai_faq` meta this way. */
+function delete_post_meta( $id, $k, $v = null ) {
+        if ( isset( $GLOBALS['post_meta'][ (int) $id ] ) ) {
+                unset( $GLOBALS['post_meta'][ (int) $id ][ $k ] );
+        }
         return true;
 }
 
