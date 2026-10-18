@@ -388,7 +388,10 @@ class Fake_WPDB {
                 $rows = $this->rows_for( $q );
 
                 // Equality lookups the D4 modules make: guid / title_hash / item_key / id.
-                foreach ( array( 'id', 'guid', 'title_hash', 'item_key' ) as $col ) {
+                // 2.1.22 — cache_key joins the list: Haa_DB::get_cached() reads the
+                // answer cache through this path (expires is written far-future by
+                // the suites, so the WHERE clause's time comparison is not under test).
+                foreach ( array( 'id', 'guid', 'title_hash', 'item_key', 'cache_key' ) as $col ) {
                         if ( preg_match( "/WHERE $col = '?([^']*)'?/i", $q, $m ) ) {
                                 $want = stripslashes( (string) $m[1] );
                                 foreach ( $rows as $r ) {
@@ -427,6 +430,7 @@ class Fake_WPDB {
                 if ( false !== strpos( $name, 'news_items' ) ) { return 'news_items'; }
                 if ( false !== strpos( $name, 'prog_items' ) )  { return 'prog_items'; }
                 if ( false !== strpos( $name, 'haai_chunks' ) ) { return 'chunk_rows'; }
+                if ( false !== strpos( $name, 'haai_cache' ) )  { return 'cache_rows'; }
                 return 'topics';
         }
 
@@ -438,6 +442,16 @@ class Fake_WPDB {
                 $this->set_rows( $table, $rows );
                 $this->insert_id = (int) $row['id'];
                 return 1;
+        }
+
+        /**
+         * 2.1.22 — the chat answer cache (Haa_DB::set_cached) uses REPLACE.
+         * Same in-memory semantics as INSERT here: one more row in the table's
+         * store; the flush test reads through get_row() so the duplicate-row
+         * difference never matters (first match wins, same as LIMIT 1).
+         */
+        public function replace( $table, $data, $fmt = array() ) {
+                return $this->insert( $table, $data, $fmt );
         }
 
         public function update( $table, $data, $where, $fm = array(), $wm = array() ) {
@@ -508,8 +522,9 @@ class Fake_WPDB {
         // Haa_DB::create() asks for this before handing SQL to dbDelta().
         public function get_charset_collate() { return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'; }
         public function query( $q ) {
+                $q = (string) $q;
                 // Haa_Crawl::wipe() deletes crawl slots wholesale.
-                if ( preg_match( '/DELETE\s+.*?haai_chunks.*?WHERE\s+post_id\s+<\s*0/is', (string) $q ) ) {
+                if ( preg_match( '/DELETE\s+.*?haai_chunks.*?WHERE\s+post_id\s+<\s*0/is', $q ) ) {
                         $kept    = array();
                         $removed = 0;
                         foreach ( (array) $GLOBALS['chunk_rows'] as $row ) {
@@ -518,6 +533,13 @@ class Fake_WPDB {
                         }
                         $GLOBALS['chunk_rows'] = $kept;
                         return $removed;
+                }
+                // 2.1.22 — Haa_DB::flush_cache() truncates the answer cache; the
+                // finish-of-crawl flush is exactly what suite 33 asserts on.
+                if ( preg_match( '/TRUNCATE(?:\s+TABLE)?\s+\S*haai_cache/i', $q ) ) {
+                        $n    = count( (array) ( $GLOBALS['db']['cache_rows'] ?? array() ) );
+                        $GLOBALS['db']['cache_rows'] = array();
+                        return $n;
                 }
                 return 0;
         }

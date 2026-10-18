@@ -672,6 +672,14 @@ final class Haa_Crawl {
                         // 2.1.21 — the queue drained; the minute cron has no business
                         // waking up for an idle crawl.
                         wp_clear_scheduled_hook( self::CRON_HOOK );
+                        // 2.1.22 — the knowledge changed, so every cached answer keyed
+                        // to the OLD (possibly empty) context dies now, not at TTL.
+                        // store_page/store_db_page already flush per stored page; this
+                        // one covers the worst run: a crawl that stored NOTHING (every
+                        // fetch failed / empty sources) — exactly the run whose stale
+                        // «اطلاعاتی نداریم» answers would otherwise outlive it and be
+                        // re-served for up to cache_ttl seconds.
+                        Haa_DB::flush_cache();
                 }
                 self::save_state( $state );
                 delete_transient( self::LOCK );
@@ -989,6 +997,52 @@ final class Haa_Crawl {
          * =============================================================== */
 
         /**
+         * 2.1.22 — permalink of the page that plays the contact role: a title
+         * containing «تماس»/«ارتباط» first, then the usual contact slugs. Two
+         * bounded ID-only queries, worst case; zero HTTP. One definition shared
+         * by the contact-chunk writer (crawl) and the chat's deterministic
+         * contact reply, so the crawl's stored link and the chat's live lookup
+         * can never disagree.
+         *
+         * @return string Permalink, '' when no such page exists.
+         */
+        public static function find_contact_page_url() {
+                $titles = get_posts(
+                        array(
+                                'post_type'        => 'page',
+                                'post_status'      => 'publish',
+                                'posts_per_page'   => 10,
+                                's'                => 'تماس',
+                                'fields'           => 'ids',
+                                'no_found_rows'    => true,
+                                'suppress_filters' => true,
+                        )
+                );
+                foreach ( (array) $titles as $pid ) {
+                        if ( false !== mb_strpos( (string) get_the_title( (int) $pid ), 'تماس' ) || false !== mb_strpos( (string) get_the_title( (int) $pid ), 'ارتباط' ) ) {
+                                $link = get_permalink( (int) $pid );
+                                return is_string( $link ) ? $link : '';
+                        }
+                }
+                $by_slug = get_posts(
+                        array(
+                                'post_type'        => 'page',
+                                'post_status'      => 'publish',
+                                'posts_per_page'   => 1,
+                                'post_name__in'    => array( 'contact', 'contact-us', 'contactus', 'tamas', 'temas' ),
+                                'fields'           => 'ids',
+                                'no_found_rows'    => true,
+                                'suppress_filters' => true,
+                        )
+                );
+                if ( $by_slug ) {
+                        $link = get_permalink( (int) $by_slug[0] );
+                        return is_string( $link ) ? $link : '';
+                }
+                return '';
+        }
+
+        /**
          * Pull every contact signal out of a fetched page and merge it into the
          * run's fact lines. Persian AND Latin digits are handled, and the anchor
          * that points at the contact page is remembered so the bot can finally
@@ -1014,6 +1068,18 @@ final class Haa_Crawl {
                 }
                 if ( preg_match_all( '/\b0\d{2,3}[- ]?\d{8}\b/u', $flat, $m ) ) {
                         $found[] = array( 'phone', $m[0] );
+                }
+                // 2.1.22 — click-to-call links. Elementor/theme contact buttons put
+                // the number in href="tel:…"/href="sms:…" attributes ONLY; those
+                // attributes never survive html_text(), which is exactly why a shop
+                // whose phone lives in a call button got a contact chunk with its
+                // Instagram and Telegram but NO phone line («شماره تلفن؟» stayed
+                // unanswerable). The tel: value is the site's OWN declared number —
+                // the highest-quality phone signal a page can carry. SVG/JSON
+                // coordinate noise is why the raw-HTML body is deliberately NOT
+                // scanned for bare number patterns; tel:/sms: are explicit, bounded.
+                if ( preg_match_all( '#(?:href|data-href|data-tel)\s*=\s*["\'](?:tel|sms):([^"\']+)#i', $html, $m ) ) {
+                        $found[] = array( 'phone', $m[1] );
                 }
 
                 // E-mail (never an asset path).
@@ -1060,8 +1126,16 @@ final class Haa_Crawl {
                         foreach ( array_slice( array_values( array_unique( (array) $pair[1] ) ), 0, 4 ) as $val ) {
                                 // Phones are stored separator-free so «۰۱۳-۳۳۲۲۱۱۰۰» and
                                 // «01333221100» land on the same normalized value.
+                                // 2.1.22 — the international forms fold onto the local one
+                                // too: a number advertised as tel:+98912… AND written
+                                // «۰۹۱۲…» in the footer text is ONE phone, not two.
                                 if ( 'phone' === $pair[0] ) {
                                         $val = preg_replace( '/[^0-9+]/', '', (string) $val );
+                                        if ( 0 === strpos( $val, '+98' ) && 13 === strlen( $val ) ) {
+                                                $val = '0' . substr( $val, 3 );
+                                        } elseif ( 0 === strpos( $val, '98' ) && 12 === strlen( $val ) && '+' !== $val[0] ) {
+                                                $val = '0' . substr( $val, 2 );
+                                        }
                                 }
                                 if ( '' !== $val ) {
                                         $state['facts'][] = $pair[0] . ':' . $val;
@@ -1115,6 +1189,17 @@ final class Haa_Crawl {
 
                 $phones = array_slice( array_values( array_unique( $phones ) ), 0, 6 );
                 $emails = array_slice( array_values( array_unique( $emails ) ), 0, 3 );
+
+                // 2.1.22 — the contact-page link normally comes from the homepage's
+                // rendered anchors. When that fetch failed (self-requests being
+                // firewalled is common on shared hosts) the chunk kept every OTHER
+                // channel but the one link the visitor actually asks for. The
+                // contact page is a real WP object though — its permalink is one
+                // bounded DB query away, no HTTP needed.
+                if ( '' === $contact_page ) {
+                        $contact_page = self::find_contact_page_url();
+                }
+
                 if ( ! $phones && ! $emails && '' === $contact_page && ! array_filter( $social ) ) {
                         return 0;
                 }

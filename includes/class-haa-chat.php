@@ -299,7 +299,23 @@ final class Haa_Chat {
                 $filled = '' !== $ch['whatsapp'] . $ch['telegram'] . $ch['phone'] . $ch['instagram'] . $ch['page'];
                 $text   = Haa_Search::normalize_text( (string) $message );
                 $want   = (bool) preg_match(
-                        '/واتس|whats|تلگرام|telegram|اینستا|insta|تماس با ما|شماره تماس|شماره تلفن|صفحه تماس|های? ارتباطی|وصل.{0,12}(پشتیبانی|کارشناس|اپراتور)|(پشتیبانی|کارشناس|اپراتور).{0,12}(انسانی|واقعی|وصل)/u',
+                        // 2.1.22 — word-bounded contact nouns, not phrases. The old
+                        // pattern keyed on «های ارتباطی» (plural) and full phrases, so
+                        // the shop owner's actual wording «راه ارتباطی کدوم صفحات
+                        // هست؟» (SINGULAR راه) sailed past the deterministic answer
+                        // into the model, which apologised it had no data. Now any
+                        // real contact noun fires the channel answer: تماس (چطوری
+                        // تماس بگیرم), singular راه ارتباطی, تلفن/موبایل, ایمیل,
+                        // پشتیبانی/کارشناس/اپراتور (میخوام با یه کارشناس حرف بزنم).
+                        // Boundaries keep compound words out (کارشناسی ارشد, آدرس
+                        // صفحه = a URL request, not a contact ask).
+                        '/واتس|whats|تلگرام|telegram|اینستا|insta'
+                        . '|(?<!\p{L})(تماس|ارتباط با ما|ارتباطی|راه ارتباطی)(?!\p{L})'
+                        . '|(?<!\p{L})(تلفن|موبایل|شماره تماس|شماره تلفن|شماره موبایل)(?!\p{L})'
+                        . '|(?<!\p{L})(ایمیل|e ?-?mail|صفحه تماس|تماس با ما)(?!\p{L})'
+                        . '|(?<!\p{L})(پشتیبانی|کارشناس|اپراتور)(?!\p{L})'
+                        . '|آدرس (فروشگاه|فیزیکی|مغازه|حضوری)|نشانی فروشگاه'
+                        . '|وصل.{0,12}(پشتیبانی|کارشناس|اپراتور)|(پشتیبانی|کارشناس|اپراتور).{0,12}(انسانی|واقعی|وصل)/u',
                         $text
                 );
                 if ( ! $want ) {
@@ -409,43 +425,15 @@ final class Haa_Chat {
 
         /**
          * A real WP page that plays the contact role, even when neither settings
-         * nor the crawler recorded it: title match first («تماس با ما»,
-         * «ارتباط با ما»), then the usual slugs. Two bounded queries, worst case.
+         * nor the crawler recorded it. 2.1.22 — the lookup itself moved to
+         * Haa_Crawl::find_contact_page_url() so the crawl's stored contact chunk
+         * and this live answer share ONE definition (title match first, then
+         * the usual slugs) and can never disagree.
          *
          * @return string Permalink, '' when no such page exists.
          */
         private static function find_contact_page() {
-                $titles = get_posts(
-                        array(
-                                'post_type'        => 'page',
-                                'post_status'      => 'publish',
-                                'posts_per_page'   => 10,
-                                's'                => 'تماس',
-                                'fields'           => 'ids',
-                                'no_found_rows'    => true,
-                                'suppress_filters' => true,
-                        )
-                );
-                foreach ( (array) $titles as $pid ) {
-                        if ( false !== mb_strpos( (string) get_the_title( (int) $pid ), 'تماس' ) || false !== mb_strpos( (string) get_the_title( (int) $pid ), 'ارتباط' ) ) {
-                                return (string) get_permalink( (int) $pid );
-                        }
-                }
-                $by_slug = get_posts(
-                        array(
-                                'post_type'        => 'page',
-                                'post_status'      => 'publish',
-                                'posts_per_page'   => 1,
-                                'post_name__in'    => array( 'contact', 'contact-us', 'contactus', 'tamas', 'temas' ),
-                                'fields'           => 'ids',
-                                'no_found_rows'    => true,
-                                'suppress_filters' => true,
-                        )
-                );
-                if ( $by_slug ) {
-                        return (string) get_permalink( (int) $by_slug[0] );
-                }
-                return '';
+                return Haa_Crawl::find_contact_page_url();
         }
 
         /**
