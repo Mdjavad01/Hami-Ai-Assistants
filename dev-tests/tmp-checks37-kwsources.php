@@ -520,5 +520,109 @@ ok( 'K: the add handler tells «already queued» apart from a failed write',
         && false !== strpos( $aw_src_k, 'همهٔ انتخاب‌ها از قبل در برنامه‌ریز بودند' )
         && false !== strpos( $aw_src_k, 'افزودن به برنامه‌ریز ممکن نشد' ), '' );
 
-echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 81 CHECKS GREEN\n" );
+// ---------------------------------------------------------------------------
+// L. 2.1.34 — branding, the «نتایج جست‌وجو» export, and the taught page order.
+//     Live report: the Excel file was named mirza-* («میرزا کیه؟»), the
+//     content-plan sheet was empty (the planner WAS empty — legitimate, but
+//     it read as a broken export), and the article-writer page order was
+//     jumbled («خیلی درهم برهمه» — the write form greeted before research).
+// ---------------------------------------------------------------------------
+$aw_l = (string) file_get_contents( dirname( __DIR__ ) . '/modules/class-haa-module-article-writer.php' );
+$kw_l = (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-haa-keywords.php' );
+
+// L1. the old draft name is gone from the WHOLE plugin source (code + docs).
+$mirza_hits = array();
+$it_l = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( dirname( __DIR__ ), FilesystemIterator::SKIP_DOTS ) );
+foreach ( $it_l as $f_l ) {
+        if ( $f_l->isDir() ) { continue; }
+        $p_l = $f_l->getPathname();
+        if ( false !== strpos( $p_l, '/.git' ) || false !== strpos( $p_l, '/dev-tests/' ) || false !== strpos( $p_l, '/node_modules/' ) || false !== strpos( $p_l, '/shots/' ) ) { continue; }
+        if ( ! preg_match( '/\.(php|md|js|css|txt|pot|json)$/', $p_l ) ) { continue; }
+        if ( false !== stripos( (string) file_get_contents( $p_l ), 'mirza' ) ) { $mirza_hits[] = basename( $p_l ); }
+}
+ok( 'L: the old draft name «mirza» is gone from the whole plugin', 0 === count( $mirza_hits ), implode( ',', $mirza_hits ) );
+
+// L2. every export filename carries the plugin brand.
+foreach ( array( 'hami-keyword-research-', 'hami-content-plan-', 'hami-misses-', 'hami-search-console-' ) as $n_l ) {
+        ok( "L: export filename «{$n_l}» ships", false !== strpos( $aw_l, "'" . $n_l ), '' );
+}
+
+// L3. the fourth export refuses an empty state with guidance, not an empty sheet.
+ok( 'L: the research export is gated by last_research()',
+        false !== strpos( $aw_l, 'if ( ! Haa_Keywords::last_research() )' ), '' );
+ok( 'L: the empty-state click explains itself (wp_die guidance)',
+        false !== strpos( $aw_l, 'هنوز جست‌وجویی ثبت نشده' ), '' );
+
+// L4. the storage contract in the engine.
+ok( 'L: research() stores the delivered panel; last_research()/csv_research() ship',
+        false !== strpos( $kw_l, "'haai_kw_last_research'" )
+        && false !== strpos( $kw_l, 'public static function last_research()' )
+        && false !== strpos( $kw_l, 'public static function csv_research()' ), '' );
+
+// L5. the page order IS the work order: research → planner → write.
+$rs_start = strpos( $aw_l, 'public function render_screen()' );
+$rs_end   = strpos( $aw_l, 'private function render_topics_form()' );
+ok( 'L: render_screen body sits before the extracted topics form', false !== $rs_start && false !== $rs_end && $rs_end > $rs_start, '' );
+preg_match_all( '/\\$this->render_(\\w+)\\(\\)/', (string) substr( $aw_l, (int) $rs_start, (int) $rs_end - (int) $rs_start ), $m_l );
+ok( 'L: the page order is keywords → planner → topics → research → review → refresh → profile',
+        array( 'keywords_panel', 'planner_panel', 'topics_form', 'research_panel', 'review_panel', 'refresh_panel', 'profile_panel' ) === $m_l[1],
+        implode( ',', (array) $m_l[1] ) );
+
+// L6. the article form proposes by itself: pre-fill + honest note + guide.
+ok( 'L: the topics form pre-fills from planner suggestions',
+        false !== strpos( $aw_l, "Haa_Planner::rows( 'suggested', 8 )" ) && false !== strpos( $aw_l, 'esc_textarea( implode' ), '' );
+ok( 'L: the pre-fill says where its rows came from',
+        false !== strpos( $aw_l, 'این موضوع‌ها از برنامه‌ریز پر شده‌اند' ), '' );
+ok( 'L: the page ships the three-step guide strip',
+        false !== strpos( $aw_l, 'مسیر پیشنهادی' ), '' );
+ok( 'L: the article form is a titled panel («ساخت مقاله»)',
+        false !== strpos( $aw_l, 'ساخت مقاله' ), '' );
+
+// L7. the content-plan button cannot produce an empty sheet anymore.
+ok( 'L: the content-plan export is disabled while the planner is empty',
+        false !== strpos( $aw_l, "\$planner_has = (bool) Haa_Planner::rows( '', 1 )" ) && false !== strpos( $aw_l, 'disabled( ! $planner_has )' ), '' );
+ok( 'L: the tools row explains where each export comes from',
+        false !== strpos( $aw_l, 'همان فهرستی است که آخرین «پیدا کن» ساخت' ), '' );
+
+// L8. functional: a research run records exactly what it delivered.
+unset( $GLOBALS['opts']['haai_kw_last_research'] );
+ok( 'L: nothing stored yet → last_research() is empty', '' === Haa_Keywords::last_research(), '' );
+$r_l8 = Haa_Keywords::research( 'برندینگ خروجی', microtime( true ) - 10000 );
+$last_l = Haa_Keywords::last_research();
+ok( 'L: research() records the last panel (seed + rows)',
+        is_array( $last_l ) && 'برندینگ خروجی' === $last_l['seed'] && ! empty( $last_l['rows'] ), '' );
+
+// L9. the CSV mirrors the panel: one data row per row, Persian labels.
+$csv_l = Haa_Keywords::csv_research();
+$lines_l = array_values( array_filter( explode( "\n", $csv_l ), 'strlen' ) );
+ok( 'L: csv_research() header mirrors the panel columns',
+        false !== strpos( $csv_l, 'عبارت' ) && false !== strpos( $csv_l, 'منبع' ) && false !== strpos( $csv_l, 'پوشش همین سایت' ), '' );
+ok( 'L: csv_research() has a data row per stored row',
+        count( $lines_l ) === 1 + count( (array) $last_l['rows'] ), 'lines=' . count( $lines_l ) . ' rows=' . count( (array) $last_l['rows'] ) );
+ok( 'L: planner rows carry their Persian source label in the CSV',
+        false !== strpos( $csv_l, 'برنامه‌ریز' ) && false !== strpos( $csv_l, 'بی‌جواب' ), '' );
+
+// L10. the word map is the panel's own vocabulary (SRC/INT/COV).
+update_option( 'haai_kw_last_research', array(
+        'seed' => 'آزمون',
+        'time' => time(),
+        'rows' => array(
+                array( 'keyword' => 'فرش شست‌وشو', 'source' => 'suggest', 'intent' => 'informational', 'ai' => true, 'coverage' => array( 'state' => 'has' ), 'note' => 'نمایش: ۱' ),
+                array( 'keyword' => 'خرید فرش نایین', 'source' => 'ai', 'intent' => 'transactional', 'ai' => false, 'coverage' => array( 'state' => 'half' ), 'note' => '' ),
+        ),
+) );
+$csv_l2 = Haa_Keywords::csv_research();
+ok( 'L: source/intent/coverage/ai map to the panel words',
+        false !== strpos( $csv_l2, 'ساجست کاربران' ) && false !== strpos( $csv_l2, 'جواب دارد' ) && false !== strpos( $csv_l2, 'بله' )
+        && false !== strpos( $csv_l2, 'مدل' ) && false !== strpos( $csv_l2, 'نیمه' ) && false !== strpos( $csv_l2, 'تراکنشی' ), '' );
+
+// L11. the nothing-stored states stay honest.
+update_option( 'haai_kw_last_research', '' );
+ok( 'L: an emptied option reads as nothing stored', '' === Haa_Keywords::last_research(), '' );
+$csv_l0 = Haa_Keywords::csv_research();
+$lines_l0 = array_values( array_filter( explode( "\n", $csv_l0 ), 'strlen' ) );
+ok( 'L: csv_research() with nothing stored is header-only',
+        1 === count( $lines_l0 ) && false !== strpos( $csv_l0, 'پوشش همین سایت' ), '' );
+
+echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 104 CHECKS GREEN\n" );
 exit( $fail ? 1 : 0 );

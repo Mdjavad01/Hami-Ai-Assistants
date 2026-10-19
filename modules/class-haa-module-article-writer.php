@@ -219,18 +219,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 if ( ! current_user_can( 'manage_options' ) ) {
                         return;
                 }
-                $queue  = Haa_Queue::stats();
-                $recent = get_posts(
-                        array(
-                                'post_type'      => 'post',
-                                'post_status'    => array( 'draft', 'pending', 'publish' ),
-                                'posts_per_page' => 8,
-                                'meta_key'       => '_haai_generated',
-                                'meta_value'     => '1',
-                                'orderby'        => 'date',
-                                'order'          => 'DESC',
-                        )
-                );
+                $queue = Haa_Queue::stats();
                 ?>
                 <div class="wrap haai-wrap">
                         <?php Haa_Admin::page_header( __( 'مقاله‌نویس', 'hami-ai-assistant' ) ); ?>
@@ -265,6 +254,62 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 </div>
                         </div>
 
+                        <div class="haai-alert haai-alert--info">
+                                <?php esc_html_e( 'مسیر پیشنهادی: ۱) در پنل «پیشنهاد کلمه کلیدی» موضوع را جست‌وجو کنید. ۲) عبارت‌های خوب را تیک بزنید و «افزودن انتخاب‌شده‌ها به برنامه‌ریز» را بزنید. ۳) در «برنامه‌ریز موضوع» یا فرم «ساخت مقاله» موضوع‌ها را به صف بفرستید — صف در پس‌زمینه مقاله می‌سازد.', 'hami-ai-assistant' ); ?>
+                        </div>
+
+                        <?php $this->render_keywords_panel(); ?>
+                        <?php $this->render_planner_panel(); ?>
+                        <?php $this->render_topics_form(); ?>
+                        <?php $this->render_research_panel(); ?>
+                        <?php $this->render_review_panel(); ?>
+                        <?php $this->render_refresh_panel(); ?>
+                        <?php $this->render_profile_panel(); ?>
+                </div>
+                <?php
+        }
+
+        /**
+         * D1 panel: the article queue form.
+         *
+         * 2.1.34 moved it AFTER the keyword panel and the planner, so the page
+         * follows the real work order (research → planner → write). The old
+         * top-of-page blank textarea greeted the admin with «write articles»
+         * before any research existed, which read as jumbled (live report:
+         * «خیلی درهم برهمه»). The textarea pre-fills itself from the planner's
+         * suggested/approved topics, so the form proposes what to write and
+         * the admin never faces an empty box.
+         *
+         * @return void
+         */
+        private function render_topics_form() {
+                $prefill = array();
+                foreach ( Haa_Planner::rows( 'suggested', 8 ) as $row ) {
+                        $prefill[] = (string) $row['title'];
+                }
+                if ( count( $prefill ) < 8 ) {
+                        foreach ( Haa_Planner::rows( 'approved', 8 - count( $prefill ) ) as $row ) {
+                                $prefill[] = (string) $row['title'];
+                        }
+                }
+                $recent = get_posts(
+                        array(
+                                'post_type'      => 'post',
+                                'post_status'    => array( 'draft', 'pending', 'publish' ),
+                                'posts_per_page' => 8,
+                                'meta_key'       => '_haai_generated',
+                                'meta_value'     => '1',
+                                'orderby'        => 'date',
+                                'order'          => 'DESC',
+                        )
+                );
+                ?>
+                <div class="haai-panel haai-panel--topics">
+                        <h2 class="haai-panel__title"><?php esc_html_e( 'ساخت مقاله', 'hami-ai-assistant' ); ?></h2>
+                        <p class="haai-panel__note">
+                                <?php esc_html_e( 'هر موضوع یک مقاله می‌سازد و پیش‌نویس در بخش «نوشته‌ها» منتظر شما می‌ماند. اگر موضوع آماده ندارید، از پنل «پیشنهاد کلمه کلیدی» بالا شروع کنید: تیک بزنید، به برنامه‌ریز اضافه کنید و بعد همین‌جا به صف بفرستید.', 'hami-ai-assistant' ); ?>
+                        </p>
+
                         <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                 <input type="hidden" name="action" value="haai_aw_queue">
@@ -272,10 +317,12 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <fieldset class="haai-field haai-field--bare">
                                         <legend class="haai-field__legend"><?php esc_html_e( 'موضوع‌ها (هر خط یک مقاله)', 'hami-ai-assistant' ); ?></legend>
                                         <textarea name="topics" rows="8" class="large-text code" required
-                                                placeholder="<?php esc_attr_e( "بهترین کوله پشتی برای دانشجویان\nراهنمای خرید لپ‌تاپ در ۱۴۰۴", 'hami-ai-assistant' ); ?>"></textarea>
-                                        <p class="description">
-                                                <?php esc_html_e( 'هر موضوع یک مقاله می‌سازد. پیش‌نویس‌ها در بخش «نوشته‌ها» منتظر شما می‌مانند.', 'hami-ai-assistant' ); ?>
-                                        </p>
+                                                placeholder="<?php esc_attr_e( "بهترین کوله پشتی برای دانشجویان\nراهنمای خرید لپ‌تاپ در ۱۴۰۴", 'hami-ai-assistant' ); ?>"><?php echo esc_textarea( implode( "\n", $prefill ) ); ?></textarea>
+                                        <?php if ( $prefill ) : ?>
+                                                <p class="description">
+                                                        <?php esc_html_e( 'این موضوع‌ها از برنامه‌ریز پر شده‌اند (پیشنهادهای کلمه‌کلیدی و مدل)؛ هر خط را ویرایش یا حذف کنید و «افزودن به صف» را بزنید.', 'hami-ai-assistant' ); ?>
+                                                </p>
+                                        <?php endif; ?>
                                 </fieldset>
 
                                 <div class="haai-field">
@@ -357,12 +404,6 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                         <p class="haai-empty__hint"><?php esc_html_e( 'بالا چند موضوع بنویسید و «افزودن به صف» را بزنید؛ صف در cron پردازش می‌شود.', 'hami-ai-assistant' ); ?></p>
                                 </div>
                         <?php endif; ?>
-                        <?php $this->render_keywords_panel(); ?>
-                        <?php $this->render_research_panel(); ?>
-                        <?php $this->render_review_panel(); ?>
-                        <?php $this->render_refresh_panel(); ?>
-                        <?php $this->render_planner_panel(); ?>
-                        <?php $this->render_profile_panel(); ?>
                 </div>
                 <?php
         }
@@ -792,9 +833,13 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
          * @return void
          */
         private function render_keywords_panel() {
-                $gsc_rows   = Haa_Keywords::gsc_rows();
-                $misses     = Haa_Misses::top( 15, 30 );
-                $exp_base   = wp_nonce_url( admin_url( 'admin-post.php?action=haai_kw_export' ), 'haai_aw' );
+                $gsc_rows    = Haa_Keywords::gsc_rows();
+                $misses      = Haa_Misses::top( 15, 30 );
+                $exp_base    = wp_nonce_url( admin_url( 'admin-post.php?action=haai_kw_export' ), 'haai_aw' );
+                // 2.1.34: the content-plan export downloads the PLANNER, so it is
+                // disabled until something actually lives there — an empty sheet
+                // read as a broken export (live report: «محتوای بدردبخور نیست»).
+                $planner_has = (bool) Haa_Planner::rows( '', 1 );
                 ?>
                 <div class="haai-panel haai-panel--keywords" id="haai-kw">
                         <h2 class="haai-panel__title">
@@ -849,10 +894,14 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         </form>
 
                         <div class="haai-kw__tools">
-                                <a class="button" href="<?php echo esc_url( add_query_arg( 'what', 'planner', $exp_base ) ); ?>"><?php esc_html_e( 'خروجی اکسل: برنامهٔ محتوا', 'hami-ai-assistant' ); ?></a>
+                                <a class="button" href="<?php echo esc_url( add_query_arg( 'what', 'research', $exp_base ) ); ?>"><?php esc_html_e( 'خروجی اکسل: نتایج جست‌وجو', 'hami-ai-assistant' ); ?></a>
+                                <a class="button" href="<?php echo esc_url( add_query_arg( 'what', 'planner', $exp_base ) ); ?>" <?php disabled( ! $planner_has ); ?>><?php esc_html_e( 'خروجی اکسل: برنامهٔ محتوا', 'hami-ai-assistant' ); ?></a>
                                 <a class="button" href="<?php echo esc_url( add_query_arg( 'what', 'misses', $exp_base ) ); ?>"><?php esc_html_e( 'خروجی اکسل: بی‌نتیجه‌ها', 'hami-ai-assistant' ); ?></a>
                                 <a class="button" href="<?php echo esc_url( add_query_arg( 'what', 'gsc', $exp_base ) ); ?>" <?php disabled( ! $gsc_rows ); ?>><?php esc_html_e( 'خروجی اکسل: سرچ‌کنسول', 'hami-ai-assistant' ); ?></a>
                         </div>
+                        <p class="haai-field__hint">
+                                <?php esc_html_e( '«نتایج جست‌وجو» همان فهرستی است که آخرین «پیدا کن» ساخت (منبع، نیت و پوشش هر عبارت). «برنامهٔ محتوا» فقط موضوع‌های افزوده‌شده به برنامه‌ریز را می‌دهد — تا وقتی چیزی به برنامه‌ریز اضافه نکنید، خاموش است.', 'hami-ai-assistant' ); ?>
+                        </p>
 
                         <form class="haai-kw__upload" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
@@ -1787,10 +1836,15 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
         }
 
         /**
-         * GET: Excel-friendly CSV export for the keyword tool's three lists.
+         * GET: Excel-friendly CSV export for the keyword tool's four lists.
          *
          * The BOM that send_csv() prepends is what makes Excel open Persian
          * text correctly; the builder only writes RFC-safe escaped cells.
+         * 2.1.34: filenames carry the plugin brand (a leftover draft name the
+         * admin rightly flagged: «میرزا کیه؟»). A fourth export
+         * (`research`) hands back exactly what the panel last showed; the
+         * planner CSV is legitimately empty until topics are queued, and an
+         * empty sheet read as «useless export» (2.1.33 live report).
          *
          * @return void
          */
@@ -1799,14 +1853,20 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
 
                 $what = isset( $_GET['what'] ) ? sanitize_key( (string) $_GET['what'] ) : 'planner';
 
+                if ( 'research' === $what ) {
+                        if ( ! Haa_Keywords::last_research() ) {
+                                wp_die( __( 'هنوز جست‌وجویی ثبت نشده؛ اول در پنل «پیشنهاد کلمه کلیدی» یک موضوع بنویسید و «پیدا کن» را بزنید، بعد این خروجی را بگیرید.', 'hami-ai-assistant' ) );
+                        }
+                        Haa_Util::send_csv( 'hami-keyword-research-' . gmdate( 'Y-m-d' ) . '.csv', Haa_Keywords::csv_research() );
+                }
                 if ( 'misses' === $what ) {
-                        Haa_Util::send_csv( 'mirza-misses-' . gmdate( 'Y-m-d' ) . '.csv', Haa_Keywords::csv_misses() );
+                        Haa_Util::send_csv( 'hami-misses-' . gmdate( 'Y-m-d' ) . '.csv', Haa_Keywords::csv_misses() );
                 }
                 if ( 'gsc' === $what ) {
-                        Haa_Util::send_csv( 'mirza-search-console-' . gmdate( 'Y-m-d' ) . '.csv', Haa_Keywords::csv_gsc() );
+                        Haa_Util::send_csv( 'hami-search-console-' . gmdate( 'Y-m-d' ) . '.csv', Haa_Keywords::csv_gsc() );
                 }
 
-                Haa_Util::send_csv( 'mirza-content-plan-' . gmdate( 'Y-m-d' ) . '.csv', Haa_Keywords::csv_planner( '' ) );
+                Haa_Util::send_csv( 'hami-content-plan-' . gmdate( 'Y-m-d' ) . '.csv', Haa_Keywords::csv_planner( '' ) );
         }
 
         /**

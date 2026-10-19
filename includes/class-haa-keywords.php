@@ -438,6 +438,22 @@ final class Haa_Keywords {
                         $diag[] = __( 'برنامه‌ریز: 0 موضوع پیشنهادی — از فهرست بالا تیک بزنید و «افزودن انتخاب‌شده‌ها به برنامه‌ریز» را بزنید؛ در جست‌وجوی بعدی همان‌ها با نشان «برنامه‌ریز» اینجا شمرده می‌شوند.', 'hami-ai-assistant' );
                 }
 
+                // 2.1.34: keep exactly what this call DELIVERED in an option, so
+                // the «خروجی اکسل: نتایج جست‌وجو» button can hand the admin the
+                // list they SAW. The planner export is legitimately empty until
+                // topics are queued — an empty sheet read as a broken export
+                // (2.1.33 live report). Stored without autoload; the early
+                // return for a too-short seed never reaches this.
+                update_option(
+                        'haai_kw_last_research',
+                        array(
+                                'seed' => $seed,
+                                'time' => time(),
+                                'rows' => $rows,
+                        ),
+                        false
+                );
+
                 return array(
                         'ok'    => true,
                         // 2.1.31: the panel headline is for a truly empty panel only.
@@ -1321,6 +1337,78 @@ final class Haa_Keywords {
                                                 (int) $g['clicks'],
                                                 (int) $g['impressions'],
                                                 (string) $g['position'],
+                                        )
+                                )
+                        );
+                }
+                return implode( "\n", $out ) . "\n";
+        }
+
+        /**
+         * The last delivered research panel (2.1.34).
+         *
+         * research() stores the exact rows it rendered, so the Excel export
+         * can hand the admin the list they SAW — the planner CSV stays empty
+         * until topics are queued, which read as a useless export (2.1.33
+         * live report).
+         *
+         * @return array|'' array{seed:string,time:int,rows:array} or '' when nothing stored yet.
+         */
+        public static function last_research() {
+                $last = get_option( 'haai_kw_last_research', '' );
+                return ( is_array( $last ) && ! empty( $last['rows'] ) ) ? $last : '';
+        }
+
+        /**
+         * The last research panel as an Excel-friendly CSV.
+         *
+         * Column words mirror the panel itself (the admin.js SRC/INT/COV
+         * labels), so the file reads like the screen it came from. The
+         * handler gates the nothing-stored-yet case with a Persian
+         * explanation — an empty download would repeat the same confusion.
+         *
+         * @return string CSV body.
+         */
+        public static function csv_research() {
+                $head = array( 'عبارت', 'منبع', 'نیت', 'مناسب پاسخ هوش مصنوعی', 'پوشش همین سایت', 'توضیح' );
+                $out  = array( implode( ',', array_map( 'Haa_Util::csv_cell', $head ) ) );
+
+                $last = self::last_research();
+                if ( ! $last ) {
+                        return implode( "\n", $out ) . "\n";
+                }
+
+                // Same words the panel shows for each source/coverage state.
+                $src = array(
+                        'suggest'  => __( 'ساجست کاربران', 'hami-ai-assistant' ),
+                        'wiki'     => __( 'ویکی‌پدیا', 'hami-ai-assistant' ),
+                        'serp'     => __( 'نتایج جست‌وجو', 'hami-ai-assistant' ),
+                        'snapshot' => __( 'تحلیل رقبا', 'hami-ai-assistant' ),
+                        'ai'       => __( 'مدل', 'hami-ai-assistant' ),
+                        'local'    => __( 'پیشنهاد خودکار', 'hami-ai-assistant' ),
+                        'planner'  => __( 'برنامه‌ریز', 'hami-ai-assistant' ),
+                        'misses'   => __( 'بی‌نتیجه', 'hami-ai-assistant' ),
+                        'gsc'      => __( 'سرچ‌کنسول', 'hami-ai-assistant' ),
+                );
+                $cov = array(
+                        'has'  => __( 'جواب دارد', 'hami-ai-assistant' ),
+                        'half' => __( 'نیمه', 'hami-ai-assistant' ),
+                        'none' => __( 'بی‌جواب', 'hami-ai-assistant' ),
+                );
+
+                foreach ( (array) $last['rows'] as $r ) {
+                        $state  = (string) ( $r['coverage']['state'] ?? 'none' );
+                        $out[] = implode(
+                                ',',
+                                array_map(
+                                        'Haa_Util::csv_cell',
+                                        array(
+                                                (string) $r['keyword'],
+                                                (string) ( $src[ (string) $r['source'] ] ?? (string) $r['source'] ),
+                                                Haa_Planner::intent_label( (string) $r['intent'] ),
+                                                ! empty( $r['ai'] ) ? __( 'بله', 'hami-ai-assistant' ) : __( '—', 'hami-ai-assistant' ),
+                                                (string) ( $cov[ $state ] ?? $state ),
+                                                (string) ( $r['note'] ?? '' ),
                                         )
                                 )
                         );
