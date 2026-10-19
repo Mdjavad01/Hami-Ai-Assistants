@@ -444,5 +444,81 @@ $js_min_src = (string) file_get_contents( dirname( __DIR__ ) . '/assets/js/admin
 ok( 'J: admin.min.js carries the same retry contract',
         false !== strpos( $js_min_src, 'netRetries' ) && false !== strpos( $js_min_src, 'ارتباط با سرور قطع شد' ), '' );
 
-echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 70 CHECKS GREEN\n" );
+echo "\n=== K. 2.1.33 — the planner loop is honest (count, zero-state, dups) ===\n";
+// Live report on 2.1.32: the panel said «برنامه‌ریز: 0 موضوع پیشنهادی» right
+// after the admin had queued selections. The count came from the same capped
+// rows('suggested', 10) loop that renders the display rows, and the add
+// handler flattened duplicates and failures into «0 موضوع از N کلیدواژه
+// اضافه شد». Locked here: the diag reads the UNCAPPED status histogram, the
+// zero state teaches the tick→button→re-search loop, the display stays
+// capped at 10 rows, and the add notice tells «already queued» apart from
+// «failed».
+
+// K1. zero suggested topics → the diag line teaches the loop.
+$GLOBALS['db']['topics'] = array();
+$r_k1    = Haa_Keywords::research( 'حلقه برنامه‌ریز', microtime( true ) - 10000 );
+$diag_k1 = implode( ' | ', (array) ( $r_k1['diag'] ?? array() ) );
+ok( 'K: zero suggested topics → the diag line teaches the tick→button loop',
+        false !== strpos( $diag_k1, 'برنامه‌ریز: 0 موضوع پیشنهادی' )
+        && false !== strpos( $diag_k1, 'افزودن انتخاب‌شده‌ها به برنامه‌ریز' ), '' );
+
+// K2. the panel's exact insert shape → the next research counts and lists them.
+Haa_Planner::insert( array( 'title' => 'آموزش فرش دستباف با قلاب', 'keyword' => 'آموزش فرش دستباف با قلاب', 'intent' => Haa_Keywords::guess_intent( 'آموزش فرش دستباف با قلاب' ), 'reason' => 'از پنل پیشنهاد کلمه کلیدی.', 'source' => 'keyword', 'priority' => 5 ) );
+Haa_Planner::insert( array( 'title' => 'قیمت فرش دستباف نایین', 'keyword' => 'قیمت فرش دستباف نایین', 'intent' => Haa_Keywords::guess_intent( 'قیمت فرش دستباف نایین' ), 'reason' => 'از پنل پیشنهاد کلمه کلیدی.', 'source' => 'keyword', 'priority' => 5 ) );
+$r_k2    = Haa_Keywords::research( 'حلقه برنامه‌ریز', microtime( true ) - 10000 );
+$diag_k2 = implode( ' | ', (array) ( $r_k2['diag'] ?? array() ) );
+ok( 'K: two queued topics → «برنامه‌ریز: 2 موضوع پیشنهادی»',
+        false !== strpos( $diag_k2, 'برنامه‌ریز: 2 موضوع پیشنهادی' ), '' );
+$k_listed = array();
+foreach ( (array) $r_k2['rows'] as $r ) {
+        if ( 'planner' === $r['source'] ) {
+                $k_listed[] = (string) $r['keyword'];
+        }
+}
+ok( 'K: queued topics reappear as planner-sourced rows',
+        in_array( 'آموزش فرش دستباف با قلاب', $k_listed, true ), '' );
+
+// K3. the count is the TRUE total; the display keeps its 10-row cap
+//     (the harness wpdb is LIMIT-faithful since 2.1.33).
+$GLOBALS['db']['topics'] = array();
+for ( $i = 1; $i <= 12; $i++ ) {
+        Haa_Planner::insert( array( 'title' => 'موضوع آزمون حلقه ' . $i, 'keyword' => 'موضوع آزمون حلقه ' . $i, 'intent' => 'informational', 'reason' => 'تست', 'source' => 'keyword', 'priority' => 5 ) );
+}
+$r_k3    = Haa_Keywords::research( 'حلقه برنامه‌ریز', microtime( true ) - 10000 );
+$diag_k3 = implode( ' | ', (array) ( $r_k3['diag'] ?? array() ) );
+ok( 'K: the diag count is uncapped (12 suggested → «برنامه‌ریز: 12»)',
+        false !== strpos( $diag_k3, 'برنامه‌ریز: 12 موضوع پیشنهادی' ), '' );
+$k_rows = 0;
+foreach ( (array) $r_k3['rows'] as $r ) {
+        if ( 'planner' === $r['source'] ) {
+                $k_rows++;
+        }
+}
+ok( 'K: the display keeps its 10-row cap while the count says 12',
+        10 === $k_rows, 'rows=' . $k_rows );
+
+// K4. the add handler's loop contract: a fresh keyword lands, the exact
+//     same title is refused, and existing_topic() is the dup probe.
+$GLOBALS['db']['topics'] = array();
+$id_k4 = Haa_Planner::insert( array( 'title' => 'فرش دستباف کاشان', 'keyword' => 'فرش دستباف کاشان', 'intent' => 'informational', 'reason' => 'تست', 'source' => 'keyword', 'priority' => 5 ) );
+ok( 'K: a fresh panel keyword lands in the planner', $id_k4 > 0, '' );
+ok( 'K: the exact same keyword is refused as a duplicate',
+        0 === Haa_Planner::insert( array( 'title' => 'فرش دستباف کاشان', 'keyword' => 'فرش دستباف کاشان', 'intent' => 'informational', 'reason' => 'تست', 'source' => 'keyword', 'priority' => 5 ) ), '' );
+ok( 'K: existing_topic() finds the queued title (the dup probe of the add handler)',
+        $id_k4 === (int) Haa_Planner::existing_topic( 'فرش دستباف کاشان' ), '' );
+
+// K5. source contracts: the uncapped count, the honest zero state, and the
+//     add handler that separates duplicates from a failed write.
+$kw_src_k = (string) file_get_contents( dirname( __DIR__ ) . '/includes/class-haa-keywords.php' );
+ok( 'K: the diag count reads the planner status histogram (uncapped)',
+        false !== strpos( $kw_src_k, "Haa_Planner::counts()['suggested']" ), '' );
+ok( 'K: the zero-state hint ships in the source',
+        false !== strpos( $kw_src_k, 'از فهرست بالا تیک بزنید' ), '' );
+$aw_src_k = (string) file_get_contents( dirname( __DIR__ ) . '/modules/class-haa-module-article-writer.php' );
+ok( 'K: the add handler tells «already queued» apart from a failed write',
+        false !== strpos( $aw_src_k, 'existing_topic' )
+        && false !== strpos( $aw_src_k, 'همهٔ انتخاب‌ها از قبل در برنامه‌ریز بودند' )
+        && false !== strpos( $aw_src_k, 'افزودن به برنامه‌ریز ممکن نشد' ), '' );
+
+echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 81 CHECKS GREEN\n" );
 exit( $fail ? 1 : 0 );

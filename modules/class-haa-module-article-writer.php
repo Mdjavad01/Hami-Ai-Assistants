@@ -1693,8 +1693,18 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         $this->back( __( 'هیچ کلیدواژه‌ای انتخاب نشده بود.', 'hami-ai-assistant' ), true );
                 }
 
+                // 2.1.33: insert() returns 0 both for a duplicate title and a
+                // failed write — the old notice flattened both into
+                // «0 موضوع از N کلیدواژه اضافه شد», which read like a bug (the
+                // 2.1.32 live report: planner still said 0 after an add).
+                // existing_topic() tells the two apart so the notice never lies.
                 $added = 0;
+                $dups  = 0;
                 foreach ( array_slice( array_values( $selected ), 0, 30 ) as $kw ) {
+                        if ( Haa_Planner::existing_topic( $kw ) ) {
+                                $dups++;
+                                continue;
+                        }
                         $id = Haa_Planner::insert(
                                 array(
                                         'title'    => $kw,
@@ -1711,7 +1721,28 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 }
 
                 Haa_Planner::flush_map();
-                $this->back( sprintf( __( '%1$d موضوع از %2$d کلیدواژه به برنامه‌ریز اضافه شد.', 'hami-ai-assistant' ), $added, count( $selected ) ) );
+
+                if ( $added > 0 && $dups > 0 ) {
+                        $this->back( sprintf(
+                                /* translators: 1: added count, 2: total selected, 3: already-present count. */
+                                __( '%1$d موضوع از %2$d کلیدواژه به برنامه‌ریز اضافه شد (%3$d مورد از قبل در برنامه‌ریز بود). برای دیدن آنها با نشان «برنامه‌ریز» در وضعیت منابع، موضوع را دوباره «پیدا کن» کنید.', 'hami-ai-assistant' ),
+                                $added,
+                                count( $selected ),
+                                $dups
+                        ) );
+                }
+                if ( $added > 0 ) {
+                        $this->back( sprintf(
+                                /* translators: 1: added count, 2: total selected. */
+                                __( '%1$d موضوع از %2$d کلیدواژه به برنامه‌ریز اضافه شد. برای دیدن آنها با نشان «برنامه‌ریز» در وضعیت منابع، موضوع را دوباره «پیدا کن» کنید.', 'hami-ai-assistant' ),
+                                $added,
+                                count( $selected )
+                        ) );
+                }
+                if ( $dups > 0 ) {
+                        $this->back( __( 'چیزی تازه اضافه نشد — همهٔ انتخاب‌ها از قبل در برنامه‌ریز بودند.', 'hami-ai-assistant' ) );
+                }
+                $this->back( __( 'افزودن به برنامه‌ریز ممکن نشد؛ دوباره تلاش کنید.', 'hami-ai-assistant' ), true );
         }
 
         /**

@@ -241,6 +241,15 @@ class Fake_WPDB {
                         usort( $rows, function ( $a, $b ) {
                                 return (int) ( $b['priority'] ?? 0 ) <=> (int) ( $a['priority'] ?? 0 );
                         } );
+                        // 2.1.33 — LIMIT faithful: the real query always carries one
+                        // (rows() default 50, the kw panel asks for 10). Without the
+                        // slice the harness returned MORE rows than production ever
+                        // could, hiding display-cap bugs instead of catching them.
+                        // The harness prepare() quotes EVERY placeholder (%d too),
+                        // so the match must tolerate LIMIT '10' as well as LIMIT 10.
+                        if ( preg_match( "/LIMIT '?(\\d+)'?/i", $q, $m ) ) {
+                                $rows = array_slice( $rows, 0, (int) $m[1] );
+                        }
                         return array_map( function ( $r ) {
                                 return array_merge(
                                         array(

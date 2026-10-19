@@ -159,7 +159,6 @@ final class Haa_Keywords {
                 $gsc_n        = 0;
                 $serp_diag    = '';
                 $ai_n         = 0;
-                $planner_n    = 0;
                 $from_cache   = false;
                 $budget_skip  = false;
 
@@ -356,9 +355,12 @@ final class Haa_Keywords {
                         }
                 }
 
-                // 7) Site gaps — our own topics nobody covered yet.
+                // 7) Site gaps — our own topics nobody covered yet. The display
+                //    list is capped at 10 rows, but 2.1.33 counts the planner's
+                //    UNCAPPED status histogram: a capped loop reported «10» for
+                //    a 25-topic queue — and «0» felt like a bug to the admin
+                //    who had just queued selections (the 2.1.32 live report).
                 foreach ( Haa_Planner::rows( 'suggested', 10 ) as $row ) {
-                        $planner_n++;
                         $rows[] = array(
                                 'keyword' => (string) $row['title'],
                                 'source'  => 'planner',
@@ -366,6 +368,7 @@ final class Haa_Keywords {
                                 'note'    => '',
                         );
                 }
+                $planner_n = (int) ( Haa_Planner::counts()['suggested'] ?? 0 );
 
                 $rows = self::dedupe( $rows, $seed );
 
@@ -426,7 +429,14 @@ final class Haa_Keywords {
                         ? __( 'مدل: ', 'hami-ai-assistant' ) . $ai_error
                         : sprintf( __( 'مدل: %d ایده', 'hami-ai-assistant' ), $ai_n );
 
-                $diag[] = sprintf( __( 'برنامه‌ریز: %d موضوع پیشنهادی', 'hami-ai-assistant' ), $planner_n );
+                // 2.1.33: the zero state teaches the loop instead of looking
+                // like a bug — tick rows, press the button, the NEXT search
+                // counts them under the «برنامه‌ریز» badge.
+                if ( $planner_n > 0 ) {
+                        $diag[] = sprintf( __( 'برنامه‌ریز: %d موضوع پیشنهادی', 'hami-ai-assistant' ), $planner_n );
+                } else {
+                        $diag[] = __( 'برنامه‌ریز: 0 موضوع پیشنهادی — از فهرست بالا تیک بزنید و «افزودن انتخاب‌شده‌ها به برنامه‌ریز» را بزنید؛ در جست‌وجوی بعدی همان‌ها با نشان «برنامه‌ریز» اینجا شمرده می‌شوند.', 'hami-ai-assistant' );
+                }
 
                 return array(
                         'ok'    => true,
