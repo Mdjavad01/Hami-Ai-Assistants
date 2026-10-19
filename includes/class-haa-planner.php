@@ -26,7 +26,7 @@ final class Haa_Planner {
         const MAP_CACHE = 'haai_planner_map';
         const MAP_TTL   = 900;
         /** Search intents, kept in English in the DB and translated in the UI. */
-        const INTENTS = array( 'informational', 'commercial', 'transactional' );
+        const INTENTS = array( 'informational', 'commercial', 'transactional', 'local' );
         const STATUSES = array( 'suggested', 'approved', 'queued', 'rejected', 'published' );
         /**
          * Table name.
@@ -42,6 +42,7 @@ final class Haa_Planner {
                         'informational' => __( 'اطلاعاتی', 'hami-ai-assistant' ),
                         'commercial'    => __( 'تجاری (مقایسه/بررسی)', 'hami-ai-assistant' ),
                         'transactional' => __( 'تراکنشی (آماده خرید)', 'hami-ai-assistant' ),
+                        'local'         => __( 'محلی', 'hami-ai-assistant' ),
                 );
                 return isset( $labels[ $slug ] ) ? $labels[ $slug ] : $slug;
         }

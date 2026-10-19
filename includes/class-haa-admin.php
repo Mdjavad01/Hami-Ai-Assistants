@@ -657,10 +657,16 @@ final class Haa_Admin {
                         wp_send_json( array( 'ok' => false, 'error' => __( 'کمی بعد دوباره تلاش کنید.', 'hami-ai-assistant' ) ), 429 );
                 }
 
+                $found = Haa_Search::search( $q, $limit, 1200 );
+                if ( ! $found ) {
+                        // Zero-result search: the strongest content-hole signal there
+                        // is, stored phrase-only (no IP, no identity — see Haa_Misses).
+                        Haa_Misses::log( $q );
+                }
                 wp_send_json(
                         array(
                                 'ok'   => true,
-                                'hits' => Haa_Search::search( $q, $limit, 1200 ),
+                                'hits' => $found,
                         )
                 );
         }

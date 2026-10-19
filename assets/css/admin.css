@@ -956,6 +956,18 @@ body.haai-theme-dark .haai-wrap {
 .haai-kw__row:has(input:checked) { background: var(--haai-accent-soft); border-color: transparent; }
 .haai-kw__text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .haai-kw__src { flex: 0 0 auto; }
+.haai-kw__note { flex: 0 0 auto; color: var(--haai-muted); font-size: 12px; }
+.haai-kw__intent { flex: 0 0 auto; background: var(--haai-surface); }
+.haai-kw__ai { flex: 0 0 auto; background: var(--haai-accent-soft); color: var(--haai-accent); font-weight: 600; }
+.haai-kw__cov { flex: 0 0 auto; text-decoration: none; }
+.haai-kw__cov--has { background: var(--haai-ok-soft, #e6f4ea); color: var(--haai-ok, #1e7b34); }
+.haai-kw__cov--half { background: #fff4e0; color: #9a6700; }
+.haai-kw__cov--none { background: var(--haai-surface-2); color: var(--haai-muted); }
+.haai-kw__sub { margin: var(--haai-sp-3) 0 var(--haai-sp-2); font-size: 13px; color: var(--haai-muted); }
+.haai-kw__static .haai-kw__rows { margin-block-end: var(--haai-sp-2); }
+.haai-kw__tools { display: flex; flex-wrap: wrap; gap: var(--haai-sp-2); margin-block-end: var(--haai-sp-3); }
+.haai-kw__upload { display: flex; flex-wrap: wrap; align-items: center; gap: var(--haai-sp-2); padding-top: var(--haai-sp-3); border-top: 1px dashed var(--haai-border); }
+.haai-kw__upload .haai-field__hint { flex: 1 1 100%; }
 
 /* ============================================================
    13. Responsive — 320 up to 1440

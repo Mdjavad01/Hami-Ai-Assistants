@@ -141,6 +141,10 @@ final class Haa_Chat {
                         if ( $hits ) {
                                 $context      = self::build_context( $hits );
                                 $context_hash = substr( md5( wp_json_encode( wp_list_pluck( $hits, 'id' ) ) ), 0, 12 );
+                        } else {
+                                // The visitor asked something and the whole knowledge base came up
+                                // empty — exactly the content-hole signal the keyword panel feeds on.
+                                Haa_Misses::log( $message );
                         }
                 }
 

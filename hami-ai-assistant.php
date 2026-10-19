@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.26
+ * Version:           2.1.27
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,8 +23,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.26' );
-define( 'HAAI_DB_VERSION', '7' );
+define( 'HAAI_VERSION', '2.1.27' );
+define( 'HAAI_DB_VERSION', '8' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
 define( 'HAAI_URL', plugin_dir_url( __FILE__ ) );
@@ -514,6 +514,10 @@ final class Haa_Plugin {
                 // 2.1.23 — AEO toolkit: FAQPage schema, /llms.txt, AI-bot counting,
                 // nightly link checker + the reports screen's AJAX endpoint.
                 Haa_Aeo::hooks();
+
+                // Search misses: zero-result searches (native ?s=, [haai_search],
+                // chatbot retrieval) become the keyword panel's content-hole list.
+                Haa_Misses::hooks();
 
                 // REST runs in both contexts: the cached frontend calls /token and /chat.
                 Haa_REST::hooks();

@@ -712,7 +712,13 @@
                 var status = document.getElementById('haai-kw-status');
                 var form = document.getElementById('haai-kw-form');
                 var rows = document.getElementById('haai-kw-rows');
-                var SRC = { suggest: 'گوگل ساجست', serp: 'نتایج جستجو', snapshot: 'تحلیل رقبا', ai: 'مدل', local: 'پیشنهاد خودکار', planner: 'برنامه‌ریز' };
+                // The GSC opportunities and the site's misses are server-rendered
+                // inside the same form — show it without waiting for a search.
+                var staticForm = form && form.querySelector('[data-haai-kw-static]');
+                if (staticForm) form.hidden = false;
+                var SRC = { suggest: 'گوگل/بینگ ساجست', serp: 'نتایج جستجو', snapshot: 'تحلیل رقبا', ai: 'مدل', local: 'پیشنهاد خودکار', planner: 'برنامه‌ریز', misses: 'بی‌نتیجه', gsc: 'سرچ‌کنسول' };
+                var INT = { informational: 'اطلاعاتی', commercial: 'تجاری', transactional: 'خرید', local: 'محلی' };
+                var COV = { has: 'جواب دارد', half: 'نیمه', none: 'بی‌جواب' };
 
                 function say(msg) {
                         if (!status) return;
@@ -737,6 +743,39 @@
                         label.appendChild(cb);
                         label.appendChild(text);
                         label.appendChild(tag);
+                        if (r.note) {
+                                var note = document.createElement('span');
+                                note.className = 'haai-kw__note';
+                                note.textContent = r.note;
+                                label.appendChild(note);
+                        }
+                        if (r.intent && INT[r.intent]) {
+                                var it = document.createElement('span');
+                                it.className = 'haai-badge haai-kw__intent';
+                                it.textContent = INT[r.intent];
+                                label.appendChild(it);
+                        }
+                        if (r.ai) {
+                                var aib = document.createElement('span');
+                                aib.className = 'haai-badge haai-kw__ai';
+                                aib.textContent = 'AI';
+                                aib.title = 'مناسب پاسخ هوش مصنوعی';
+                                label.appendChild(aib);
+                        }
+                        if (r.coverage && r.coverage.state) {
+                                var cov = document.createElement('a');
+                                cov.className = 'haai-badge haai-kw__cov haai-kw__cov--' + r.coverage.state;
+                                cov.textContent = COV[r.coverage.state] || r.coverage.state;
+                                if (r.coverage.url) {
+                                        cov.href = r.coverage.url;
+                                        cov.target = '_blank';
+                                        cov.rel = 'noopener';
+                                } else {
+                                        cov.removeAttribute('href');
+                                }
+                                if (r.coverage.title) cov.title = r.coverage.title;
+                                label.appendChild(cov);
+                        }
                         return label;
                 }
 

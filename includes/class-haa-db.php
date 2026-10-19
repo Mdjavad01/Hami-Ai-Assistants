@@ -44,6 +44,7 @@ final class Haa_DB {
 			'rate'           => 'core',
 			'usage'          => 'core',
 			'queue'          => 'core',
+			'search_misses'  => 'core',
 			'sessions'       => 'chatbot',
 			'vectors'        => 'semantic-search',
 			'leads'          => 'leads',
@@ -455,6 +456,21 @@ final class Haa_DB {
 			KEY updated (updated)
 		)";
 
+		// Search misses: phrases visitors searched (or asked the chatbot) that the
+		// site had no answer for. Privacy-first schema on purpose — phrase, day and
+		// a counter is the WHOLE row: no IP, no user, no UA. The UNIQUE key is what
+		// makes the logger's INSERT ... ON DUPLICATE KEY UPDATE a daily counter.
+		$d['search_misses'] = "(
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			phrase VARCHAR(120) NOT NULL DEFAULT '',
+			day DATE NOT NULL,
+			hits INT UNSIGNED NOT NULL DEFAULT 1,
+			last DATETIME NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY uq_phrase_day (phrase, day),
+			KEY day (day)
+		)";
+
 		// News: one row per feed item ever seen. The guid stops the same story
 		// being rewritten every hour; title_hash catches feeds that mint a fresh
 		// guid for an edited item.
@@ -624,6 +640,7 @@ final class Haa_DB {
 		$usage  = (int) $s['advanced']['usage_retention'];
 
 		self::clear_old_logs( $days );
+		Haa_Misses::prune();
 		self::clear_old_usage( $usage );
 		self::clear_expired_cache();
 		self::clear_stale_rate( $rate );

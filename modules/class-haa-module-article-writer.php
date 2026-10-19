@@ -65,8 +65,8 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 add_action( 'admin_post_haai_rs_brief', array( $this, 'handle_research_brief' ) );
                 add_action( 'admin_post_haai_rs_gap', array( $this, 'handle_research_gap' ) );
 
-                // Keyword research panel: AJAX search + queue into the planner.
-                add_action( 'wp_ajax_haai_kw_research', array( $this, 'ajax_kw_research' ) );
+                add_action( 'admin_post_haai_kw_gsc', array( $this, 'handle_kw_gsc' ) );
+                add_action( 'admin_post_haai_kw_export', array( $this, 'handle_kw_export' ) );
                 add_action( 'admin_post_haai_kw_queue', array( $this, 'handle_kw_queue' ) );
 
                 // Review / publish decisions (D3).
@@ -776,13 +776,19 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
          */
         /**
          * Keyword research panel: type a topic, get real user suggestions
-         * (Google Suggest), SERP titles when a service is connected, and model
-         * ideas — combined and deduped. Tick the ones worth writing and they
-         * become suggested planner topics.
+         * (Google + Bing Suggest), this site's zero-result searches, related
+         * Search-Console opportunities (from an uploaded export — no API),
+         * SERP titles when a service is connected, and model ideas — combined
+         * and deduped, each row tagged with intent, an AI-answerable flag and
+         * the page coverage of this very site. Tick the ones worth writing and
+         * they become suggested planner topics.
          *
          * @return void
          */
         private function render_keywords_panel() {
+                $gsc_rows   = Haa_Keywords::gsc_rows();
+                $misses     = Haa_Misses::top( 15, 30 );
+                $exp_base   = wp_nonce_url( admin_url( 'admin-post.php?action=haai_kw_export' ), 'haai_aw' );
                 ?>
                 <div class="haai-panel haai-panel--keywords" id="haai-kw">
                         <h2 class="haai-panel__title">
@@ -790,20 +796,64 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <span class="haai-badge haai-badge--accent"><?php esc_html_e( 'جدید', 'hami-ai-assistant' ); ?></span>
                         </h2>
                         <p class="haai-panel__note">
-                                <?php esc_html_e( 'موضوع را بنویسید: پیشنهادهای واقعی تایپ کاربران گوگل (در صورت دسترسی)، عنوان نتایج جست‌وجو (در صورت اتصال سرویس SERP) و ایده‌های مدل با هم ترکیب و بدون تکرار نمایش داده می‌شوند. تیک بزنید تا به برنامه‌ریز اضافه شود.', 'hami-ai-assistant' ); ?>
+                                <?php esc_html_e( 'موضوع را بنویسید: پیشنهادهای واقعی تایپ کاربران (گوگل و بینگ، بدون کلید)، جست‌وجوهای بی‌نتیجهٔ همین سایت، فرصت‌های سرچ‌کنسول، عنوان نتایج SERP (در صورت اتصال سرویس) و ایده‌های مدل ترکیب و بدون تکرار نمایش داده می‌شوند. هر عبارت نیت، «مناسب پاسخ هوش مصنوعی» و وضعیت صفحهٔ جواب را نشان می‌دهد.', 'hami-ai-assistant' ); ?>
                         </p>
                         <div class="haai-kw__bar">
                                 <input type="text" id="haai-kw-seed" class="haai-kw__input" placeholder="<?php esc_attr_e( 'مثلاً: روغن آرگان برای مو', 'hami-ai-assistant' ); ?>" />
                                 <button type="button" class="button button-primary" id="haai-kw-run"><?php esc_html_e( 'پیدا کن', 'hami-ai-assistant' ); ?></button>
                         </div>
                         <div id="haai-kw-status" class="haai-kw__status" hidden></div>
-                        <form id="haai-kw-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" hidden>
+
+                        <form id="haai-kw-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" <?php echo ( $gsc_rows || $misses ) ? '' : 'hidden'; ?>>
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                 <input type="hidden" name="action" value="haai_kw_queue" />
+
+                                <?php if ( $gsc_rows ) : ?>
+                                <div class="haai-kw__static" data-haai-kw-static>
+                                        <h3 class="haai-kw__sub"><?php esc_html_e( 'فرصت‌های سرچ‌کنسول (بالاترین نمایش)', 'hami-ai-assistant' ); ?></h3>
+                                        <?php foreach ( array_slice( $gsc_rows, 0, 15 ) as $g ) : ?>
+                                                <label class="haai-kw__row">
+                                                        <input type="checkbox" name="kw[]" value="<?php echo esc_attr( $g['query'] ); ?>" />
+                                                        <span class="haai-kw__text"><?php echo esc_html( $g['query'] ); ?></span>
+                                                        <span class="haai-badge haai-kw__src"><?php printf( /* translators: 1: impressions, 2: clicks, 3: position. */ esc_html__( '%1$s نمایش / %2$s کلیک / رتبهٔ %3$s', 'hami-ai-assistant' ), esc_html( number_format_i18n( (int) $g['impressions'] ) ), esc_html( number_format_i18n( (int) $g['clicks'] ) ), esc_html( Haa_Util::pretty_num( $g['position'], 1 ) ) ); ?></span>
+                                                </label>
+                                        <?php endforeach; ?>
+                                </div>
+                                <?php endif; ?>
+
+                                <?php if ( $misses ) : ?>
+                                <div class="haai-kw__static" data-haai-kw-static>
+                                        <h3 class="haai-kw__sub"><?php esc_html_e( 'جست‌وجوهای بی‌نتیجهٔ اخیر سایت شما', 'hami-ai-assistant' ); ?></h3>
+                                        <?php foreach ( $misses as $m ) : ?>
+                                                <label class="haai-kw__row">
+                                                        <input type="checkbox" name="kw[]" value="<?php echo esc_attr( $m['phrase'] ); ?>" />
+                                                        <span class="haai-kw__text"><?php echo esc_html( $m['phrase'] ); ?></span>
+                                                        <span class="haai-badge haai-kw__src"><?php printf( /* translators: %d: count. */ esc_html__( '%d بار بی‌نتیجه', 'hami-ai-assistant' ), (int) $m['hits'] ); ?></span>
+                                                </label>
+                                        <?php endforeach; ?>
+                                </div>
+                                <?php endif; ?>
+
                                 <div id="haai-kw-rows" class="haai-kw__rows"></div>
+
                                 <p class="submit">
                                         <button type="submit" class="button button-primary"><?php esc_html_e( 'افزودن انتخاب‌شده‌ها به برنامه‌ریز', 'hami-ai-assistant' ); ?></button>
                                 </p>
+                        </form>
+
+                        <div class="haai-kw__tools">
+                                <a class="button" href="<?php echo esc_url( add_query_arg( 'what', 'planner', $exp_base ) ); ?>"><?php esc_html_e( 'خروجی اکسل: برنامهٔ محتوا', 'hami-ai-assistant' ); ?></a>
+                                <a class="button" href="<?php echo esc_url( add_query_arg( 'what', 'misses', $exp_base ) ); ?>"><?php esc_html_e( 'خروجی اکسل: بی‌نتیجه‌ها', 'hami-ai-assistant' ); ?></a>
+                                <a class="button" href="<?php echo esc_url( add_query_arg( 'what', 'gsc', $exp_base ) ); ?>" <?php disabled( ! $gsc_rows ); ?>><?php esc_html_e( 'خروجی اکسل: سرچ‌کنسول', 'hami-ai-assistant' ); ?></a>
+                        </div>
+
+                        <form class="haai-kw__upload" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
+                                <?php wp_nonce_field( 'haai_aw' ); ?>
+                                <input type="hidden" name="action" value="haai_kw_gsc" />
+                                <label for="haai-kw-gsc-file"><strong><?php esc_html_e( 'فایل سرچ‌کنسول:', 'hami-ai-assistant' ); ?></strong></label>
+                                <input type="file" id="haai-kw-gsc-file" name="gsc_csv" accept=".csv,.txt" />
+                                <button type="submit" class="button"><?php esc_html_e( 'بارگذاری', 'hami-ai-assistant' ); ?></button>
+                                <span class="haai-field__hint"><?php esc_html_e( 'از گزارش «نتیجه‌ها → عبارت‌های جست‌وجو → خروجی» گوگل سرچ‌کنسول. بدون API و بدون کلید؛ اعداد نمایش/کلیک/رتبهٔ واقعی خودتان خوانده می‌شود.', 'hami-ai-assistant' ); ?></span>
                         </form>
                 </div>
                 <?php
@@ -1655,6 +1705,70 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
 
                 Haa_Planner::flush_map();
                 $this->back( sprintf( __( '%1$d موضوع از %2$d کلیدواژه به برنامه‌ریز اضافه شد.', 'hami-ai-assistant' ), $added, count( $selected ) ) );
+        }
+
+        /**
+         * POST: import an uploaded Search-Console performance export (CSV).
+         *
+         * The whole point per the landing copy: no API, no key — the admin
+         * downloads the «Queries» export from their own console and uploads it
+         * here. Parsing is in Haa_Keywords::import_gsc (UTF-16LE/tab and
+         * UTF-8/comma both accepted, Persian headers and digits included).
+         *
+         * @return void
+         */
+        public function handle_kw_gsc() {
+                Haa_Util::guard_admin_post( 'haai_aw' );
+
+                $f = isset( $_FILES['gsc_csv'] ) ? (array) $_FILES['gsc_csv'] : array();
+                if ( empty( $f['tmp_name'] ) || UPLOAD_ERR_OK !== (int) ( $f['error'] ?? UPLOAD_ERR_NO_FILE ) ) {
+                        $this->back( __( 'فایلی انتخاب نشده بود یا بارگذاری ناقص بود.', 'hami-ai-assistant' ), true );
+                }
+                if ( (int) ( $f['size'] ?? 0 ) > 4 * MB_IN_BYTES ) {
+                        $this->back( __( 'فایل بزرگ‌تر از ۴ مگابایت است؛ خروجی عبارت‌های سرچ‌کنسول خیلی کوچک‌تر از این حرف‌هاست.', 'hami-ai-assistant' ), true );
+                }
+                $name  = strtolower( (string) ( $f['name'] ?? '' ) );
+                $valid = preg_match( '/\.(csv|txt|tsv)$/', $name );
+                if ( ! $valid || ! is_uploaded_file( (string) $f['tmp_name'] ) ) {
+                        $this->back( __( 'فقط فایل CSV یا TXT پذیرفته می‌شود.', 'hami-ai-assistant' ), true );
+                }
+
+                $raw = (string) file_get_contents( (string) $f['tmp_name'] ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+                $r   = Haa_Keywords::import_gsc( $raw );
+
+                if ( is_wp_error( $r ) ) {
+                        $this->back( $r->get_error_message(), true );
+                }
+
+                $this->back( sprintf(
+                        /* translators: 1: rows imported now, 2: total stored rows. */
+                        __( '%1$d عبارت از سرچ‌کنسول خوانده شد (مجموع ذخیره‌شده: %2$d).', 'hami-ai-assistant' ),
+                        (int) $r['added'],
+                        (int) $r['rows']
+                ) );
+        }
+
+        /**
+         * GET: Excel-friendly CSV export for the keyword tool's three lists.
+         *
+         * The BOM that send_csv() prepends is what makes Excel open Persian
+         * text correctly; the builder only writes RFC-safe escaped cells.
+         *
+         * @return void
+         */
+        public function handle_kw_export() {
+                Haa_Util::guard_admin_post( 'haai_aw' );
+
+                $what = isset( $_GET['what'] ) ? sanitize_key( (string) $_GET['what'] ) : 'planner';
+
+                if ( 'misses' === $what ) {
+                        Haa_Util::send_csv( 'mirza-misses-' . gmdate( 'Y-m-d' ) . '.csv', Haa_Keywords::csv_misses() );
+                }
+                if ( 'gsc' === $what ) {
+                        Haa_Util::send_csv( 'mirza-search-console-' . gmdate( 'Y-m-d' ) . '.csv', Haa_Keywords::csv_gsc() );
+                }
+
+                Haa_Util::send_csv( 'mirza-content-plan-' . gmdate( 'Y-m-d' ) . '.csv', Haa_Keywords::csv_planner( '' ) );
         }
 
         /**

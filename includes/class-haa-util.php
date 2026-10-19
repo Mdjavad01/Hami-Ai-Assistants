@@ -153,6 +153,22 @@ final class Haa_Util {
          * @param string $url Permalink or archive URL.
          * @return string
          */
+        /**
+         * Locale-aware number for admin screens (Persian digits in fa_IR).
+         *
+         * @param float|int $num Number.
+         * @param int       $dec Decimals.
+         * @return string
+         */
+        public static function pretty_num( $num, $dec = 0 ) {
+                $num = (float) $num;
+                $dec = max( 0, (int) $dec );
+                if ( function_exists( 'number_format_i18n' ) ) {
+                        return number_format_i18n( $num, $dec );
+                }
+                return number_format( $num, $dec, '.', ',' );
+        }
+
         public static function pretty_url( $url ) {
                 $url = (string) $url;
                 if ( '' === $url || false === strpos( $url, '%' ) ) {
@@ -344,6 +360,12 @@ final class Haa_Util {
                 }
                 if ( preg_match( '/^[=+\-@\t\r]/', $value ) ) {
                         $value = "'" . $value;
+                }
+                // RFC 4180: a cell carrying a delimiter, a quote or a newline
+                // must be wrapped in quotes with inner quotes doubled — without
+                // this, «فرش, قفل» silently shifts every following column.
+                if ( preg_match( '/[",\n\r;]/', $value ) ) {
+                        $value = '"' . str_replace( '"', '""', $value ) . '"';
                 }
                 return $value;
         }

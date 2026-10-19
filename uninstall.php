@@ -32,6 +32,7 @@ delete_option( 'haai_queue_lock' );          // Queue mutex.
 delete_option( 'hami_ai_kb_state' );         // Rebuild cursor (legacy name kept).
 delete_option( 'hami_ai_crawl_state' );      // Site-knowledge crawler cursor.
 delete_option( 'haai_profile_draft' );       // Unapproved site-profile draft.
+delete_option( 'haai_kw_gsc' );              // Stored Search-Console opportunities.
 
 // Legacy / non-prefixed leftovers, if any.
 delete_option( 'hami_ai_settings' );
@@ -114,6 +115,7 @@ if ( isset( $wpdb->prefix ) && '' !== $wpdb->prefix ) {
 		'campaigns',
 		'comment_jobs',
 		'topics',
+		'search_misses',
 		'news_items',
 		'prog_items',
 	);

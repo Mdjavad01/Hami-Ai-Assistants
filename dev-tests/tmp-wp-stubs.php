@@ -7,7 +7,7 @@
 $GLOBALS['opts']   = array();
 $GLOBALS['screen'] = (object) array( 'id' => 'settings_page_haai-settings' );
 $GLOBALS['saved']  = array();
-$GLOBALS['db']     = array( 'topics' => array() );
+$GLOBALS['db']     = array( 'topics' => array(), 'misses' => array() );
 $GLOBALS['db_next_id'] = 1;
 $GLOBALS['chunk_rows'] = array();
 $GLOBALS['post_terms']  = array();
@@ -100,6 +100,23 @@ class Fake_WPDB {
         }
         public function get_results( $q = '', $mode = null ) {
                 $q = (string) $q;
+                // 2.1.27 — Haa_Misses::top(): flat SELECT over search_misses with a
+                // day floor, optional ORDER BY hits DESC and an optional LIMIT.
+                if ( preg_match( '/SELECT\s+phrase,\s*hits,\s*day,\s*last\s+FROM\s+\S*haai_search_misses/i', $q ) ) {
+                        $rows = (array) ( $GLOBALS['db']['misses'] ?? array() );
+                        if ( preg_match( "/WHERE\s+day\s*>=\s*'(\d{4}-\d{2}-\d{2})'/i", $q, $m ) ) {
+                                $rows = array_values( array_filter( $rows, function ( $r ) use ( $m ) {
+                                        return (string) ( $r['day'] ?? '' ) >= $m[1];
+                                } ) );
+                        }
+                        if ( false !== stripos( $q, 'ORDER BY hits DESC' ) ) {
+                                usort( $rows, function ( $a, $b ) { return ( $b['hits'] ?? 0 ) <=> ( $a['hits'] ?? 0 ); } );
+                        }
+                        if ( preg_match( '/LIMIT\s+(\d+)/i', $q, $m ) ) {
+                                $rows = array_slice( $rows, 0, (int) $m[1] );
+                        }
+                        return $rows;
+                }
 
                 // ---- D4 module tables (news_items / prog_items) ----
                 if ( preg_match( '/FROM\s+\w*(news_items|prog_items)/i', $q ) ) {
@@ -512,6 +529,7 @@ class Fake_WPDB {
         /** Which in-memory table a query or table name refers to. @return string */
         private function key_for( $name ) {
                 $name = (string) $name;
+                if ( false !== strpos( $name, 'search_misses' ) ) { return 'misses'; }
                 if ( false !== strpos( $name, 'news_items' ) ) { return 'news_items'; }
                 if ( false !== strpos( $name, 'prog_items' ) )  { return 'prog_items'; }
                 if ( false !== strpos( $name, 'haai_chunks' ) ) { return 'chunk_rows'; }
@@ -608,6 +626,44 @@ class Fake_WPDB {
         public function get_charset_collate() { return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'; }
         public function query( $q ) {
                 $q = (string) $q;
+                // 2.1.27 — Haa_Misses::log() upsert: INSERT ... ON DUPLICATE KEY
+                // UPDATE hits = hits + 1. Real MySQL semantics: one row per
+                // (phrase, day), the counter accumulates across calls.
+                if ( preg_match( '/INSERT\s+INTO\s+\S*haai_search_misses/i', $q ) && false !== stripos( $q, 'ON DUPLICATE KEY UPDATE' ) ) {
+                        if ( preg_match( "/VALUES\s*\(\s*'((?:[^']|\\')*)'\s*,\s*'(\d{4}-\d{2}-\d{2})'\s*,\s*1\s*,\s*'([^']*)'\s*\)/is", $q, $m ) ) {
+                                $phrase = stripslashes( $m[1] );
+                                $day    = $m[2];
+                                $last   = $m[3];
+                                foreach ( (array) ( $GLOBALS['db']['misses'] ?? array() ) as $i => $row ) {
+                                        if ( (string) $row['phrase'] === $phrase && (string) $row['day'] === $day ) {
+                                                $GLOBALS['db']['misses'][ $i ]['hits'] = (int) $row['hits'] + 1;
+                                                $GLOBALS['db']['misses'][ $i ]['last'] = $last;
+                                                return 1;
+                                        }
+                                }
+                                $GLOBALS['db']['misses'][] = array(
+                                        'id'     => $GLOBALS['db_next_id']++,
+                                        'phrase' => $phrase,
+                                        'day'    => $day,
+                                        'hits'   => 1,
+                                        'last'   => $last,
+                                );
+                                return 1;
+                        }
+                        return 0;
+                }
+                // Haa_Misses::prune() — delete rows older than the cutoff day.
+                if ( preg_match( '/DELETE\s+FROM\s+\S*haai_search_misses\s+WHERE\s+day\s*<\s*\'(\d{4}-\d{2}-\d{2})\'/is', $q, $m ) ) {
+                        $cut    = $m[1];
+                        $kept   = array();
+                        $removed = 0;
+                        foreach ( (array) ( $GLOBALS['db']['misses'] ?? array() ) as $row ) {
+                                if ( (string) $row['day'] < $cut ) { $removed++; continue; }
+                                $kept[] = $row;
+                        }
+                        $GLOBALS['db']['misses'] = $kept;
+                        return $removed;
+                }
                 // Haa_Crawl::wipe() deletes crawl slots wholesale.
                 if ( preg_match( '/DELETE\s+.*?haai_chunks.*?WHERE\s+post_id\s+<\s*0/is', $q ) ) {
                         $kept    = array();
@@ -1145,6 +1201,10 @@ function is_front_page() { return ! empty( $GLOBALS['q']['front'] ); }
 function is_home() { return ! empty( $GLOBALS['q']['home'] ); }
 function is_archive() { return ! empty( $GLOBALS['q']['archive'] ); }
 function is_search() { return ! empty( $GLOBALS['q']['search'] ); }
+function is_main_query() { return true; }
+function get_search_query( $escaped = true ) { return (string) ( $GLOBALS['q']['search_term'] ?? '' ); }
+function wp_doing_cron() { return ! empty( $GLOBALS['doing_cron'] ); }
+function wp_doing_ajax() { return defined( 'DOING_AJAX' ) && DOING_AJAX; }
 function is_404() { return ! empty( $GLOBALS['q']['404'] ); }
 function is_product() { return ! empty( $GLOBALS['q']['product'] ); }
 function is_shop() { return ! empty( $GLOBALS['q']['shop'] ); }
