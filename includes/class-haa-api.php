@@ -2058,7 +2058,21 @@ final class Haa_API {
                                 break;
                         case 408:
                         case 429:
-                                $msg = __( 'سرویس موقتاً درخواست‌ها را محدود کرده است. چند لحظه بعد دوباره تلاش کنید.', 'hami-ai-assistant' );
+                                // 2.1.35: Gemini's free-tier wall («You exceeded your
+                                // current quota … check your plan and billing details»)
+                                // is NOT a «wait a second» throttle — it is a
+                                // per-minute/per-day quota ceiling whose fix is waiting
+                                // in minutes or a billing change. The old line said
+                                // «موقتاً محدود کرده است» and then drowned the panel in
+                                // the raw English paragraph cut mid-word (the 2.1.34
+                                // live report). The quota line says what to do and
+                                // sheds the wall; plain throttles keep the old shape.
+                                if ( self::looks_like_quota( $detail ) ) {
+                                        $msg    = __( 'سهمیهٔ کلید مدل پر شده است (۴۲۹). چند دقیقهٔ دیگر دوباره بیازمایید؛ اگر تکرار شد، طرح اکانت را ارتقا دهید یا کلید/مدل دیگری تنظیم کنید.', 'hami-ai-assistant' );
+                                        $detail = '';
+                                } else {
+                                        $msg = __( 'سرویس موقتاً درخواست‌ها را محدود کرده است. چند لحظه بعد دوباره تلاش کنید.', 'hami-ai-assistant' );
+                                }
                                 break;
                         case 504:
                                 $msg = __( 'سرویس AI یا پراکسی میانی مهلت پاسخ را تمام نکرد (۵۰۴). دوباره بزنید؛ اگر تکرار شد «مهلت پاسخ» و تنظیمات ارائه‌دهنده یا پراکسی را بررسی کنید.', 'hami-ai-assistant' );
@@ -2076,6 +2090,38 @@ final class Haa_API {
                 }
 
                 return new WP_Error( 'haai_http_' . $code, $msg . ( $detail ? ' — ' . $detail : '' ), array( 'status' => $code ) );
+        }
+
+        /**
+         * A 429 that is really a quota/billing ceiling, not a per-second throttle.
+         *
+         * Providers word the wall differently: Gemini says «You exceeded your
+         * current quota … plan and billing details» with a RESOURCE_EXHAUSTED
+         * status, OpenRouter counts «rate limit exceeded … per minute», plain
+         * proxies say «quota». All of them need a wait in minutes or an
+         * account change — a retry in a second cannot help, so the Persian
+         * line must be the quota one, not the transient sentence.
+         *
+         * @param string $detail Masked provider detail.
+         * @return bool
+         */
+        private static function looks_like_quota( $detail ) {
+                $needles = array(
+                        'exceeded your current quota', // Gemini free-tier wall.
+                        'quota exceeded',
+                        'resource_exhausted',          // Gemini status string.
+                        'billing details',
+                        'rate limit exceeded',
+                        'ratelimit',
+                        'per minute',                  // RPM/TPM ceilings.
+                        'per day',
+                );
+                foreach ( $needles as $n ) {
+                        if ( false !== stripos( (string) $detail, $n ) ) {
+                                return true;
+                        }
+                }
+                return false;
         }
 
         /**

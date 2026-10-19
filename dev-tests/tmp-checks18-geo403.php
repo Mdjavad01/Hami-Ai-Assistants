@@ -82,5 +82,39 @@ ok( 'geo message carries detail', false !== strpos( $msg, 'does not have permiss
 ok( 'detail is HTML-stripped', false === strpos( $msg, '<p>' ) && false === strpos( $msg, 'title>' ) );
 ok( 'error code kept', 'haai_http_403' === $m->invoke( $api, 403, array(), 'Forbidden' )->get_error_code() );
 
+// ---------------------------------------------------------------------------
+// D. 2.1.35 — a 429 that is a quota wall says so, and sheds the English.
+//     Live report on 2.1.34: the panel's «مدل:» line showed «سرویس موقتاً
+//     درخواست‌ها را محدود کرده است» followed by Gemini's raw paragraph —
+//     «You exceeded your current quota … plan and billing details … docs
+//     URL …» — cut mid-word. A quota ceiling is not a wait-a-second
+//     throttle: the line must name the quota and the two real fixes
+//     (wait in minutes / change plan or key) without the raw wall.
+// ---------------------------------------------------------------------------
+function map429( $m, $api, $json, $raw ) {
+        $err = $m->invoke( $api, 429, $json, $raw );
+        return is_wp_error( $err ) ? $err->get_error_message() : '';
+}
+
+echo "\n=== D. 2.1.35 — quota-shaped 429s get the quota line ===\n";
+
+// D1 — the user's exact report: Gemini's free-tier quota wall.
+$gem_d = 'You exceeded your current quota, please check your plan and billing details. '
+        . 'For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits.';
+$msg = map429( $m, $api, array( 'error' => array( 'code' => 429, 'message' => $gem_d, 'status' => 'RESOURCE_EXHAUSTED' ) ), '' );
+ok( 'Gemini quota wall -> the quota line', false !== strpos( $msg, 'سهمیهٔ کلید مدل پر شده است' ), mb_substr( $msg, 0, 50 ) . '…' );
+ok( 'the quota line sheds the raw English wall', false === strpos( $msg, 'You exceeded' ) && false === strpos( $msg, ' — ' ), '' );
+ok( 'the quota line says the two real fixes', false !== strpos( $msg, 'ارتقا دهید' ) && false !== strpos( $msg, 'کلید/مدل دیگری' ), '' );
+
+// D2 — OpenRouter-style per-minute wording maps to the quota line too.
+$msg = map429( $m, $api, array( 'error' => array( 'message' => 'Rate limit exceeded: free-model requests per minute limit reached.' ) ), '' );
+ok( 'per-minute rate-limit wording -> quota line', false !== strpos( $msg, 'سهمیهٔ کلید مدل پر شده است' ), '' );
+
+// D3 — a plain throttle stays the generic transient sentence, detail intact.
+$msg = map429( $m, $api, array( 'error' => array( 'message' => 'Secret sk-live-ZZZ1234567890yyyAAA is invalid for model capture-model' ) ), '' );
+ok( 'non-quota 429 keeps the generic sentence', false !== strpos( $msg, 'سرویس موقتاً درخواست‌ها را محدود کرده است' ), '' );
+ok( 'non-quota 429 keeps the masked detail', false !== strpos( $msg, ' — ' ) && false !== strpos( $msg, '***' ), '' );
+ok( 'non-quota 429 does NOT claim a quota', false === strpos( $msg, 'سهمیهٔ کلید مدل' ), '' );
+
 echo "\n" . ( $fail ? "FAILURES: $fail\n" : "ALL OK\n" );
 exit( $fail ? 1 : 0 );

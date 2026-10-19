@@ -185,6 +185,11 @@ final class Haa_Keywords {
                 //    request the host kills later still leaves its sources
                 //    behind for the retry. A dead sweep (0 rows) is never
                 //    cached — the next click retries the network.
+                //    2.1.35: $engine_of maps each phrase to the engine that
+                //    delivered it; suggest rows carry «ساجست گوگل/بینگ/اکوسیا»
+                //    in their note, so the Excel توضیح column is no longer
+                //    empty for the whole list (2.1.34 live sheet).
+                $engine_of = array();
                 if ( ! empty( Haa_Research::config()['suggest_enabled'] ) ) {
                         $cached = get_transient( self::src_cache_key( $seed ) );
                         if ( is_array( $cached ) && isset( $cached['rows'], $cached['wiki'] ) ) {
@@ -193,8 +198,9 @@ final class Haa_Keywords {
                                 $wiki_titles  = (array) $cached['wiki'];
                                 $suggest_errs = (array) ( $cached['errs'] ?? array() );
                                 $wiki_err     = (string) ( $cached['wiki_err'] ?? '' );
+                                $engine_of    = (array) ( $cached['engines'] ?? array() );
                         } elseif ( $left() > 2 ) {
-                                $suggest_keys = self::suggest_multi( $seed, $suggest_errs );
+                                $suggest_keys = self::suggest_multi( $seed, $suggest_errs, $engine_of );
 
                                 // Persian Wikipedia titles — a different suggestion family
                                 // (what people actually look up), still no key, still
@@ -210,6 +216,7 @@ final class Haa_Keywords {
                                                 'wiki'     => $wiki_titles,
                                                 'errs'     => $suggest_errs,
                                                 'wiki_err' => $wiki_err,
+                                                'engines'  => $engine_of,
                                         ), self::SRC_CACHE_TTL );
                                 }
                         } else {
@@ -220,11 +227,19 @@ final class Haa_Keywords {
 
                         foreach ( $suggest_keys as $k ) {
                                 $suggest_n++;
+                                // 2.1.35: the CSV توضیح says which engine delivered
+                                // the phrase — the panel hides this behind the shared
+                                // «ساجست کاربران» badge, the sheet can afford the
+                                // granularity.
+                                $ek      = Haa_Search::normalize_text( (string) $k );
+                                $note_sk = isset( $engine_of[ $ek ] ) && '' !== (string) $engine_of[ $ek ]
+                                        ? sprintf( __( 'ساجست %s', 'hami-ai-assistant' ), (string) $engine_of[ $ek ] )
+                                        : '';
                                 $rows[] = array(
                                         'keyword' => $k,
                                         'source'  => 'suggest',
                                         'intent'  => self::guess_intent( $k ),
-                                        'note'    => '',
+                                        'note'    => $note_sk,
                                 );
                         }
 
@@ -319,6 +334,7 @@ final class Haa_Keywords {
                 //    than 12s remains the stage is skipped with an honest diag.
                 $ai_cached = get_transient( self::ai_cache_key( $seed ) );
                 $ai_error  = '';
+                $ai_err    = null; // 2.1.35: the object survives for model_diag_text().
                 if ( is_array( $ai_cached ) ) {
                         foreach ( $ai_cached as $k ) {
                                 $ai_n++;
@@ -339,6 +355,7 @@ final class Haa_Keywords {
                         } else {
                                 $ai = self::ai_ideas( $seed, max( 12, min( 25, $ai_left ) ) );
                                 if ( is_wp_error( $ai ) ) {
+                                        $ai_err   = $ai;
                                         $ai_error = $ai->get_error_message();
                                 } else {
                                         set_transient( self::ai_cache_key( $seed ), array_values( (array) $ai ), self::AI_CACHE_TTL );
@@ -425,8 +442,11 @@ final class Haa_Keywords {
                         $diag[] = $serp_diag;
                 }
 
+                // 2.1.35: the «مدل:» line finally routes through model_diag_text()
+                // — the 2.1.31 translation existed but was never wired, so an
+                // all-benched provider walk surfaced the raw «همه منابع…» here.
                 $diag[] = '' !== $ai_error
-                        ? __( 'مدل: ', 'hami-ai-assistant' ) . $ai_error
+                        ? __( 'مدل: ', 'hami-ai-assistant' ) . ( is_wp_error( $ai_err ) ? self::model_diag_text( $ai_err ) : $ai_error )
                         : sprintf( __( 'مدل: %d ایده', 'hami-ai-assistant' ), $ai_n );
 
                 // 2.1.33: the zero state teaches the loop instead of looking
@@ -461,7 +481,9 @@ final class Haa_Keywords {
                         // already named on its own «مدل:» diag line — repeating it as
                         // «یادداشت: همه منابع در حال خطا…» above a full list lied
                         // about the sources (the 2.1.30 live report).
-                        'error' => empty( $rows ) && '' !== $ai_error ? $ai_error : '',
+                        'error' => empty( $rows ) && '' !== $ai_error
+                                ? ( is_wp_error( $ai_err ) ? self::model_diag_text( $ai_err ) : $ai_error )
+                                : '',
                         'rows'  => $rows,
                         'diag'  => $diag,
                 );
@@ -512,9 +534,12 @@ final class Haa_Keywords {
          * @param array  $errs OUT: first error per engine (label => message) for
          *                     the panel diagnostics; a later success in the same
          *                     sweep drops the stale entry.
+         * @param array  $engine_of OUT: normalised phrase => first engine label
+         *                     (بینگ/اکوسیا/گوگل) that delivered it — the CSV
+         *                     توضیح column's provenance (2.1.35).
          * @return array<int,string> Cleaned, unique suggestion strings.
          */
-        public static function suggest_multi( $seed, &$errs = array() ) {
+        public static function suggest_multi( $seed, &$errs = array(), &$engine_of = array() ) {
                 $seed = trim( (string) $seed );
                 if ( '' === $seed ) {
                         return array();
@@ -559,8 +584,11 @@ final class Haa_Keywords {
                         return $list;
                 };
 
-                // Merge a response into the pool, counting UNIQUE rows only.
-                $add = static function ( $list ) use ( &$out, &$seen ) {
+                // Merge a response into the pool, counting UNIQUE rows only and
+                // remembering the FIRST engine that delivered each phrase — the
+                // call order already prefers بینگ, and a later engine echoing
+                // the same row must not steal the attribution.
+                $add = static function ( $list, $label ) use ( &$out, &$seen, &$engine_of ) {
                         if ( ! is_array( $list ) ) {
                                 return;
                         }
@@ -569,8 +597,9 @@ final class Haa_Keywords {
                                 if ( '' === $key || isset( $seen[ $key ] ) ) {
                                         continue;
                                 }
-                                $seen[ $key ] = true;
-                                $out[]        = (string) $s;
+                                $seen[ $key ]      = true;
+                                $out[]             = (string) $s;
+                                $engine_of[ $key ] = (string) $label;
                         }
                 };
 
@@ -580,7 +609,7 @@ final class Haa_Keywords {
 
                 // 1) Every engine on the bare seed — the highest-value rows.
                 for ( $e = 0; $e < $n_eng; $e++ ) {
-                        $add( $call( $labels[ $e ], $eps[ $e ], $seed ) );
+                        $add( $call( $labels[ $e ], $eps[ $e ], $seed ), $labels[ $e ] );
                 }
 
                 // 2) Persian intent modifiers, engines cycling, until the pool
@@ -591,7 +620,7 @@ final class Haa_Keywords {
                                 break;
                         }
                         $e = $i % $n_eng;
-                        $add( $call( $labels[ $e ], $eps[ $e ], $seed . ' ' . $mod ) );
+                        $add( $call( $labels[ $e ], $eps[ $e ], $seed . ' ' . $mod ), $labels[ $e ] );
                         $i++;
                 }
 
@@ -608,7 +637,7 @@ final class Haa_Keywords {
                         }
                         $letter = self::ALPHABET[ ( $offset + $j ) % $n ];
                         $e      = $j % $n_eng;
-                        $add( $call( $labels[ $e ], $eps[ $e ], $seed . ' ' . $letter ) );
+                        $add( $call( $labels[ $e ], $eps[ $e ], $seed . ' ' . $letter ), $labels[ $e ] );
                 }
 
                 return array_values( $out );
@@ -878,7 +907,10 @@ final class Haa_Keywords {
                 if ( preg_match( '/خرید|قیمت|ارزان|سفارش|تخفیف|فروش/u', $text ) ) {
                         return 'transactional';
                 }
-                if ( preg_match( '/نزدیک من|نمایندگی|آدرس|تلفن|شماره تماس|حضوری|تهران|مشهد|اصفهان|شیراز|تبریز|کرج|اهواز|قم|یزد|رشت|کرمان|کاشان/u', $text ) ) {
+                // 2.1.35: the city list grew — the 2.1.34 live sheet classified
+                // «فرش دستبافت اردبیل» as informational because اردبیل (and most
+                // provincial capitals) were missing from this line.
+                if ( preg_match( '/نزدیک من|نمایندگی|آدرس|تلفن|شماره تماس|حضوری|تهران|مشهد|اصفهان|شیراز|تبریز|کرج|اهواز|قم|یزد|رشت|کرمان|کاشان|اردبیل|ارومیه|قزوین|همدان|سنندج|کرمانشاه|زنجان|گرگان|ساری|بابل|اراک|زاهدان|بندرعباس|بوشهر|بیرجند|سمنان|شهرکرد|یاسوج|بجنورد|خرم‌آباد/u', $text ) ) {
                         return 'local';
                 }
                 if ( preg_match( '/بهترین|مقایسه|بررسی|راهنمای|توصیه/u', $text ) ) {

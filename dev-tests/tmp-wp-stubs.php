@@ -794,7 +794,10 @@ final class Haa_API {
                 if ( ! empty( $GLOBALS['api_replies'] ) ) {
                         $next = array_shift( $GLOBALS['api_replies'] );
                         if ( is_array( $next ) && isset( $next['error'] ) ) {
-                                return new WP_Error( 'haai_http', (string) $next['error'] );
+                                // 2.1.35: a staged row may name the code too — the
+                                // all-benched translation contract needs the REAL
+                                // code, not a generic transport one.
+                                return new WP_Error( (string) ( $next['error_code'] ?? 'haai_http' ), (string) $next['error'] );
                         }
                         return (string) $next;
                 }

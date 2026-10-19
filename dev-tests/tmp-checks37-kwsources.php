@@ -624,5 +624,103 @@ $lines_l0 = array_values( array_filter( explode( "\n", $csv_l0 ), 'strlen' ) );
 ok( 'L: csv_research() with nothing stored is header-only',
         1 === count( $lines_l0 ) && false !== strpos( $csv_l0, 'پوشش همین سایت' ), '' );
 
-echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 104 CHECKS GREEN\n" );
+// ---------------------------------------------------------------------------
+// M. 2.1.35 — the «مدل:» line speaks the truth, and the Excel توضیح column
+//     earns its place. Live report on 2.1.34: (۱) the panel showed the raw
+//     Gemini quota paragraph on the «مدل:» line (fixed in the API mapper,
+//     suite 18 section D) and an all-benched walk would STILL have shown
+//     «همه منابع…» there — model_diag_text() existed since 2.1.31 but was
+//     never wired into research(); (۲) the exported sheet's توضیح column was
+//     empty for all 33 suggest rows — the engine that delivered each phrase
+//     (بینگ/اکوسیا/گوگل) is real provenance the sheet can carry; (۳)
+//     «فرش دستبافت اردبیل» read as informational — most provincial
+//     capitals were missing from the local-intent line.
+// ---------------------------------------------------------------------------
+
+// M1. the all-benched translation finally reaches the «مدل:» diag line.
+$SEED_M = 'بخش ام مدل';
+delete_transient( Haa_Keywords::src_cache_key( $SEED_M ) );
+delete_transient( Haa_Keywords::ai_cache_key( $SEED_M ) );
+set_transient( Haa_API::LAST_CHAT_ERROR, array(
+        'code'  => 'haai_timeout',
+        'msg'   => 'مهلت اتصال به سرویس AI تمام شد (25 ثانیه).',
+        'model' => 'gemini',
+        'at'    => time(),
+), DAY_IN_SECONDS );
+http_reset();
+$GLOBALS['http_map']    = array(
+        'suggestqueries.google.com' => array( 'code' => 200, 'body' => $SUG ),
+        'api.bing.com'              => array( 'code' => 200, 'body' => $SUG ),
+        'ac.ecosia.org'             => array( 'code' => 200, 'body' => $SUG ),
+        'fa.wikipedia.org'          => array( 'code' => 200, 'body' => json_encode( array( $SEED_M, array(), array(), array() ), JSON_UNESCAPED_UNICODE ) ),
+);
+$GLOBALS['api_replies'] = array( array(
+        'error_code' => 'haai_all_benched',
+        'error'      => 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.',
+) );
+Haa_API::$fail = false;
+$r_m1    = Haa_Keywords::research( $SEED_M );
+$diag_m1 = implode( ' | ', (array) ( $r_m1['diag'] ?? array() ) );
+ok( 'M: all-benched walk → the «مدل:» line is the translated sentence',
+        false !== strpos( $diag_m1, 'ارائه‌دهنده‌های مدل موقتاً خطا داده‌اند' ), '' );
+ok( 'M: the generic «همه منابع» sentence never reaches the panel',
+        false === strpos( $diag_m1, 'همه منابع' ), '' );
+ok( 'M: the real remembered cause rides along',
+        false !== strpos( $diag_m1, 'آخرین علت واقعی' ) && false !== strpos( $diag_m1, 'مهلت اتصال' ), '' );
+delete_transient( Haa_API::LAST_CHAT_ERROR );
+
+// M2. suggest_multi() hands back the engine provenance (BC: 2-arg callers keep working).
+$SEED_M2 = 'فرش ام موتور';
+http_reset();
+$GLOBALS['http_map'] = array(
+        'suggestqueries.google.com' => array( 'code' => 200, 'body' => $SUG ),
+        'api.bing.com'              => array( 'code' => 200, 'body' => $SUG ),
+        'ac.ecosia.org'             => array( 'code' => 200, 'body' => $SUG ),
+);
+$errs_m2 = array();
+$eng_m2  = array();
+$out_m2  = Haa_Keywords::suggest_multi( $SEED_M2, $errs_m2, $eng_m2 );
+ok( 'M: suggest_multi still returns clean unique phrases',
+        count( $out_m2 ) >= 4 && count( $out_m2 ) === count( array_unique( $out_m2 ) ), 'n=' . count( $out_m2 ) );
+$eng_ok_m = true;
+foreach ( $out_m2 as $ph_m ) {
+        $key_m = Haa_Search::normalize_text( $ph_m );
+        if ( ! isset( $eng_m2[ $key_m ] ) || ! in_array( $eng_m2[ $key_m ], array( 'بینگ', 'اکوسیا', 'گوگل' ), true ) ) {
+                $eng_ok_m = false;
+        }
+}
+ok( 'M: every phrase carries a real engine in the OUT map',
+        $eng_ok_m && count( $eng_m2 ) === count( $out_m2 ), '' );
+
+// M3. research() rows + cache + CSV all carry the provenance. The fake
+//     engines echo one shared body, so the FIRST caller (بینگ) owns every row.
+delete_transient( Haa_Keywords::src_cache_key( $SEED_M2 ) );
+delete_transient( Haa_Keywords::ai_cache_key( $SEED_M2 ) );
+$GLOBALS['api_replies'] = array( $IDEAS_J );
+$r_m3    = Haa_Keywords::research( $SEED_M2 );
+$note_m3 = '';
+foreach ( (array) $r_m3['rows'] as $r ) {
+        if ( 'suggest' === $r['source'] && '' === $note_m3 ) { $note_m3 = (string) $r['note']; }
+}
+ok( 'M: suggest rows in the panel carry «ساجست <engine>»',
+        'ساجست بینگ' === $note_m3, 'note=' . $note_m3 );
+$src_m3 = get_transient( Haa_Keywords::src_cache_key( $SEED_M2 ) );
+ok( 'M: the source cache stores the engine map too',
+        is_array( $src_m3 ) && ! empty( $src_m3['engines'] ), '' );
+$r_m3b   = Haa_Keywords::research( $SEED_M2 );
+$note_m3b = '';
+foreach ( (array) $r_m3b['rows'] as $r ) {
+        if ( 'suggest' === $r['source'] && '' === $note_m3b ) { $note_m3b = (string) $r['note']; }
+}
+ok( 'M: the cached run keeps the engine note', 'ساجست بینگ' === $note_m3b, 'note=' . $note_m3b );
+$csv_m3 = Haa_Keywords::csv_research();
+ok( 'M: the CSV توضیح column names the engine', false !== strpos( $csv_m3, 'ساجست بینگ' ), '' );
+
+// M4. the local-intent city list grew (the 2.1.34 live sheet had
+//     «فرش دستبافت اردبیل» marked informational).
+ok( 'M: اردبیل reads as local now', 'local' === Haa_Keywords::guess_intent( 'فرش دستبافت اردبیل' ), '' );
+ok( 'M: همدان reads as local now', 'local' === Haa_Keywords::guess_intent( 'فرش دستبافت همدان' ), '' );
+ok( 'M: a plain phrase stays informational', 'informational' === Haa_Keywords::guess_intent( 'فرش دستبافت' ), '' );
+
+echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 116 CHECKS GREEN\n" );
 exit( $fail ? 1 : 0 );
