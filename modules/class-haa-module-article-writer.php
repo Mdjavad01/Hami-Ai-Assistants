@@ -69,6 +69,12 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 add_action( 'admin_post_haai_kw_export', array( $this, 'handle_kw_export' ) );
                 add_action( 'admin_post_haai_kw_queue', array( $this, 'handle_kw_queue' ) );
 
+                // The keyword-research panel posts through admin.js post() — the
+                // handler MUST be hooked on wp_ajax_ or admin-ajax answers
+                // wp_die( '0', 400 ) and the panel shows «پاسخ سرور JSON نبود».
+                // 2.1.28 shipped the method without this registration (Task: hotfix).
+                add_action( 'wp_ajax_haai_kw_research', array( $this, 'ajax_kw_research' ) );
+
                 // Review / publish decisions (D3).
                 add_action( 'admin_post_haai_pipe_approve', array( $this, 'handle_pipe_approve' ) );
                 add_action( 'admin_post_haai_pipe_reject', array( $this, 'handle_pipe_reject' ) );

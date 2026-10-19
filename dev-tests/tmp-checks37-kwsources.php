@@ -299,5 +299,29 @@ ok( 'gsc export carries impressions', false !== strpos( $csv_g, '500' ), '' );
 $escaped = Haa_Util::escape_csv_field( 'he said "فرش, قفل"' );
 ok( 'csv cell escaping survives quotes+comma', false !== strpos( $escaped, '""' ), $escaped );
 
-echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 44 CHECKS GREEN\n" );
+echo "\n=== I. AJAX wiring contract ===\n";
+// 2.1.28 shipped ajax_kw_research() without its wp_ajax_ registration —
+// admin-ajax answered wp_die( '0', 400 ) and the panel showed
+// «پاسخ سرور JSON نبود (HTTP 400): 0». The suites never saw it because
+// they call the engine directly. This contract makes the class of bug
+// impossible: EVERY action admin.js posts must be registered in PHP.
+$js_src = (string) file_get_contents( dirname( __DIR__ ) . '/assets/js/admin.js' );
+preg_match_all( "/post\(\s*'([a-z_]+)'/", $js_src, $m );
+$js_actions = array_values( array_unique( $m[1] ) );
+ok( 'admin.js posts at least the two known actions', count( $js_actions ) >= 2, 'found=' . implode( ',', $js_actions ) );
+$php_registry = '';
+foreach ( glob( dirname( __DIR__ ) . '/includes/*.php' ) as $php_file ) {
+        $php_registry .= (string) file_get_contents( $php_file );
+}
+foreach ( glob( dirname( __DIR__ ) . '/modules/*.php' ) as $php_file ) {
+        $php_registry .= (string) file_get_contents( $php_file );
+}
+foreach ( $js_actions as $js_action ) {
+        ok( "post('$js_action') has a wp_ajax_ registration",
+                false !== strpos( $php_registry, "'wp_ajax_{$js_action}'" ) );
+}
+ok( 'kw research handler is registered on wp_ajax_ (2.1.28 hotfix)',
+        false !== strpos( $php_registry, "add_action( 'wp_ajax_haai_kw_research', array( \$this, 'ajax_kw_research' ) )" ) );
+
+echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 48 CHECKS GREEN\n" );
 exit( $fail ? 1 : 0 );
