@@ -759,6 +759,9 @@ final class Haa_API {
         /** @var bool When true, chat() returns a WP_Error like a real transport failure. */
         public static $fail = false;
 
+        /** Mirror of the real LAST_CHAT_ERROR — research diag reads the const. */
+        const LAST_CHAT_ERROR = 'haai_last_chat_error';
+
         /**
          * The real Haa_API reports whether the last reply hit max_tokens; the code
          * under test reads this, so the fake has to answer it too. A suite can flip

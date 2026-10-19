@@ -305,7 +305,12 @@ final class Haa_Keywords {
 
                 return array(
                         'ok'    => true,
-                        'error' => isset( $ai_error ) ? $ai_error : '',
+                        // 2.1.31: the panel headline is for a truly empty panel only.
+                        // A model failure NEXT TO delivered suggest/wiki/local rows is
+                        // already named on its own «مدل:» diag line — repeating it as
+                        // «یادداشت: همه منابع در حال خطا…» above a full list lied
+                        // about the sources (the 2.1.30 live report).
+                        'error' => empty( $rows ) && '' !== $ai_error ? $ai_error : '',
                         'rows'  => $rows,
                         'diag'  => $diag,
                 );
@@ -598,31 +603,40 @@ final class Haa_Keywords {
                         'grounding'  => $ground,
                         // A lone failing primary must not double the panel's wait
                         // with backoff retries; the suggest sweep already spent
-                        // its budget and the panel must come back soon.
+                        // its budget and the panel must come back soon. 2.1.31:
+                        // retries=0 is honoured as a hard zero even when failover
+                        // rows are configured.
                         'retries'    => 0,
+                        // 2.1.31: cap this panel's model wait at 25s regardless of
+                        // the configured «مهلت پاسخ» — a hung provider must not eat
+                        // the whole promised minute before the panel can speak.
+                        'timeout'    => 25,
+                );
+
+                $messages = array(
+                        array( 'role' => 'system', 'content' => $system ),
+                        array( 'role' => 'user', 'content' => $user ),
                 );
 
                 $api = new Haa_API();
-                $raw = $api->chat(
-                        array(
-                                array( 'role' => 'system', 'content' => $system ),
-                                array( 'role' => 'user', 'content' => $user ),
-                        ),
-                        $opts
-                );
-                if ( is_wp_error( $raw ) && $ground ) {
+                $raw = $api->chat( $messages, $opts );
+
+                if ( is_wp_error( $raw ) && $ground
+                        && ! in_array( $raw->get_error_code(), array( 'haai_all_benched', 'haai_no_key', 'haai_no_base' ), true ) ) {
                         // The search tool itself can be the failing part (tool
                         // timeouts, provider-side grounding limits). One plain retry
                         // costs one call and answers the question «is it the model
                         // or the tool?» in production.
-                        $opts['grounding'] = false;
-                        $raw               = $api->chat(
-                                array(
-                                        array( 'role' => 'system', 'content' => $system ),
-                                        array( 'role' => 'user', 'content' => $user ),
-                                ),
-                                $opts
-                        );
+                        // 2.1.31: the grounded call just benched its source — without
+                        // ignore_fresh_bench this retry bounced off the fresh-bench
+                        // wall and the panel got the generic «همه منابع…» instead of
+                        // a diagnosis. And when the retry fails too, the FIRST error
+                        // is the honest one (the retry's all-benched is our own wall).
+                        $first_err                  = $raw;
+                        $opts['grounding']          = false;
+                        $opts['ignore_fresh_bench'] = true;
+                        $second                     = $api->chat( $messages, $opts );
+                        $raw                        = is_wp_error( $second ) ? $first_err : $second;
                 }
                 if ( is_wp_error( $raw ) ) {
                         return $raw;
@@ -651,6 +665,45 @@ final class Haa_Keywords {
                         );
                 }
                 return array_values( array_unique( $list ) );
+        }
+
+        /**
+         * The model line of the panel diag, translated into keywords context.
+         *
+         * The chat layer's all-benched sentence says «همه منابع» — true for the
+         * PROVIDER walk, but inside this panel «منابع» reads as the keyword
+         * sources (which usually answered), so the sentence is re-phrased here,
+         * and the real reason of the last failed walk is appended while it is
+         * fresh enough to be true. The 2.1.30 live report showed the raw
+         * sentence standing in for a diagnosis.
+         *
+         * @param WP_Error $err The ai_ideas() failure.
+         * @return string
+         */
+        public static function model_diag_text( $err ) {
+                if ( 'haai_all_benched' !== $err->get_error_code() ) {
+                        return (string) $err->get_error_message();
+                }
+
+                $line = __( 'ارائه‌دهنده‌های مدل موقتاً خطا داده‌اند؛ چند دقیقه بعد دوباره تلاش کنید', 'hami-ai-assistant' );
+
+                $real = get_transient( Haa_API::LAST_CHAT_ERROR );
+                if ( is_array( $real )
+                        && '' !== (string) ( $real['msg'] ?? '' )
+                        && false === strpos( (string) $real['msg'], 'همه منابع' )
+                        && ( time() - (int) ( $real['at'] ?? 0 ) ) <= 15 * MINUTE_IN_SECONDS ) {
+                        $cause = trim( Haa_Util::cut( (string) $real['msg'], 160 ) );
+                        if ( '' !== $cause && '.' !== mb_substr( $cause, -1 ) ) {
+                                $cause .= '.';
+                        }
+                        return $line . ' — ' . sprintf(
+                                /* translators: %s: the real reason the last provider walk failed. */
+                                __( 'آخرین علت واقعی: %s', 'hami-ai-assistant' ),
+                                $cause
+                        );
+                }
+
+                return $line . '.';
         }
 
         /**

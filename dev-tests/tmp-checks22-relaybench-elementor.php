@@ -32,42 +32,42 @@ require __DIR__ . '/tmp-wp-stubs.php';
 
 $fail = 0;
 function ok( $label, $cond, $extra = '' ) {
-	global $fail;
-	if ( ! $cond ) { $fail++; }
-	echo ( $cond ? '  ok   ' : '  FAIL ' ) . str_pad( $label, 58 ) . $extra . "\n";
+        global $fail;
+        if ( ! $cond ) { $fail++; }
+        echo ( $cond ? '  ok   ' : '  FAIL ' ) . str_pad( $label, 58 ) . $extra . "\n";
 }
 
 function reset_kb_config() {
-	$rc = new ReflectionClass( 'Haa_Search' );
-	$p  = $rc->getProperty( 'config' );
-	$p->setAccessible( true );
-	$p->setValue( null, null );
+        $rc = new ReflectionClass( 'Haa_Search' );
+        $p  = $rc->getProperty( 'config' );
+        $p->setAccessible( true );
+        $p->setValue( null, null );
 }
 
 function ck( $base, $model ) {
-	return 'haai_fb_' . substr( md5( $base . '|' . $model ), 0, 32 );
+        return 'haai_fb_' . substr( md5( $base . '|' . $model ), 0, 32 );
 }
 
 function hosts_called() {
-	$out = array();
-	foreach ( (array) $GLOBALS['http_log'] as $call ) {
-		if ( preg_match( '#https?://([^/]+)#', (string) ( $call['url'] ?? '' ), $m ) ) {
-			$out[] = $m[1];
-		}
-	}
-	return $out;
+        $out = array();
+        foreach ( (array) $GLOBALS['http_log'] as $call ) {
+                if ( preg_match( '#https?://([^/]+)#', (string) ( $call['url'] ?? '' ), $m ) ) {
+                        $out[] = $m[1];
+                }
+        }
+        return $out;
 }
 
 $mk = function ( $over = array() ) {
-	return array_merge( array(
-		'provider' => 'openai', 'adapter' => 'openai', 'base_url' => 'https://primary.example/v1',
-		'api_key' => 'pk-main', 'model' => 'm-main', 'timeout' => 30, 'retries' => 2,
-		'temperature' => 0.7, 'max_tokens' => 1000, 'proxy_host' => '', 'failovers' => array(),
-	), $over );
+        return array_merge( array(
+                'provider' => 'openai', 'adapter' => 'openai', 'base_url' => 'https://primary.example/v1',
+                'api_key' => 'pk-main', 'model' => 'm-main', 'timeout' => 30, 'retries' => 2,
+                'temperature' => 0.7, 'max_tokens' => 1000, 'proxy_host' => '', 'failovers' => array(),
+        ), $over );
 };
 
 $reply_body = function ( $text ) {
-	return array( 'code' => 200, 'body' => wp_json_encode( array( 'choices' => array( array( 'message' => array( 'content' => $text ) ) ) ) ) );
+        return array( 'code' => 200, 'body' => wp_json_encode( array( 'choices' => array( array( 'message' => array( 'content' => $text ) ) ) ) ) );
 };
 
 echo "=== A. fresh bench: fail fast, zero HTTP ===\n";
@@ -104,11 +104,11 @@ ok( 'bench transient deleted (full health)', ! array_key_exists( ck( 'https://pr
 echo "\n=== D. multi-source: fresh bench skipped, healthy serves ===\n";
 $GLOBALS['saved'][ ck( 'https://primary.example/v1', 'm-main' ) ] = time() + 280; // fresh.
 $GLOBALS['http_map'] = array(
-	'primary.example' => array( 'error' => 'cURL error 28: timed out' ),
-	'backup.example'  => $reply_body( 'پاسخ از منبع یدکی' ),
+        'primary.example' => array( 'error' => 'cURL error 28: timed out' ),
+        'backup.example'  => $reply_body( 'پاسخ از منبع یدکی' ),
 );
 $h2 = new Haa_API( $mk( array( 'failovers' => array(
-	array( 'adapter' => 'openai', 'base_url' => 'https://backup.example/v1', 'api_key' => 'pk-backup', 'model' => 'm-backup', 'hash' => 'h1' ),
+        array( 'adapter' => 'openai', 'base_url' => 'https://backup.example/v1', 'api_key' => 'pk-backup', 'model' => 'm-backup', 'hash' => 'h1' ),
 ) ) ) );
 $GLOBALS['http_log'] = array();
 $out5 = $h2->chat( array( array( 'role' => 'user', 'content' => 'ping' ) ), array( 'retries' => 3 ) );
@@ -135,8 +135,8 @@ unset( $GLOBALS['saved'][ ck( 'https://primary.example/v1', 'm-main' ) ] );
 echo "\n=== F. image: all fresh-benched reports honestly ===\n";
 $GLOBALS['saved'][ ck( 'https://primary.example/v1', 'm-main' ) ] = time() + 280;
 $GLOBALS['http_map'] = array( 'primary.example' => array(
-	'code' => 200,
-	'body' => wp_json_encode( array( 'data' => array( array( 'url' => 'https://img.example/a.png' ) ) ) ),
+        'code' => 200,
+        'body' => wp_json_encode( array( 'data' => array( array( 'url' => 'https://img.example/a.png' ) ) ) ),
 ) );
 $GLOBALS['http_log'] = array();
 $img = $api2->image( 'تصویر تست', array() );
@@ -146,23 +146,23 @@ unset( $GLOBALS['saved'][ ck( 'https://primary.example/v1', 'm-main' ) ] );
 
 echo "\n=== G. relay Base-URL contracts (worker side) ===\n";
 $check_worker_path = function ( $url, $provider, $prefix ) {
-	$path = (string) wp_parse_url( (string) $url, PHP_URL_PATH );
-	$parts = explode( '/', trim( (string) $path, '/' ) ); // r, TOKEN, PROVIDER, rest…
-	if ( count( $parts ) < 4 || 'r' !== $parts[0] ) {
-		return false;
-	}
-	if ( $provider !== $parts[2] ) {
-		return false;
-	}
-	$rest = implode( '/', array_slice( $parts, 3 ) );
-	return 0 === strpos( $rest, $prefix );
+        $path = (string) wp_parse_url( (string) $url, PHP_URL_PATH );
+        $parts = explode( '/', trim( (string) $path, '/' ) ); // r, TOKEN, PROVIDER, rest…
+        if ( count( $parts ) < 4 || 'r' !== $parts[0] ) {
+                return false;
+        }
+        if ( $provider !== $parts[2] ) {
+                return false;
+        }
+        $rest = implode( '/', array_slice( $parts, 3 ) );
+        return 0 === strpos( $rest, $prefix );
 };
 $GLOBALS['http_map'] = array( 'worker-relay.example' => $reply_body( 'سلام' ) );
 
 // Groq through the relay: the plugin appends /chat/completions to the /v1 base.
 $groq = new Haa_API( array(
-	'base_url' => 'https://worker-relay.example/r/TOK123/groq/openai/v1',
-	'adapter'  => 'openai', 'api_key' => 'gsk_test', 'model' => 'llama-3.3-70b-versatile', 'timeout' => 30, 'temperature' => 0.7, 'max_tokens' => 1000, 'retries' => 0,
+        'base_url' => 'https://worker-relay.example/r/TOK123/groq/openai/v1',
+        'adapter'  => 'openai', 'api_key' => 'gsk_test', 'model' => 'llama-3.3-70b-versatile', 'timeout' => 30, 'temperature' => 0.7, 'max_tokens' => 1000, 'retries' => 0,
 ) );
 $GLOBALS['http_log'] = array();
 $groq->chat( array( array( 'role' => 'user', 'content' => 'ping' ) ), array( 'retries' => 0 ) );
@@ -173,8 +173,8 @@ ok( 'groq relay passes worker validation', $check_worker_path( $gurl, 'groq', 'o
 
 // OpenRouter through the relay: /v1 base, worker maps to api/v1/.
 $orr = new Haa_API( array(
-	'base_url' => 'https://worker-relay.example/r/TOK123/openrouter/v1',
-	'adapter'  => 'openai', 'api_key' => 'sk-or_test', 'model' => 'm/free', 'timeout' => 30, 'temperature' => 0.7, 'max_tokens' => 1000, 'retries' => 0,
+        'base_url' => 'https://worker-relay.example/r/TOK123/openrouter/v1',
+        'adapter'  => 'openai', 'api_key' => 'sk-or_test', 'model' => 'm/free', 'timeout' => 30, 'temperature' => 0.7, 'max_tokens' => 1000, 'retries' => 0,
 ) );
 $GLOBALS['http_log'] = array();
 $orr->chat( array( array( 'role' => 'user', 'content' => 'ping' ) ), array( 'retries' => 0 ) );
@@ -187,8 +187,8 @@ ok( 'openrouter relay passes worker validation', $check_worker_path( $ourl, 'ope
 $ref = new ReflectionMethod( 'Haa_Adapter_Gemini', 'endpoint' );
 $ref->setAccessible( true );
 $gm = new Haa_API( array(
-	'base_url' => 'https://worker-relay.example/r/TOK123/gemini/v1beta',
-	'adapter'  => 'gemini', 'api_key' => 'AIza-x', 'model' => 'gemini-2.0-flash', 'timeout' => 30, 'temperature' => 0.7, 'max_tokens' => 1000, 'retries' => 0,
+        'base_url' => 'https://worker-relay.example/r/TOK123/gemini/v1beta',
+        'adapter'  => 'gemini', 'api_key' => 'AIza-x', 'model' => 'gemini-2.0-flash', 'timeout' => 30, 'temperature' => 0.7, 'max_tokens' => 1000, 'retries' => 0,
 ) );
 $ep = $ref->invoke( $gm->adapter() );
 ok( 'gemini relay endpoint single v1beta', 'https://worker-relay.example/r/TOK123/gemini/v1beta/models/gemini-2.0-flash:generateContent' === $ep );
@@ -197,12 +197,12 @@ echo "\n=== H. ZWNJ-merged live search (می‌خانه vs میخانه) ===\n";
 reset_kb_config();
 $GLOBALS['chunk_rows'] = array();
 $GLOBALS['post_content'] = array(
-	910 => 'در دل جنگل‌های لاهیجان یک می‌خانه چای سنتی هست؛ سرو چای با نان برشته و مربوی خانگی.',
-	911 => 'جاذبه‌های گردشگری گیلان: تالاب انزلی و بازار رشت.',
+        910 => 'در دل جنگل‌های لاهیجان یک می‌خانه چای سنتی هست؛ سرو چای با نان برشته و مربوی خانگی.',
+        911 => 'جاذبه‌های گردشگری گیلان: تالاب انزلی و بازار رشت.',
 );
 $GLOBALS['posts'] = array(
-	array( 'id' => 910, 'title' => 'می‌خانه سنتی لاهیجان', 'type' => 'post', 'status' => 'publish' ),
-	array( 'id' => 911, 'title' => 'جاذبه‌های گیلان', 'type' => 'post', 'status' => 'publish' ),
+        array( 'id' => 910, 'title' => 'می‌خانه سنتی لاهیجان', 'type' => 'post', 'status' => 'publish' ),
+        array( 'id' => 911, 'title' => 'جاذبه‌های گیلان', 'type' => 'post', 'status' => 'publish' ),
 );
 $hits = Haa_Search::search( 'میخانه لاهیجان کجاست؟', 3, 1500 );
 ok( 'merged token finds the ZWNJ copy', is_array( $hits ) && count( $hits ) > 0 );
@@ -213,23 +213,23 @@ echo "\n=== I. Elementor page answers the café question (empty post_content) ==
 reset_kb_config();
 $GLOBALS['chunk_rows'] = array();
 $el_json = wp_json_encode( array(
-	array(
-		'id' => 'sec1', 'elType' => 'section',
-		'elements' => array(
-			array(
-				'id' => 'col1', 'elType' => 'column',
-				'elements' => array(
-					array( 'id' => 'w1', 'elType' => 'widget', 'settings' => array( 'title' => 'کافه‌های رشت' ), 'elements' => array() ),
-					array( 'id' => 'w2', 'elType' => 'widget', 'settings' => array( 'editor' => '<p>کافه ایران، کافه مارتا و کافه دو همسفر بهترین کافه‌های رشت‌اند؛ قهوه‌ی اسپشیالیتی، فضای کار و دسر خانگی.</p>' ), 'elements' => array() ),
-				),
-			),
-		),
-	),
+        array(
+                'id' => 'sec1', 'elType' => 'section',
+                'elements' => array(
+                        array(
+                                'id' => 'col1', 'elType' => 'column',
+                                'elements' => array(
+                                        array( 'id' => 'w1', 'elType' => 'widget', 'settings' => array( 'title' => 'کافه‌های رشت' ), 'elements' => array() ),
+                                        array( 'id' => 'w2', 'elType' => 'widget', 'settings' => array( 'editor' => '<p>کافه ایران، کافه مارتا و کافه دو همسفر بهترین کافه‌های رشت‌اند؛ قهوه‌ی اسپشیالیتی، فضای کار و دسر خانگی.</p>' ), 'elements' => array() ),
+                                ),
+                        ),
+                ),
+        ),
 ) );
 $GLOBALS['post_content'] = array( 920 => '' );
 $GLOBALS['post_elementor'] = array( 920 => $el_json );
 $GLOBALS['posts'] = array(
-	array( 'id' => 920, 'title' => 'کافه‌های رشت', 'type' => 'page', 'status' => 'publish' ),
+        array( 'id' => 920, 'title' => 'کافه‌های رشت', 'type' => 'page', 'status' => 'publish' ),
 );
 $hits = Haa_Search::search( 'کافه های رشت بهتریناش کدومن؟', 3, 1500 );
 ok( 'builder pass returns the Elementor page', is_array( $hits ) && count( $hits ) > 0 );
@@ -252,6 +252,30 @@ $t3 = Haa_Search::elementor_text( '' );
 ok( 'empty meta → empty text', '' === $t3 );
 $t4 = Haa_Search::elementor_text( '{"a":{"b":{"c":"deep"}}}' );
 ok( 'tree without copy keys → empty', '' === $t4 );
+
+echo "\n=== L. 2.1.31: hard-zero retries + the capped-timeout contract ===\n";
+// The keyword panel sends retries=0 + timeout=25: each source must get EXACTLY
+// one HTTP attempt (the old multi-source budget would double the panel's wait)
+// and the timeout message must report the CAPPED wait, not the configured one.
+$mk2 = new Haa_API( $mk( array( 'failovers' => array(
+        array( 'adapter' => 'openai', 'base_url' => 'https://backup.example/v1', 'api_key' => 'pk-backup', 'model' => 'm-backup', 'hash' => 'h9' ),
+) ) ) );
+$GLOBALS['http_map'] = array(
+        'primary.example' => array( 'error' => 'cURL error 28: timed out' ),
+        'backup.example'  => array( 'error' => 'cURL error 28: timed out' ),
+);
+$GLOBALS['http_log'] = array();
+$out_l = $mk2->chat( array( array( 'role' => 'user', 'content' => 'ping' ) ), array( 'retries' => 0, 'timeout' => 25 ) );
+ok( 'hard-zero retries: two sources, exactly two attempts', is_wp_error( $out_l ) && 2 === count( http_requests() ), 'got ' . count( http_requests() ) );
+ok( 'timeout message reports the capped wait (25s, not 30)',
+        false !== strpos( (string) $out_l->get_error_message(), '(25 ثانیه' ), (string) $out_l->get_error_message() );
+unset(
+        $GLOBALS['saved'][ ck( 'https://primary.example/v1', 'm-main' ) ],
+        $GLOBALS['saved'][ ck( 'https://backup.example/v1', 'm-backup' ) ]
+);
+$opts_def = Haa_API::chat_opts( $mk( array( 'retries' => 2 ) ), array( 'model' => 'x' ) );
+ok( 'chat_opts defaults: timeout=0 (configured value wins) + ignore_fresh_bench=false',
+        0 === (int) $opts_def['timeout'] && false === (bool) $opts_def['ignore_fresh_bench'] && 2 === (int) $opts_def['retries'], '' );
 
 echo "\n" . ( $fail ? "FAILURES: {$fail}\n" : "ALL OK\n" );
 exit( $fail ? 1 : 0 );

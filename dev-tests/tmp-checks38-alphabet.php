@@ -248,8 +248,9 @@ Haa_API::$fail = true;
 mock_engine( 2 );
 http_mock( 'fa.wikipedia.org', array( 'code' => 200, 'body' => json_encode( array( 'فرش نمدی', array( 'فرش نمدی', 'فرش نمدی تبریز' ), array(), array() ), JSON_UNESCAPED_UNICODE ) ) );
 $res = Haa_Keywords::research( $SEED );
-ok( 'research ok with model down (error noted, not fatal)',
-        true === $res['ok'] && '' !== $res['error'], '' );
+// 2.1.31: rows delivered → headline empty, the model failure is diag-only.
+ok( 'research ok with model down, headline EMPTY when rows exist',
+        true === $res['ok'] && '' === $res['error'], 'err=' . (string) ( $res['error'] ?? '?' ) );
 ok( 'rows hard cap 40 respected', count( $res['rows'] ) <= 40, 'rows=' . count( $res['rows'] ) );
 ok( 'suggest still ranks first', 'suggest' === $res['rows'][0]['source'], '' );
 $srcs = array();
@@ -308,6 +309,91 @@ $werr = '';
 $wiki = Haa_Keywords::wiki_titles( 'فرش دستباف', $werr );
 ok( 'wiki_titles unreachable → readable error',
         array() === $wiki && '' !== $werr, 'err=' . $werr );
+
+/* ===================================================================
+ * H. 2.1.31 — the model failure is a DIAG LINE, not the panel headline.
+ *    Live report: suggest delivered 11 rows while the headline said
+ *    «یادداشت: همه منابع در حال خطا هستند…» — the chat layer's
+ *    all-benched sentence had leaked into the global error field.
+ * =================================================================== */
+echo "\n=== H. model failure = diag line, bounded wait, honest retry ===\n";
+
+// H1. ai_ideas() sends the bounded-wait contract to the API layer.
+http_reset();
+$GLOBALS['api_calls'] = array();
+Haa_API::$fail        = true;
+Haa_Keywords::ai_ideas( $SEED );
+$kw_opts = $GLOBALS['api_calls'][0]['opts'] ?? array();
+ok( 'ai_ideas: retries=0 reaches the API layer (hard zero since 2.1.31)',
+        0 === (int) ( $kw_opts['retries'] ?? -1 ), '' );
+ok( 'ai_ideas: model wait capped at 25s (timeout opt)',
+        25 === (int) ( $kw_opts['timeout'] ?? 0 ), 'timeout=' . ( $kw_opts['timeout'] ?? '?' ) );
+
+// H1b. The GROUNDED path end-to-end on the fake API: the first (grounded)
+// call fails → the no-grounding retry must actually RUN (ignore_fresh_bench)
+// and its failure must NOT replace the first error.
+$prev_research = $GLOBALS['opts']['hami_ai_assistant']['research'];
+$GLOBALS['opts']['hami_ai_assistant']['research']['fallback_ai'] = 1;
+Haa_Settings::flush_cache(); // the static settings cache was already warmed by earlier sections.
+Haa_Settings::save_section( 'provider', array( 'adapter' => 'gemini', 'api_key' => 'gk-suite38', 'model' => 'gemini-suite38', 'base_url' => 'https://relay38.example/v1beta' ) );
+$GLOBALS['api_calls']   = array();
+$GLOBALS['api_replies'] = array(
+        array( 'error' => 'grounded call died' ),
+        array( 'error' => 'retry wall sentence' ),
+);
+Haa_API::$fail = false; // H1 left the global fail switch on — the queue drives the failures here.
+$ideas = Haa_Keywords::ai_ideas( $SEED );
+ok( 'grounded fail → the no-grounding retry actually ran (2 calls)',
+        2 === count( $GLOBALS['api_calls'] ), 'calls=' . count( $GLOBALS['api_calls'] ) );
+$retry_opts = $GLOBALS['api_calls'][1]['opts'] ?? array();
+ok( 'retry: grounding off + ignore_fresh_bench on',
+        false === ( $retry_opts['grounding'] ?? true ) && true === ( $retry_opts['ignore_fresh_bench'] ?? false ), '' );
+ok( 'ai_ideas returns the FIRST error, not the retry wall',
+        is_wp_error( $ideas ) && 'grounded call died' === $ideas->get_error_message(), '' );
+$GLOBALS['opts']['hami_ai_assistant']['research'] = $prev_research;
+Haa_Settings::flush_cache();
+unset( $GLOBALS['api_replies'] );
+
+// H2. model_diag_text(): translation of the chat layer's all-benched sentence.
+ok( 'diag text: non-benched errors pass through untouched',
+        'transport down' === Haa_Keywords::model_diag_text( new WP_Error( 'haai_http', 'transport down' ) ), '' );
+
+unset( $GLOBALS['saved'][ 'haai_last_chat_error' ] );
+$mapped = Haa_Keywords::model_diag_text( new WP_Error( 'haai_all_benched', 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.' ) );
+ok( 'diag text: all-benched → provider-walk sentence (no «همه منابع» leak)',
+        false === strpos( $mapped, 'همه منابع' ) && false !== strpos( $mapped, 'ارائه‌دهنده‌های مدل' ), $mapped );
+
+set_transient( 'haai_last_chat_error', array(
+        'code'  => 'haai_timeout',
+        'msg'   => 'مهلت اتصال به سرویس AI تمام شد (60 ثانیه پاسخی نرسید).',
+        'model' => 'm',
+        'at'    => time() - 30,
+), DAY_IN_SECONDS );
+$mapped = Haa_Keywords::model_diag_text( new WP_Error( 'haai_all_benched', 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.' ) );
+ok( 'diag text: fresh real cause is appended',
+        false !== strpos( $mapped, 'آخرین علت واقعی:' ) && false !== strpos( $mapped, '60 ثانیه' ), $mapped );
+
+set_transient( 'haai_last_chat_error', array(
+        'code'  => 'haai_all_benched',
+        'msg'   => 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.',
+        'model' => 'm',
+        'at'    => time() - 10,
+), DAY_IN_SECONDS );
+$mapped = Haa_Keywords::model_diag_text( new WP_Error( 'haai_all_benched', 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.' ) );
+ok( 'diag text: a generic remembered sentence is NOT echoed back',
+        false === strpos( $mapped, 'آخرین علت واقعی:' ), $mapped );
+
+set_transient( 'haai_last_chat_error', array(
+        'code'  => 'haai_http_401',
+        'msg'   => 'کلید نامعتبر است.',
+        'model' => 'm',
+        'at'    => time() - 3600,
+), DAY_IN_SECONDS );
+$mapped = Haa_Keywords::model_diag_text( new WP_Error( 'haai_all_benched', 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.' ) );
+ok( 'diag text: a STALE cause (>15min) is not presented as current',
+        false === strpos( $mapped, 'آخرین علت واقعی:' ), $mapped );
+unset( $GLOBALS['saved'][ 'haai_last_chat_error' ] );
+Haa_API::$fail = false;
 
 echo "----\n";
 echo 0 === $fail ? "SUITE 38 GREEN\n" : "SUITE 38 FAILED ($fail)\n";

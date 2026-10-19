@@ -236,7 +236,10 @@ $GLOBALS['http_map']   = array(
 );
 
 $res = Haa_Keywords::research( 'فرش نمدی' );
-ok( 'research ok with model down (error noted, not fatal)', true === $res['ok'] && '' !== $res['error'], '' );
+// 2.1.31: rows delivered → the global error stays EMPTY; the model failure
+// lives on its own «مدل:» diag line. The old contract (error != '') put the
+// model-layer sentence above a full list and lied about the sources.
+ok( 'research ok with model down, headline EMPTY when rows exist', true === $res['ok'] && '' === $res['error'], 'err=' . $res['error'] );
 ok( 'rows present', count( $res['rows'] ) > 0, 'rows=' . count( $res['rows'] ) );
 ok( 'hard cap 40 respected', count( $res['rows'] ) <= 40, '' );
 

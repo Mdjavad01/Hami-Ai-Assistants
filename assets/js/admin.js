@@ -801,8 +801,13 @@
                                 .then(function (d) {
                                         if (!d || !d.ok) throw new Error((d && d.error) || (C.i18n && C.i18n.fail) || 'خطا');
                                         showDiag(d);
-                                        if (!d.rows || !d.rows.length) { say('پیشنهادی پیدا نشد؛ موضوع دیگری امتحان کنید.'); return; }
-                                        say(d.error ? 'یادداشت: ' + d.error : '');
+                                        if (!d.rows || !d.rows.length) { say(d.error ? d.error : 'پیشنهادی پیدا نشد؛ موضوع دیگری امتحان کنید.'); return; }
+                                        // 2.1.31: rows delivered → no headline. A failed model
+                                        // is already named on its own «مدل:» line in the
+                                        // per-source diag below; the old global
+                                        // «یادداشت: همه منابع در حال خطا…» over a full list
+                                        // lied about the sources.
+                                        say('');
                                         d.rows.forEach(row);
                                         form.hidden = false;
                                 })

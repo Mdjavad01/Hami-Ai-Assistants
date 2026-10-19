@@ -196,6 +196,21 @@ foreach ( (array) $GLOBALS['http_log'] as $call ) {
 ok( 'image succeeds on the primary', is_string( $imgreply ) && 'https://img.example/a.png' === $imgreply );
 ok( 'claude fallback skipped, not "failed"', ! in_array( 'claude.example', $hosts2, true ) );
 
+echo "\n=== G. 2.1.31: ignore_fresh lets a deliberate retry probe a fresh bench ===\n";
+// The keyword panel's no-grounding retry must be able to probe the source its
+// own first call just benched — the fresh-bench wall exists for visitor
+// traffic, not for a diagnostic retry that accepts the wait.
+$GLOBALS['saved'][ 'haai_fb_' . substr( md5( 'https://primary.example/v1|m-main' ), 0, 32 ) ] = time() + 290; // fresh-benched.
+$f_only = false;
+$c_no = $cand->invokeArgs( $h, array( &$f_only ) );
+ok( 'default: fresh-benched source filtered out, fresh_only signalled',
+        array() === $c_no && true === $f_only, '' );
+$f_only2 = false;
+$c_yes = $cand->invokeArgs( $h, array( &$f_only2, true ) );
+ok( 'ignore_fresh: the fresh-benched primary is handed to the deliberate retry',
+        1 === count( $c_yes ) && 'https://primary.example/v1' === $c_yes[0]['base_url'] && false === $f_only2, '' );
+unset( $GLOBALS['saved'][ 'haai_fb_' . substr( md5( 'https://primary.example/v1|m-main' ), 0, 32 ) ] );
+
 echo "\n";
 echo ( 0 === $fail ) ? "ALL PASS\n" : "FAILURES: $fail\n";
 exit( 0 === $fail ? 0 : 1 );

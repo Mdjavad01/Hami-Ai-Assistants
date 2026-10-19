@@ -499,6 +499,38 @@ final class Haa_API {
          * ---------------------------------------------------------------- */
 
         /**
+         * Defaults for one chat() call. 2.1.31 additions:
+         *
+         *  - `timeout`: a caller may cap the HTTP wait BELOW the configured
+         *    «مهلت پاسخ» — the keyword panel promises ~one minute and must not
+         *    spend it all on one hung provider. 0 = use the configured value.
+         *  - `ignore_fresh_bench`: a deliberate retry (the keyword panel's
+         *    no-grounding second call) must be able to probe a source its own
+         *    first call just benched; without this the fresh-bench wall answers
+         *    «همه منابع…» before the retry can ask the real question. Visitor
+         *    traffic never sets it — the fail-fast stays theirs.
+         *
+         * @param array $cfg  Active source config.
+         * @param array $opts Call options.
+         * @return array
+         */
+        public static function chat_opts( $cfg, $opts ) {
+                return wp_parse_args(
+                        $opts,
+                        array(
+                                'model'              => $cfg['model'],
+                                'temperature'        => $cfg['temperature'],
+                                'max_tokens'         => $cfg['max_tokens'],
+                                'module'             => 'core',
+                                'retries'            => (int) $cfg['retries'],
+                                'operation'          => 'chat',
+                                'timeout'            => 0,
+                                'ignore_fresh_bench' => false,
+                        )
+                );
+        }
+
+        /**
          * Send a conversation, with retry/backoff on transient failures and
          * automatic failover across the configured backup sources.
          *
@@ -515,21 +547,11 @@ final class Haa_API {
         public function chat( $messages, $opts = array() ) {
                 self::$last_truncated = false;
 
-                $opts = wp_parse_args(
-                        $opts,
-                        array(
-                                'model'       => $this->cfg['model'],
-                                'temperature' => $this->cfg['temperature'],
-                                'max_tokens'  => $this->cfg['max_tokens'],
-                                'module'      => 'core',
-                                'retries'     => (int) $this->cfg['retries'],
-                                'operation'   => 'chat',
-                        )
-                );
+                $opts = self::chat_opts( $this->cfg, $opts );
 
                 $started = microtime( true );
                 $fresh_only = false;
-                $candidates = $this->candidates( $fresh_only );
+                $candidates = $this->candidates( $fresh_only, ! empty( $opts['ignore_fresh_bench'] ) );
 
                 // The friendly configuration errors survive the walk: with a sole
                 // (unusable) candidate they surface exactly as before; with a
@@ -549,7 +571,14 @@ final class Haa_API {
                         // time to heal — the visitor gets the honest message instantly
                         // and the host stays calm. The probe window re-opens within
                         // BENCH_PROBE_AFTER seconds, so recovery is never far away.
-                        self::remember_chat_error( 'haai_all_benched', __( 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.', 'hami-ai-assistant' ), (string) $opts['model'] );
+                        // 2.1.31: the generic sentence must NOT overwrite a real
+                        // diagnostic the last actual walk left behind — the provider
+                        // tab and the keyword panel both read this transient, and
+                        // «همه منابع…» tells nobody anything they can act on.
+                        $prev_err = get_transient( self::LAST_CHAT_ERROR );
+                        if ( ! is_array( $prev_err ) || 'haai_all_benched' === (string) ( $prev_err['code'] ?? '' ) ) {
+                                self::remember_chat_error( 'haai_all_benched', __( 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.', 'hami-ai-assistant' ), (string) $opts['model'] );
+                        }
                         $this->log_chat( $opts, $messages, '', $started, 0, 'haai_all_benched' );
                         return new WP_Error( 'haai_all_benched', __( 'همه منابع در حال خطا هستند؛ چند لحظه بعد دوباره تلاش کنید.', 'hami-ai-assistant' ) );
                 }
@@ -558,7 +587,13 @@ final class Haa_API {
                 // so the switch stays immediate; the admin's retry/backoff budget
                 // only applies to a lone primary. A benched source on probe duty
                 // never gets the backoff budget — it failed moments ago.
-                $retries = count( $candidates ) > 1 ? 1 : max( 0, (int) $opts['retries'] );
+                // 2.1.31: an EXPLICIT retries=0 is now a hard zero — the keyword
+                // panel set it to bound its wait, and the multi-source «one
+                // attempt each» budget would silently double that wait.
+                $want_retries = max( 0, (int) $opts['retries'] );
+                $retries      = 0 === $want_retries
+                        ? 0
+                        : ( count( $candidates ) > 1 ? 1 : $want_retries );
 
                 $last = null;
 
@@ -724,10 +759,12 @@ final class Haa_API {
          * and the caller fails fast — walking into an outage that started
          * seconds ago only piles up slow PHP workers on the host.
          *
-         * @param bool $fresh_only Set when every source is freshly benched.
+         * @param bool $fresh_only  Set when every source is freshly benched.
+         * @param bool $ignore_fresh 2.1.31 — a deliberate retry probes even
+         *                           fresh-benched sources instead of failing fast.
          * @return array<int,array> Wire-ready config arrays.
          */
-        private function candidates( &$fresh_only = false ) {
+        private function candidates( &$fresh_only = false, $ignore_fresh = false ) {
                 $ordered = $this->source_list();
                 $usable  = array();
                 $fresh   = 0;
@@ -741,7 +778,9 @@ final class Haa_API {
                         // A source benched within the last minute gets no attempt at
                         // all while anything else is available: it just failed, a
                         // retry now would burn the visitor's time for nothing.
-                        if ( self::bench_fresh( $cfg ) ) {
+                        // 2.1.31: ignore_fresh marks a deliberate diagnostic retry —
+                        // it may probe the fresh-benched source and pay the wait.
+                        if ( ! $ignore_fresh && self::bench_fresh( $cfg ) ) {
                                 $fresh++;
                                 continue;
                         }
@@ -867,8 +906,15 @@ final class Haa_API {
                 // Every attempt answers for itself: a retry that fails, or a reply served
                 // from cache without a body to read, must not inherit the last verdict.
                 self::$last_truncated = false;
+
+                // 2.1.31: a caller-set cap (the keyword panel's bounded wait) wins
+                // over the configured «مهلت پاسخ», clamped to a sane 10–90s window.
+                $eff_timeout = (int) ( $opts['timeout'] ?? 0 ) > 0
+                        ? max( 10, min( 90, (int) $opts['timeout'] ) )
+                        : max( 5, (int) $this->cfg['timeout'] );
+
                 $args = array(
-                        'timeout'     => max( 5, (int) $this->cfg['timeout'] ),
+                        'timeout'     => $eff_timeout,
                         'redirection' => 0,
                         'httpversion' => '1.1',
                         'headers'     => $adapter->headers(),
@@ -893,7 +939,7 @@ final class Haa_API {
                 $res  = wp_remote_post( $url, $args );
 
                 if ( is_wp_error( $res ) ) {
-                        return $this->map_transport_error( $res );
+                        return $this->map_transport_error( $res, $eff_timeout );
                 }
 
                 $code = (int) wp_remote_retrieve_response_code( $res );
@@ -1916,10 +1962,12 @@ final class Haa_API {
         }
 
         /**
-         * @param WP_Error $res Transport error.
+         * @param WP_Error $res            Transport error.
+         * @param int      $waited_seconds Effective timeout of THIS attempt when the
+         *                                 caller capped it (2.1.31); 0 = configured value.
          * @return WP_Error
          */
-        private function map_transport_error( $res ) {
+        private function map_transport_error( $res, $waited_seconds = 0 ) {
                 $msg       = $res->get_error_message();
                 $has_proxy = ! empty( $this->cfg['proxy_host'] );
 
@@ -1949,7 +1997,7 @@ final class Haa_API {
                         // sentence is honest about the case where increasing it cannot
                         // help — filtered endpoints (Google/OpenAI/Claude/xAI from
                         // Iranian IPs) hang silently until any timeout expires.
-                        $waited = max( 5, (int) $this->cfg['timeout'] );
+                        $waited = $waited_seconds > 0 ? (int) $waited_seconds : max( 5, (int) $this->cfg['timeout'] );
                         return new WP_Error( 'haai_timeout', sprintf(
                                 /* translators: %d: seconds waited */
                                 __( 'مهلت اتصال به سرویس AI تمام شد (%1$d ثانیه پاسخی نرسید). یک‌بار دیگر بزنید؛ اگر تکرار شد «مهلت پاسخ» را در تب «ارائه‌دهنده AI» بیشتر کنید. اگر باز هم نشد، احتمالاً این سرویس از سرور شما در دسترس نیست (Google، OpenAI، Claude و xAI از IP ایران معمولاً فیلتر هستند) — پراکسی را در همین تب تنظیم کنید یا Base URL را روی یک رله مثل OpenRouter بگذارید.', 'hami-ai-assistant' ),
