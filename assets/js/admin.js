@@ -790,15 +790,18 @@
                         return label;
                 }
 
+                var netRetries = 0;
+
                 function search() {
                         var q = (seed.value || '').trim();
                         if (q.length < 3) { seed.focus(); return; }
                         run.disabled = true;
-                        say('در حال گرفتن پیشنهادها… این کار تا یک دقیقه ممکن است طول بکشد.');
+                        say('در حال گرفتن پیشنهادها… اولین تلاش ممکن است تا ۴۰ ثانیه طول بکشد؛ تلاش‌های بعدی از نتایج ذخیره‌شده سریع‌ترند.');
                         rows.innerHTML = '';
                         form.hidden = true;
                         post('haai_kw_research', { seed: q })
                                 .then(function (d) {
+                                        netRetries = 0;
                                         if (!d || !d.ok) throw new Error((d && d.error) || (C.i18n && C.i18n.fail) || 'خطا');
                                         showDiag(d);
                                         if (!d.rows || !d.rows.length) { say(d.error ? d.error : 'پیشنهادی پیدا نشد؛ موضوع دیگری امتحان کنید.'); return; }
@@ -811,7 +814,27 @@
                                         d.rows.forEach(row);
                                         form.hidden = false;
                                 })
-                                .catch(function (e) { say(e.message || 'خطا'); })
+                                .catch(function (e) {
+                                        // 2.1.32: a browser-level «Failed to fetch» means the
+                                        // request died BEFORE any response — usually the
+                                        // host's proxy killing an over-budget first run (the
+                                        // 2.1.31 live report: first click dead, second/third
+                                        // fine). The dead run also warmed the per-seed source
+                                        // cache and benched dead providers, so ONE automatic
+                                        // retry usually succeeds silently.
+                                        var m = String((e && e.message) || '');
+                                        var net = (e && e.name === 'TypeError') || /failed to fetch|networkerror|load failed/i.test(m);
+                                        if (net && netRetries++ < 1) {
+                                                say('ارتباط با سرور قطع شد؛ خودکار یک‌بار دیگر تلاش می‌کنم… (تلاش اول کش منابع را گرم کرده است)');
+                                                setTimeout(search, 1500);
+                                                return;
+                                        }
+                                        if (net) {
+                                                say('ارتباط با سرور قطع شد (Failed to fetch). معمولاً یعنی پردازش از سقف زمانی سرور گذشته؛ چند لحظه بعد دوباره «پیدا کن» را بزنید — تلاش بعدی از نتایج ذخیره‌شده سریع‌تر جواب می‌دهد.');
+                                                return;
+                                        }
+                                        say(e.message || 'خطا');
+                                })
                                 .then(function () { run.disabled = false; });
                 }
 

@@ -278,6 +278,11 @@ ok( 'diag: wiki line carries the title count', false !== strpos( $diag_text, 'و
  * =================================================================== */
 echo "\n=== G. All engines dead → the hint names the proxy ===\n";
 
+// 2.1.32: F's research() on the SAME seed wrote its per-seed source cache —
+// G must observe a fresh all-dead run, not F's warm pool.
+delete_transient( Haa_Keywords::src_cache_key( $SEED ) );
+delete_transient( Haa_Keywords::ai_cache_key( $SEED ) );
+
 http_reset();
 $GLOBALS['posts']      = array();
 $GLOBALS['permalinks'] = array();

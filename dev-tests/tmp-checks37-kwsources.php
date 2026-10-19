@@ -343,5 +343,106 @@ foreach ( $js_actions as $js_action ) {
 ok( 'kw research handler is registered on wp_ajax_ (2.1.28 hotfix)',
         false !== strpos( $php_registry, "add_action( 'wp_ajax_haai_kw_research', array( \$this, 'ajax_kw_research' ) )" ) );
 
-echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 51 CHECKS GREEN\n" );
+echo "\n=== J. 2.1.32 — per-seed caches + the total research budget ===\n";
+// Live report on 2.1.31: first click «Failed to fetch», second/third fine —
+// the cold run stacked the suggest sweep (≤20s) + wiki + the 25s model wait
+// past the host's ~60s proxy limit, and the browser showed a raw English
+// network error. Locked here: RESEARCH_BUDGET=40 caps the whole request,
+// per-seed source/model caches make the retry near-instant, the diag says
+// «(کش)» / «سقف زمانی» honestly, and admin.js auto-retries a dead fetch once.
+
+$SEED_J  = 'قالیچه دستباف';
+$IDEAS_J = '{"keywords":[{"keyword":"قالیچه دستباف تبریز"},{"keyword":"قیمت قالیچه دستباف"}]}';
+
+// J1. first research: the network runs, both caches are written.
+delete_transient( Haa_Keywords::src_cache_key( $SEED_J ) );
+delete_transient( Haa_Keywords::ai_cache_key( $SEED_J ) );
+http_reset();
+$GLOBALS['http_log']    = array();
+$GLOBALS['api_calls']   = array();
+$GLOBALS['api_replies'] = array( $IDEAS_J );
+Haa_API::$fail          = false;
+$GLOBALS['http_map']    = array(
+        'suggestqueries.google.com' => array( 'code' => 200, 'body' => $SUG ),
+        'api.bing.com'              => array( 'code' => 200, 'body' => $SUG ),
+        'ac.ecosia.org'             => array( 'code' => 200, 'body' => $SUG ),
+        'fa.wikipedia.org'          => array( 'code' => 200, 'body' => json_encode( array( $SEED_J, array( 'قالیچه دستباف نایین' ), array(), array() ), JSON_UNESCAPED_UNICODE ) ),
+);
+$r_j1 = Haa_Keywords::research( $SEED_J );
+ok( 'J: first research runs the network', count( $GLOBALS['http_log'] ) > 0, 'http=' . count( $GLOBALS['http_log'] ) );
+ok( 'J: first research writes the source cache', is_array( get_transient( Haa_Keywords::src_cache_key( $SEED_J ) ) ), '' );
+ok( 'J: successful model ideas are cached too', is_array( get_transient( Haa_Keywords::ai_cache_key( $SEED_J ) ) ), '' );
+$j_http = count( $GLOBALS['http_log'] );
+$j_api  = count( $GLOBALS['api_calls'] );
+
+// J2. the SAME seed again: zero HTTP, zero model calls, honest «(کش)».
+$r_j2 = Haa_Keywords::research( $SEED_J );
+ok( 'J: second research makes NO http calls', $j_http === count( $GLOBALS['http_log'] ), 'delta=' . ( count( $GLOBALS['http_log'] ) - $j_http ) );
+ok( 'J: second research makes NO model calls', $j_api === count( $GLOBALS['api_calls'] ), 'delta=' . ( count( $GLOBALS['api_calls'] ) - $j_api ) );
+$diag_j2 = implode( ' | ', (array) ( $r_j2['diag'] ?? array() ) );
+ok( 'J: cache-served diag says «(کش)»', false !== strpos( $diag_j2, '(کش)' ), '' );
+ok( 'J: cache-served rows match the fresh run', count( $r_j1['rows'] ) === count( $r_j2['rows'] ), 'fresh=' . count( $r_j1['rows'] ) . ' cached=' . count( $r_j2['rows'] ) );
+
+// J3. invalidation → the network runs again.
+delete_transient( Haa_Keywords::src_cache_key( $SEED_J ) );
+delete_transient( Haa_Keywords::ai_cache_key( $SEED_J ) );
+Haa_Keywords::research( $SEED_J );
+ok( 'J: after invalidation the network runs again', count( $GLOBALS['http_log'] ) > $j_http, '' );
+delete_transient( Haa_Keywords::src_cache_key( $SEED_J ) );
+delete_transient( Haa_Keywords::ai_cache_key( $SEED_J ) );
+
+// J4. exhausted budget (test seam: forced stale $t0): EVERY network stage
+//     refuses, the panel still fills from local rows, the diag is honest.
+http_reset();
+$GLOBALS['http_log']    = array();
+$GLOBALS['api_calls']   = array();
+unset( $GLOBALS['api_replies'] );
+$r_j4 = Haa_Keywords::research( 'بودجه تمام فرش', microtime( true ) - 10000 );
+ok( 'J: exhausted budget → zero http calls', 0 === count( $GLOBALS['http_log'] ), 'http=' . count( $GLOBALS['http_log'] ) );
+ok( 'J: exhausted budget → zero model calls', 0 === count( $GLOBALS['api_calls'] ), 'api=' . count( $GLOBALS['api_calls'] ) );
+ok( 'J: exhausted budget → the panel still fills from local rows',
+        true === $r_j4['ok'] && count( $r_j4['rows'] ) > 0, 'rows=' . count( $r_j4['rows'] ) );
+$diag_j4 = implode( ' | ', (array) ( $r_j4['diag'] ?? array() ) );
+ok( 'J: exhausted budget → suggest family says the ceiling',
+        false !== strpos( $diag_j4, 'ساجست/ویکی‌پدیا: رد شد — سقف زمانی' ), '' );
+ok( 'J: exhausted budget → the model line says the ceiling',
+        false !== strpos( $diag_j4, 'مدل: رد شد — سقف زمانی' ), '' );
+
+// J5. ~16s left → the model call runs with timeout=16 (clamped 12–25).
+$GLOBALS['http_map']   = array(
+        'suggestqueries.google.com' => array( 'code' => 200, 'body' => $SUG ),
+        'api.bing.com'              => array( 'code' => 200, 'body' => $SUG ),
+        'ac.ecosia.org'             => array( 'code' => 200, 'body' => $SUG ),
+        'fa.wikipedia.org'          => array( 'error' => 'wiki down' ),
+);
+http_reset();
+$GLOBALS['http_log']    = array();
+$GLOBALS['api_calls']   = array();
+$GLOBALS['api_replies'] = array( $IDEAS_J );
+Haa_Keywords::research( 'بودجه نیمه فرش', microtime( true ) - ( Haa_Keywords::RESEARCH_BUDGET - 16 ) );
+$j5_timeout = (int) ( $GLOBALS['api_calls'][0]['opts']['timeout'] ?? 0 );
+ok( 'J: leftover budget narrows the model timeout (16s left → timeout=16)',
+        16 === $j5_timeout, 'timeout=' . $j5_timeout );
+
+// J6. 10s left (< the 12s floor) → the model stage is skipped, diag honest.
+http_reset();
+$GLOBALS['http_log']    = array();
+$GLOBALS['api_calls']   = array();
+$GLOBALS['api_replies'] = array( $IDEAS_J );
+$r_j6 = Haa_Keywords::research( 'بودجه ته فرش', microtime( true ) - ( Haa_Keywords::RESEARCH_BUDGET - 10 ) );
+ok( 'J: <12s left → the model stage is skipped', 0 === count( $GLOBALS['api_calls'] ), 'api=' . count( $GLOBALS['api_calls'] ) );
+$diag_j6 = implode( ' | ', (array) ( $r_j6['diag'] ?? array() ) );
+ok( 'J: <12s left → the model line names the ceiling', false !== strpos( $diag_j6, 'مدل: رد شد — سقف زمانی' ), '' );
+
+// J7. the JS side: a dead fetch gets ONE automatic retry + Persian copy,
+//     in BOTH the source and the shipped minified asset.
+ok( 'J: admin.js auto-retries once on a network death',
+        false !== strpos( $js_src, 'netRetries' ) && false !== strpos( $js_src, 'setTimeout(search' ), '' );
+ok( 'J: admin.js explains «Failed to fetch» in Persian',
+        false !== strpos( $js_src, 'Failed to fetch' ) && false !== strpos( $js_src, 'ارتباط با سرور قطع شد' ), '' );
+$js_min_src = (string) file_get_contents( dirname( __DIR__ ) . '/assets/js/admin.min.js' );
+ok( 'J: admin.min.js carries the same retry contract',
+        false !== strpos( $js_min_src, 'netRetries' ) && false !== strpos( $js_min_src, 'ارتباط با سرور قطع شد' ), '' );
+
+echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 70 CHECKS GREEN\n" );
 exit( $fail ? 1 : 0 );

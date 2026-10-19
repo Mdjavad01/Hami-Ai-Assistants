@@ -81,6 +81,26 @@ final class Haa_Keywords {
         const WIKI_EP = 'https://fa.wikipedia.org/w/api.php?action=opensearch&limit=10&namespace=0&format=json&search=';
 
         /**
+         * 2.1.32 — hard wall-clock ceiling for ONE research() call. The live
+         * 2.1.31 report («اولین بار: Failed to fetch»، تلاش‌های دوم/سوم سالم)
+         * showed the browser-side connection dying before ANY response: the
+         * suggest sweep (≤20s) + wiki + the model layer (25s per source) could
+         * stack past the host's ~60s proxy limit on a cold run. Every network
+         * stage now checks the remaining budget, and the model stage gets
+         * whatever is left (clamped 12–25s) or is skipped with an honest
+         * diag line. The 2nd/3rd clicks succeeded because the network was warm
+         * and the dead providers were benched — with the budget those clicks
+         * also get the cached pools, so they are near-instant.
+         */
+        const RESEARCH_BUDGET = 40;
+
+        /** Seconds the per-seed suggest+wiki pool stays cached (retry-friendly). */
+        const SRC_CACHE_TTL = 300;
+
+        /** Seconds the per-seed model ideas stay cached — the expensive stage. */
+        const AI_CACHE_TTL = 900;
+
+        /**
          * Deterministic long-tail templates for the last-resort source. When
          * Google Suggest is unreachable (no proxy), no SERP service is set, the
          * snapshot is empty and the model call fails, the panel still shows a
@@ -101,13 +121,26 @@ final class Haa_Keywords {
                 '%s با بهترین قیمت',
         );
 
+        /** @param string $seed Topic. @return string Transient key of the per-seed suggest+wiki pool. */
+        public static function src_cache_key( $seed ) {
+                return 'haai_kw_src_' . md5( 'v3|' . (string) $seed );
+        }
+
+        /** @param string $seed Topic. @return string Transient key of the per-seed model ideas. */
+        public static function ai_cache_key( $seed ) {
+                return 'haai_kw_ai_' . md5( 'v3|' . (string) $seed );
+        }
+
         /**
          * Full research for one seed: combine every available source.
          *
-         * @param string $seed Topic or keyword typed by the admin.
+         * @param string   $seed Topic or keyword typed by the admin.
+         * @param int|null $t0   Test seam: forced start timestamp (microtime) so
+         *                       suites can exercise the exhausted-budget paths
+         *                       deterministically without sleeping.
          * @return array{ok:bool,error:string,rows:array<int,array>}
          */
-        public static function research( $seed ) {
+        public static function research( $seed, $t0 = null ) {
                 $seed = trim( sanitize_text_field( (string) $seed ) );
                 if ( mb_strlen( $seed ) < 3 ) {
                         return array(
@@ -127,14 +160,66 @@ final class Haa_Keywords {
                 $serp_diag    = '';
                 $ai_n         = 0;
                 $planner_n    = 0;
+                $from_cache   = false;
+                $budget_skip  = false;
+
+                // 2.1.32: ONE wall-clock ceiling for the whole request (see
+                // RESEARCH_BUDGET) — every network stage asks «how much is
+                // left?» before spending the host's patience.
+                if ( null === $t0 ) {
+                        $t0 = microtime( true );
+                }
+                $budget = self::RESEARCH_BUDGET;
+                $left   = static function () use ( $t0, $budget ) {
+                        return $budget - ( microtime( true ) - (float) $t0 );
+                };
 
                 // 1) Bing + Ecosia + Google Suggest — real user typing, when
                 //    reachable. $suggest_errs remembers WHY each engine failed, so
                 //    the panel can answer «why is the list short?» honestly — the
                 //    2.1.29 live report showed a generic model-layer message
                 //    standing in for a network outage. Deep silence helps nobody.
+                //    2.1.32: the pool is cached per seed for a few minutes, so the
+                //    click AFTER a connection death (or a plain re-click) skips
+                //    the whole sweep — the «second try works» pattern, made
+                //    instant. The cache is written BEFORE the model stage, so a
+                //    request the host kills later still leaves its sources
+                //    behind for the retry. A dead sweep (0 rows) is never
+                //    cached — the next click retries the network.
                 if ( ! empty( Haa_Research::config()['suggest_enabled'] ) ) {
-                        foreach ( self::suggest_multi( $seed, $suggest_errs ) as $k ) {
+                        $cached = get_transient( self::src_cache_key( $seed ) );
+                        if ( is_array( $cached ) && isset( $cached['rows'], $cached['wiki'] ) ) {
+                                $from_cache   = true;
+                                $suggest_keys = (array) $cached['rows'];
+                                $wiki_titles  = (array) $cached['wiki'];
+                                $suggest_errs = (array) ( $cached['errs'] ?? array() );
+                                $wiki_err     = (string) ( $cached['wiki_err'] ?? '' );
+                        } elseif ( $left() > 2 ) {
+                                $suggest_keys = self::suggest_multi( $seed, $suggest_errs );
+
+                                // Persian Wikipedia titles — a different suggestion family
+                                // (what people actually look up), still no key, still
+                                // reachable from Iranian hosts. The one extra call bows
+                                // to the budget too.
+                                $wiki_titles = ( $left() > 2 )
+                                        ? self::wiki_titles( $seed, $wiki_err )
+                                        : array();
+
+                                if ( $suggest_keys || $wiki_titles ) {
+                                        set_transient( self::src_cache_key( $seed ), array(
+                                                'rows'     => $suggest_keys,
+                                                'wiki'     => $wiki_titles,
+                                                'errs'     => $suggest_errs,
+                                                'wiki_err' => $wiki_err,
+                                        ), self::SRC_CACHE_TTL );
+                                }
+                        } else {
+                                $budget_skip  = true;
+                                $suggest_keys = array();
+                                $wiki_titles  = array();
+                        }
+
+                        foreach ( $suggest_keys as $k ) {
                                 $suggest_n++;
                                 $rows[] = array(
                                         'keyword' => $k,
@@ -144,10 +229,7 @@ final class Haa_Keywords {
                                 );
                         }
 
-                        // Persian Wikipedia titles — a different suggestion family
-                        // (what people actually look up), still no key, still
-                        // reachable from Iranian hosts.
-                        foreach ( self::wiki_titles( $seed, $wiki_err ) as $t ) {
+                        foreach ( $wiki_titles as $t ) {
                                 $wiki_n++;
                                 $rows[] = array(
                                         'keyword' => $t,
@@ -192,7 +274,13 @@ final class Haa_Keywords {
                 }
 
                 // 4) SERP titles — what actually ranks, when a SERP service exists.
-                $serp = Haa_Research::serp( $seed, 10 );
+                //    2.1.32: a configured-but-slow SERP also bows to the budget.
+                $serp = array();
+                if ( Haa_Research::serp_ready() && $left() <= 8 ) {
+                        $serp_diag = __( 'SERP: رد شد — سقف زمانی کل درخواست پر شده بود.', 'hami-ai-assistant' );
+                } else {
+                        $serp = Haa_Research::serp( $seed, 10 );
+                }
                 if ( ! empty( $serp['ok'] ) && ! empty( $serp['results'] ) ) {
                         foreach ( (array) $serp['results'] as $r ) {
                                 $title = trim( wp_strip_all_tags( (string) ( $r['title'] ?? '' ) ) );
@@ -225,20 +313,47 @@ final class Haa_Keywords {
                 }
 
                 // 6) The model's ideas — works on every adapter; grounded when Gemini.
-                $ai = self::ai_ideas( $seed );
-                if ( is_wp_error( $ai ) ) {
-                        $ai_error = $ai->get_error_message();
-                } else {
-                        foreach ( $ai as $k ) {
+                //    2.1.32: ideas are cached per seed (the expensive stage), and
+                //    the call only gets the budget that is actually left, clamped
+                //    12–25s — a cold host can no longer stack the full suggest
+                //    sweep AND a full model wait past its proxy limit. When less
+                //    than 12s remains the stage is skipped with an honest diag.
+                $ai_cached = get_transient( self::ai_cache_key( $seed ) );
+                $ai_error  = '';
+                if ( is_array( $ai_cached ) ) {
+                        foreach ( $ai_cached as $k ) {
                                 $ai_n++;
                                 $rows[] = array(
-                                        'keyword' => $k,
+                                        'keyword' => (string) $k,
                                         'source'  => 'ai',
-                                        'intent'  => self::guess_intent( $k ),
+                                        'intent'  => self::guess_intent( (string) $k ),
                                         'note'    => '',
                                 );
                         }
-                        $ai_error = '';
+                } else {
+                        $ai_left = (int) ceil( $left() );
+                        if ( $ai_left < 12 ) {
+                                $ai_error = sprintf(
+                                        __( 'رد شد — سقف زمانی کل درخواست (%1$d ثانیه) پر شده بود؛ دوباره تلاش کنید، تلاش بعدی از نتایج ذخیره‌شده سریع‌تر است.', 'hami-ai-assistant' ),
+                                        self::RESEARCH_BUDGET
+                                );
+                        } else {
+                                $ai = self::ai_ideas( $seed, max( 12, min( 25, $ai_left ) ) );
+                                if ( is_wp_error( $ai ) ) {
+                                        $ai_error = $ai->get_error_message();
+                                } else {
+                                        set_transient( self::ai_cache_key( $seed ), array_values( (array) $ai ), self::AI_CACHE_TTL );
+                                        foreach ( $ai as $k ) {
+                                                $ai_n++;
+                                                $rows[] = array(
+                                                        'keyword' => $k,
+                                                        'source'  => 'ai',
+                                                        'intent'  => self::guess_intent( $k ),
+                                                        'note'    => '',
+                                                );
+                                        }
+                                }
+                        }
                 }
 
                 // 7) Site gaps — our own topics nobody covered yet.
@@ -268,23 +383,33 @@ final class Haa_Keywords {
                 $diag = array();
 
                 if ( ! empty( Haa_Research::config()['suggest_enabled'] ) ) {
-                        $line = sprintf( __( 'ساجست (بینگ/اکوسیا/گوگل): %d عبارت', 'hami-ai-assistant' ), $suggest_n );
-                        $errs = array();
-                        foreach ( $suggest_errs as $label => $msg ) {
-                                $errs[] = $label . ': ' . $msg;
-                        }
-                        if ( $errs ) {
-                                $line .= ' — ' . implode( '؛ ', $errs );
-                                if ( 0 === $suggest_n ) {
-                                        $line .= ' — ' . __( 'برای دسترسی به موتورهای ساجست، پروکسی خروجی را در تب «ارائه‌دهنده AI» تنظیم کنید و دوباره بیازمایید.', 'hami-ai-assistant' );
+                        if ( $budget_skip ) {
+                                $diag[] = sprintf(
+                                        __( 'ساجست/ویکی‌پدیا: رد شد — سقف زمانی کل درخواست (%1$d ثانیه) پر شده بود؛ دوباره تلاش کنید، تلاش بعدی سریع‌تر است.', 'hami-ai-assistant' ),
+                                        self::RESEARCH_BUDGET
+                                );
+                        } else {
+                                $line = sprintf( __( 'ساجست (بینگ/اکوسیا/گوگل): %d عبارت', 'hami-ai-assistant' ), $suggest_n );
+                                if ( $from_cache ) {
+                                        $line .= __( ' (کش)', 'hami-ai-assistant' );
                                 }
-                        }
-                        $diag[] = $line;
+                                $errs = array();
+                                foreach ( $suggest_errs as $label => $msg ) {
+                                        $errs[] = $label . ': ' . $msg;
+                                }
+                                if ( $errs ) {
+                                        $line .= ' — ' . implode( '؛ ', $errs );
+                                        if ( 0 === $suggest_n ) {
+                                                $line .= ' — ' . __( 'برای دسترسی به موتورهای ساجست، پروکسی خروجی را در تب «ارائه‌دهنده AI» تنظیم کنید و دوباره بیازمایید.', 'hami-ai-assistant' );
+                                        }
+                                }
+                                $diag[] = $line;
 
-                        if ( $wiki_n > 0 ) {
-                                $diag[] = sprintf( __( 'ویکی‌پدیا: %d عنوان', 'hami-ai-assistant' ), $wiki_n );
-                        } elseif ( '' !== $wiki_err ) {
-                                $diag[] = __( 'ویکی‌پدیا: ', 'hami-ai-assistant' ) . $wiki_err;
+                                if ( $wiki_n > 0 ) {
+                                        $diag[] = sprintf( __( 'ویکی‌پدیا: %d عنوان', 'hami-ai-assistant' ), $wiki_n ) . ( $from_cache ? __( ' (کش)', 'hami-ai-assistant' ) : '' );
+                                } elseif ( '' !== $wiki_err ) {
+                                        $diag[] = __( 'ویکی‌پدیا: ', 'hami-ai-assistant' ) . $wiki_err;
+                                }
                         }
                 }
 
@@ -581,10 +706,14 @@ final class Haa_Keywords {
          * a WP_Error carrying a snippet — the panel must be able to say WHY the
          * list is short instead of silently showing three planner leftovers.
          *
-         * @param string $seed Topic.
+         * @param string $seed    Topic.
+         * @param int    $timeout Model wait in seconds; research() narrows it to
+         *                       the budget actually left (12–25). Default 25 —
+         *                       the 2.1.31 cap that keeps a hung provider from
+         *                       eating the panel's whole promised minute.
          * @return array<int,string>|WP_Error
          */
-        public static function ai_ideas( $seed ) {
+        public static function ai_ideas( $seed, $timeout = 25 ) {
                 $ground = Haa_Research::ai_ready();
 
                 $system = __( 'پژوهشگر کلمه کلیدی فارسی. برای موضوع داده‌شده کلیدواژه‌های واقعی جستجوی کاربران ایرانی را می‌دهی.', 'hami-ai-assistant' ) . "\n"
@@ -610,7 +739,9 @@ final class Haa_Keywords {
                         // 2.1.31: cap this panel's model wait at 25s regardless of
                         // the configured «مهلت پاسخ» — a hung provider must not eat
                         // the whole promised minute before the panel can speak.
-                        'timeout'    => 25,
+                        // 2.1.32: research() narrows this to the budget actually
+                        // left in the request (12–25s) instead of always the max.
+                        'timeout'    => max( 10, (int) $timeout ),
                 );
 
                 $messages = array(
