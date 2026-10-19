@@ -146,6 +146,46 @@ class Fake_WPDB {
                         return $rows;
                 }
 
+                // 2.1.25 — product_facts' fuzzy title matcher: a scored LIKE over
+                // wp_posts (per-word CASE columns). Real semantics: each needle
+                // scores +1 on a title match and +1 on a content match; only
+                // rows with a positive score return, best hits first.
+                if ( preg_match( '/SELECT p\.ID, .{0,60}CASE WHEN p\.post_title LIKE/is', $q ) ) {
+                        preg_match_all( "/LIKE '([^']*)'/i", $q, $mm );
+                        $needles = array_values( array_unique( array_map( function ( $s ) {
+                                return trim( (string) $s, '%' );
+                        }, $mm[1] ) ) );
+                        $out = array();
+                        foreach ( (array) $GLOBALS['posts'] as $p ) {
+                                if ( 'product' !== ( $p['type'] ?? '' ) || 'publish' !== ( $p['status'] ?? 'publish' ) ) {
+                                        continue;
+                                }
+                                $hits = 0;
+                                foreach ( $needles as $n ) {
+                                        if ( '' === $n ) {
+                                                continue;
+                                        }
+                                        if ( false !== mb_stripos( (string) $p['title'], $n ) ) {
+                                                $hits++;
+                                        }
+                                        $content = (string) ( $GLOBALS['post_content'][ (int) $p['id'] ] ?? '' );
+                                        if ( '' !== $content && false !== mb_stripos( $content, $n ) ) {
+                                                $hits++;
+                                        }
+                                }
+                                if ( $hits > 0 ) {
+                                        $out[] = array( 'ID' => (int) $p['id'], 'hits' => $hits );
+                                }
+                        }
+                        usort( $out, function ( $a, $b ) {
+                                return ( $b['hits'] <=> $a['hits'] ) ?: ( $b['ID'] <=> $a['ID'] );
+                        } );
+                        if ( preg_match( '/LIMIT (\d+)/i', $q, $lm ) ) {
+                                $out = array_slice( $out, 0, (int) $lm[1] );
+                        }
+                        return $out;
+                }
+
                 if ( preg_match( '/FROM\s+\w*wc_product_meta_lookup/i', $q ) ) {
                         $want = array();
                         if ( preg_match( '/product_id IN \(([^)]*)\)/i', $q, $m ) ) {
@@ -980,6 +1020,17 @@ function get_post_status( $id = 0 ) {
         }
         return false;
 }
+
+/**
+ * 2.1.25 — WooCommerce page ids (shop/cart/checkout/myaccount), seedable via
+ * $GLOBALS['wc_pages'] = array( 'shop' => 12, … ). Unseeded keys return -1 so
+ * every existing `wc_get_page_id() > 0` guard keeps its old no-op behavior.
+ */
+if ( ! function_exists( 'wc_get_page_id' ) ) {
+        function wc_get_page_id( $key ) {
+                return isset( $GLOBALS['wc_pages'][ (string) $key ] ) ? (int) $GLOBALS['wc_pages'][ (string) $key ] : -1;
+        }
+}
 function get_post_field( $field, $id = 0 ) {
         $id = (int) $id;
         if ( 'post_excerpt' === $field ) { return isset( $GLOBALS['post_excerpt'][ $id ] ) ? $GLOBALS['post_excerpt'][ $id ] : ''; }
@@ -1211,6 +1262,16 @@ function stub_filter_posts( $a ) {
                 } ) );
         }
 
+        // 2.1.25 — the exact-title query (product_facts' preferred lookup). Real
+        // WP matches the FULL title; without this branch the stub returned every
+        // seeded product and the exact path looked match-happy in tests.
+        if ( ! empty( $a['title'] ) ) {
+                $t = mb_strtolower( (string) $a['title'] );
+                $all = array_values( array_filter( $all, function ( $p ) use ( $t ) {
+                        return mb_strtolower( (string) $p['title'] ) === $t;
+                } ) );
+        }
+
         foreach ( (array) ( $a['meta_query'] ?? array() ) as $clause ) {
                 $key = isset( $clause['key'] ) ? $clause['key'] : '';
                 if ( '_sku' === $key ) {
@@ -1218,6 +1279,15 @@ function stub_filter_posts( $a ) {
                         $all    = array_values( array_filter( $all, function ( $p ) use ( $needle ) {
                                 $sku = isset( $GLOBALS['meta_sku'][ (int) $p['id'] ] ) ? $GLOBALS['meta_sku'][ (int) $p['id'] ] : '';
                                 return '' === $needle || false !== stripos( (string) $sku, $needle );
+                        } ) );
+                }
+                // 2.1.25 — price-extremes walker: _price > 0 NUMERIC. The meta read
+                // mirrors the real in-memory meta store the meta_key filter uses.
+                if ( '_price' === $key && '>' === (string) ( $clause['compare'] ?? '' ) ) {
+                        $floor = (float) ( $clause['value'] ?? 0 );
+                        $all   = array_values( array_filter( $all, function ( $p ) use ( $floor ) {
+                                $meta = isset( $GLOBALS['post_meta'][ (int) $p['id'] ][ '_price' ] ) ? (string) $GLOBALS['post_meta'][ (int) $p['id'] ][ '_price' ] : '';
+                                return '' !== $meta && is_numeric( $meta ) && (float) $meta > $floor;
                         } ) );
                 }
                 if ( '_stock_status' === $key ) {
@@ -1248,6 +1318,22 @@ function stub_filter_posts( $a ) {
                                 return in_array( (string) ( $GLOBALS['post_ptype'][ (int) $p['id'] ] ?? '' ), $slugs, true );
                         } ) );
                 }
+        }
+
+        // 2.1.25 — meta_value_num ordering (price extremes): numeric sort on the
+        // meta the query carries, honoring ASC/DESC. Wins over the title sort.
+        if ( ! empty( $a['meta_key'] ) && 'meta_value_num' === (string) ( $a['orderby'] ?? '' ) ) {
+                $mk     = (string) $a['meta_key'];
+                $desc   = ( isset( $a['order'] ) ? strtoupper( (string) $a['order'] ) : 'ASC' ) === 'DESC';
+                usort( $all, function ( $x, $y ) use ( $mk ) {
+                        $vx = isset( $GLOBALS['post_meta'][ (int) $x['id'] ][ $mk ] ) ? (float) $GLOBALS['post_meta'][ (int) $x['id'] ][ $mk ] : 0.0;
+                        $vy = isset( $GLOBALS['post_meta'][ (int) $y['id'] ][ $mk ] ) ? (float) $GLOBALS['post_meta'][ (int) $y['id'] ][ $mk ] : 0.0;
+                        return $vx <=> $vy;
+                } );
+                if ( $desc ) {
+                        $all = array_reverse( $all );
+                }
+                return $all;
         }
 
         usort( $all, function ( $x, $y ) { return strcmp( (string) $x['title'], (string) $y['title'] ); } );

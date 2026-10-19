@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.24
+ * Version:           2.1.25
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.24' );
+define( 'HAAI_VERSION', '2.1.25' );
 define( 'HAAI_DB_VERSION', '7' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
@@ -480,6 +480,17 @@ final class Haa_Plugin {
                 if ( is_admin() || wp_doing_cron() ) {
                         Haa_DB::ensure();
                         Haa_Migrator::maybe_migrate();
+
+                        // 2.1.25 — a plugin update retires every cached chat answer
+                        // once. Answers computed by older code paths (a hallucinated
+                        // min/max price pair, a mangled link) must not outlive the
+                        // fix that replaces them; the guard costs one autoloaded
+                        // get_option per admin request, the flush one TRUNCATE per
+                        // release.
+                        if ( (string) get_option( 'haai_cache_ver' ) !== (string) HAAI_VERSION ) {
+                                update_option( 'haai_cache_ver', (string) HAAI_VERSION, true );
+                                Haa_DB::flush_cache();
+                        }
                 }
 
                 add_action( 'haai_daily_cleanup', array( 'Haa_DB', 'cleanup_all' ) );

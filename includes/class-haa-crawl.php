@@ -1010,21 +1010,26 @@ final class Haa_Crawl {
          * @return string Permalink, '' when no such page exists.
          */
         public static function find_contact_page_url() {
-                $titles = get_posts(
-                        array(
-                                'post_type'        => 'page',
-                                'post_status'      => 'publish',
-                                'posts_per_page'   => 10,
-                                's'                => 'تماس',
-                                'fields'           => 'ids',
-                                'no_found_rows'    => true,
-                                'suppress_filters' => true,
-                        )
-                );
-                foreach ( (array) $titles as $pid ) {
-                        if ( false !== mb_strpos( (string) get_the_title( (int) $pid ), 'تماس' ) || false !== mb_strpos( (string) get_the_title( (int) $pid ), 'ارتباط' ) ) {
-                                $link = get_permalink( (int) $pid );
-                                return is_string( $link ) ? $link : '';
+                // 2.1.25 — a second title query for «ارتباط»: the contact page may
+                // be titled «ارتباط با ما» without a single «تماس» anywhere in it
+                // (the user's shop wording). Bounded like the first: 10 IDs max.
+                foreach ( array( 'تماس', 'ارتباط' ) as $needle ) {
+                        $titles = get_posts(
+                                array(
+                                        'post_type'        => 'page',
+                                        'post_status'      => 'publish',
+                                        'posts_per_page'   => 10,
+                                        's'                => $needle,
+                                        'fields'           => 'ids',
+                                        'no_found_rows'    => true,
+                                        'suppress_filters' => true,
+                                )
+                        );
+                        foreach ( (array) $titles as $pid ) {
+                                if ( false !== mb_strpos( (string) get_the_title( (int) $pid ), 'تماس' ) || false !== mb_strpos( (string) get_the_title( (int) $pid ), 'ارتباط' ) ) {
+                                        $link = get_permalink( (int) $pid );
+                                        return is_string( $link ) ? $link : '';
+                                }
                         }
                 }
                 $by_slug = get_posts(
