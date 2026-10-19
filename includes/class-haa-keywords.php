@@ -36,14 +36,34 @@ final class Haa_Keywords {
         /** Max Search-Console rows kept (impressions-sorted, oldest merged out). */
         const GSC_CAP = 500;
 
-        /** Outbound suggest calls per research click (each ≤ SUGGEST_TIMEOUT s). */
-        const SUGGEST_CALLS = 6;
+        /** Hard cap on outbound suggest calls per research click (each ≤ SUGGEST_TIMEOUT s). */
+        const SUGGEST_CALLS = 12;
 
         /** Per-call suggest timeout in seconds. */
         const SUGGEST_TIMEOUT = 6;
 
-        /** Raw suggestion target before the engines may be left alone. */
+        /** Wall-clock seconds the whole sweep may spend before it returns whatever it has —
+         *  the hang-guard that makes the bigger call budget safe (a frozen engine can burn
+         *  at most ~3 timeouts before the sweep gives up and hands over the pool). */
+        const SUGGEST_TIME = 20;
+
+        /** Raw unique pool that ends the modifier phase early. */
         const SUGGEST_TARGET = 40;
+
+        /** Raw unique pool that ends the alphabet phase early. */
+        const ALPHA_TARGET = 64;
+
+        /** Modifier-phase share of the call budget; the alphabet phase gets the rest. */
+        const MODIFIER_CALLS = 4;
+
+        /**
+         * The Persian alphabet, for the classic alphabet-soup expansion:
+         * seed + one letter surfaces autocomplete long-tails no fixed modifier
+         * list can guess — city names, brands, materials, sizes. The start
+         * letter rotates per seed (crc32) so different topics walk different
+         * parts of the alphabet without any stored state.
+         */
+        const ALPHABET = array( 'ا', 'ب', 'پ', 'ت', 'ث', 'ج', 'چ', 'ح', 'خ', 'د', 'ذ', 'ر', 'ز', 'ژ', 'س', 'ش', 'ص', 'ض', 'ط', 'ظ', 'ع', 'غ', 'ف', 'ق', 'ک', 'گ', 'ل', 'م', 'ن', 'و', 'ه', 'ی' );
 
         /** Google Suggest (firefox JSON) endpoint. */
         const GOOGLE_EP = 'https://suggestqueries.google.com/complete/search?client=firefox&hl=fa&q=';
@@ -231,23 +251,34 @@ final class Haa_Keywords {
         }
 
         /**
-         * Suggest across both engines under a strict call budget.
+         * Suggest across both engines under a strict call + wall-clock budget.
          *
-         * Plan: Google for the bare seed, Bing for the bare seed, then the
-         * Persian intent modifiers alternating engines until the raw pool is
-         * big enough or SUGGEST_CALLS is spent. Bing first-class matters on
-         * Iranian hosts: suggestqueries.google.com is usually blocked there,
-         * api.bing.com usually is not, and neither needs a key.
+         * Plan: Google and Bing on the bare seed first (highest-value rows),
+         * then the Persian intent modifiers, then the alphabet-soup expansion
+         * over ALPHABET — engines alternating, Bing first, because on Iranian
+         * hosts suggestqueries.google.com is usually blocked while api.bing.com
+         * usually answers, and neither needs a key. The pool counts UNIQUE
+         * suggestions only, so an engine echoing the same rows can never fake
+         * an early exit. Every phase stops the moment the budget (SUGGEST_CALLS
+         * calls or SUGGEST_TIME seconds) or its pool target is reached.
          *
          * @param string $seed Topic.
          * @return array<int,string> Cleaned, unique suggestion strings.
          */
         public static function suggest_multi( $seed ) {
-                $out   = array();
-                $calls = 0;
+                $seed = trim( (string) $seed );
+                if ( '' === $seed ) {
+                        return array();
+                }
 
-                $fetch = static function ( $endpoint, $q ) use ( &$calls ) {
-                        if ( $calls >= self::SUGGEST_CALLS ) {
+                $out   = array();
+                $seen  = array();
+                $calls = 0;
+                $t0    = microtime( true );
+
+                // One bounded outbound call; null = budget spent / unreachable / unreadable.
+                $call = static function ( $endpoint, $q ) use ( &$calls, $t0 ) {
+                        if ( $calls >= self::SUGGEST_CALLS || ( microtime( true ) - $t0 ) >= self::SUGGEST_TIME ) {
                                 return null;
                         }
                         $calls++;
@@ -272,36 +303,53 @@ final class Haa_Keywords {
                         return $list;
                 };
 
-                $seed = trim( (string) $seed );
-                if ( '' === $seed ) {
-                        return $out;
-                }
+                // Merge a response into the pool, counting UNIQUE rows only.
+                $add = static function ( $list ) use ( &$out, &$seen ) {
+                        if ( ! is_array( $list ) ) {
+                                return;
+                        }
+                        foreach ( $list as $s ) {
+                                $key = Haa_Search::normalize_text( (string) $s );
+                                if ( '' === $key || isset( $seen[ $key ] ) ) {
+                                        continue;
+                                }
+                                $seen[ $key ] = true;
+                                $out[]        = (string) $s;
+                        }
+                };
 
-                // Both engines on the bare seed first — these are the highest-value rows.
-                $got = $fetch( self::GOOGLE_EP, $seed );
-                if ( is_array( $got ) ) {
-                        $out = array_merge( $out, $got );
-                }
-                $got = $fetch( self::BING_EP, $seed );
-                if ( is_array( $got ) ) {
-                        $out = array_merge( $out, $got );
-                }
+                // 1) Both engines on the bare seed — these are the highest-value rows.
+                $add( $call( self::GOOGLE_EP, $seed ) );
+                $add( $call( self::BING_EP, $seed ) );
 
-                // Modifiers alternate engines; stop the moment the pool is rich.
+                // 2) Persian intent modifiers, engines alternating, until the pool
+                //    is rich or the modifier share of the budget is spent.
                 $i = 0;
                 foreach ( self::MODIFIERS as $mod ) {
-                        if ( count( $out ) >= self::SUGGEST_TARGET ) {
+                        if ( count( $out ) >= self::SUGGEST_TARGET || $i >= self::MODIFIER_CALLS ) {
                                 break;
                         }
-                        $ep  = ( 0 === $i % 2 ) ? self::GOOGLE_EP : self::BING_EP;
-                        $got = $fetch( $ep, $seed . ' ' . $mod );
+                        $ep = ( 0 === $i % 2 ) ? self::BING_EP : self::GOOGLE_EP;
+                        $add( $call( $ep, $seed . ' ' . $mod ) );
                         $i++;
-                        if ( is_array( $got ) ) {
-                                $out = array_merge( $out, $got );
-                        }
                 }
 
-                return array_values( array_unique( $out ) );
+                // 3) Alphabet soup: seed + one Persian letter, engines alternating
+                //    (Bing first — the reachable one). The start letter rotates per
+                //    seed, so each topic walks a different slice of the alphabet;
+                //    repeated clicks on one topic stay deterministic.
+                $n      = count( self::ALPHABET );
+                $offset = $n > 0 ? ( abs( crc32( $seed ) ) % $n ) : 0;
+                for ( $j = 0; $j < $n; $j++ ) {
+                        if ( count( $out ) >= self::ALPHA_TARGET ) {
+                                break;
+                        }
+                        $letter = self::ALPHABET[ ( $offset + $j ) % $n ];
+                        $ep     = ( 0 === $j % 2 ) ? self::BING_EP : self::GOOGLE_EP;
+                        $add( $call( $ep, $seed . ' ' . $letter ) );
+                }
+
+                return array_values( $out );
         }
 
         /**

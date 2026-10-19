@@ -1744,7 +1744,16 @@ function fake_http_request( $url, $args, $method = 'GET' ) {
                 return new WP_Error( 'http_request_failed', $reply['error'] );
         }
 
-        $body = (string) ( $reply['body'] ?? '' );
+        // A callable body lets a suite shape the response from the ACTUAL url —
+        // per-query markers instead of pattern collisions on prefix-sharing
+        // queries (a letter is a prefix of every modifier starting with it).
+        // Object check on purpose: is_callable() alone would also treat a plain
+        // string as a function name — and every suite defines a global ok().
+        $body = $reply['body'] ?? '';
+        if ( is_object( $body ) && is_callable( $body ) ) {
+                $body = call_user_func( $body, $url, $args );
+        }
+        $body = (string) $body;
 
         // Real WP enforces limit_response_size; mirror it so the cap is testable.
         if ( ! empty( $args['limit_response_size'] ) ) {
