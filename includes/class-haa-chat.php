@@ -498,6 +498,37 @@ final class Haa_Chat {
         }
 
         /**
+         * 2.1.26 — the ONLY sanitizer allowed near a chat reply.
+         *
+         * WP's sanitize_text_field()/sanitize_textarea_field() run core
+         * _sanitize_text_fields(), which deletes every percent-encoded %XX
+         * sequence ("Remove percent-encoded characters" loop). WordPress
+         * stores non-ASCII slugs percent-encoded in post_name, so
+         * get_permalink()/get_term_link() output — the KB chunk URLs too — is
+         * FULL of %d8%XX octets. Sanitizing a reply with them is what turned
+         * «/درباره-ما/» into «/-/», «/تماس-با-ما/» into «/--/» and the
+         * product slug into «//» inside the visitor's bubble on the live
+         * shop, twice (2.1.24 AND 2.1.25 reports).
+         *
+         * This one keeps every byte of a real permalink while still doing the
+         * hygiene a public API owes: invalid UTF-8 scrubbed, HTML tags
+         * stripped, control characters removed — newlines and tabs kept,
+         * because the deterministic bullet-list format needs them.
+         *
+         * @param string $reply Raw reply text.
+         * @return string Safe reply text, URLs byte-identical.
+         */
+        public static function sanitize_reply( $reply ) {
+                $reply = (string) $reply;
+                $reply = wp_check_invalid_utf8( $reply, true );
+                $reply = wp_strip_all_tags( $reply );
+                // Control chars except \n \r \t — no NULs, no escapes, but the
+                // multi-line reply format survives untouched.
+                $reply = preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $reply );
+                return $reply;
+        }
+
+        /**
          * 2.1.25 — «لینک صفحه درباره ما/تماس با ما بده» and the bare «لینک صفحه
          * سایت بده», answered with REAL permalinks only. The user's live report:
          * the model typed a mangled Persian-slug URL (/- %8فا------/) because no
@@ -575,7 +606,8 @@ final class Haa_Chat {
                         $lines   = array();
                         $missing = array();
                         foreach ( $kinds as $kind ) {
-                                $url = self::resolve_site_page( $kind );
+                                // 2.1.26 — pretty (decoded) display form of the permalink.
+                                $url = Haa_Util::pretty_url( self::resolve_site_page( $kind ) );
                                 if ( '' !== $url ) {
                                         $lines[] = '• ' . $labels[ $kind ] . ': ' . $url;
                                 } else {
@@ -712,7 +744,7 @@ final class Haa_Chat {
          * @return array<int,string> '- عنوان: URL' lines, [] when the site has none.
          */
         private static function main_pages_lines() {
-                $lines = array( '• ' . __( 'صفحه اصلی', 'hami-ai-assistant' ) . ': ' . home_url( '/' ) );
+                $lines = array( '• ' . __( 'صفحه اصلی', 'hami-ai-assistant' ) . ': ' . Haa_Util::pretty_url( home_url( '/' ) ) );
                 $pages = get_posts(
                         array(
                                 'post_type'        => 'page',
@@ -727,7 +759,7 @@ final class Haa_Chat {
                 );
                 foreach ( (array) $pages as $pid ) {
                         $title = trim( (string) get_the_title( (int) $pid ) );
-                        $link  = get_permalink( (int) $pid );
+                        $link  = Haa_Util::pretty_url( get_permalink( (int) $pid ) );
                         if ( '' === $title || ! is_string( $link ) ) {
                                 continue;
                         }
@@ -860,7 +892,12 @@ final class Haa_Chat {
                 }
                 $price = (string) $p->get_price();
                 $shown = ( '' !== $price && is_numeric( $price ) ) ? number_format_i18n( (float) $price ) : $price;
-                $cats  = implode( '، ', wp_list_pluck( (array) wp_get_post_terms( $pid, 'product_cat', array( 'fields' => 'names' ) ), 'name' ) );
+                // 2.1.26 — fields=names ALREADY returns an array of name strings;
+                // wp_list_pluck('name') over strings skips every item (core
+                // WP_List_Util::pluck only reads objects/arrays), so دسته went
+                // out EMPTY on the live shop while the product sat in two real
+                // categories. The strings ARE the names — use them directly.
+                $cats = implode( '، ', (array) wp_get_post_terms( $pid, 'product_cat', array( 'fields' => 'names' ) ) );
                 return sprintf(
                         '%s: %s | قیمت: %s %s | موجودی: %s | دسته: %s | لینک: %s',
                         $prefix,
@@ -869,7 +906,9 @@ final class Haa_Chat {
                         function_exists( 'get_woocommerce_currency_symbol' ) ? get_woocommerce_currency_symbol() : '',
                         'instock' === $p->get_stock_status() ? 'موجود' : 'ناموجود',
                         $cats,
-                        get_permalink( $pid )
+                        // 2.1.26 — decoded display form; the %d8%XX octet form is
+                        // what WP stores, the decoded form is what the browser shows.
+                        Haa_Util::pretty_url( get_permalink( $pid ) )
                 );
         }
 
@@ -921,7 +960,7 @@ final class Haa_Chat {
                 $i     = 0;
                 foreach ( (array) $terms as $term ) {
                         $link = get_term_link( $term );
-                        $link = ( is_wp_error( $link ) || ! is_string( $link ) ) ? '' : $link;
+                        $link = ( is_wp_error( $link ) || ! is_string( $link ) ) ? '' : Haa_Util::pretty_url( $link );
                         $i++;
                         $lines[] = sprintf(
                                 '%1$d) %2$s (%3$s)%4$s',
@@ -1341,8 +1380,11 @@ final class Haa_Chat {
                         $part  = '[' . ( '' !== $title ? $title : __( 'بدون عنوان', 'hami-ai-assistant' ) ) . '] ' . $body;
                         // The exact URL rides with every hit so the model can answer
                         // «لینکشو میدی بهم؟» with the real address instead of an apology.
+                        // 2.1.26 — pretty decoded form: the model copies what it sees,
+                        // and a decoded Persian slug survives the model and the reply
+                        // path verbatim.
                         if ( '' !== $url ) {
-                                $part .= ' — لینک: ' . $url;
+                                $part .= ' — لینک: ' . Haa_Util::pretty_url( $url );
                         }
                         $len   = mb_strlen( $part );
                         if ( $used + $len > $budget && $parts ) {
@@ -1467,8 +1509,11 @@ final class Haa_Chat {
                                 $p->get_price(),
                                 $currency,
                                 'instock' === $p->get_stock_status() ? 'موجود' : 'ناموجود',
-                                implode( '، ', wp_list_pluck( (array) wp_get_post_terms( $pid, 'product_cat', array( 'fields' => 'names' ) ), 'name' ) ),
-                                get_permalink( $pid )
+                                // 2.1.26 — fields=names strings ARE the names; plucking
+                                // 'name' out of strings skipped every category (same
+                                // empty-دسته bug as product_fact_line).
+                                implode( '، ', (array) wp_get_post_terms( $pid, 'product_cat', array( 'fields' => 'names' ) ) ),
+                                Haa_Util::pretty_url( get_permalink( $pid ) )
                         );
                 }
                 return $lines;
@@ -1548,7 +1593,7 @@ final class Haa_Chat {
                 }
 
                 $link  = get_term_link( $term );
-                $link  = ( is_wp_error( $link ) || ! is_string( $link ) ) ? '' : $link;
+                $link  = ( is_wp_error( $link ) || ! is_string( $link ) ) ? '' : Haa_Util::pretty_url( $link );
                 $count = (int) ( $term->count ?? 0 );
 
                 $lines = array( 'دسته: ' . $term->name . ' | تعداد محصولات: ' . $count . ( $link ? ' | لینک دسته: ' . $link : '' ) );
@@ -1582,7 +1627,7 @@ final class Haa_Chat {
                 $lines = array( 'دسته‌بندی‌های فروشگاه (نام یک دسته را بپرس تا قیمت همان دسته را بگویی):' );
                 foreach ( (array) $terms as $term ) {
                         $link = get_term_link( $term );
-                        $link = ( is_wp_error( $link ) || ! is_string( $link ) ) ? '' : $link;
+                        $link = ( is_wp_error( $link ) || ! is_string( $link ) ) ? '' : Haa_Util::pretty_url( $link );
                         $lines[] = 'دسته: ' . $term->name . ' | تعداد محصولات: ' . (int) $term->count . ( $link ? ' | لینک: ' . $link : '' );
                 }
                 return implode( "\n", $lines );

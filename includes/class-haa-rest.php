@@ -331,7 +331,13 @@ final class Haa_REST {
 		return rest_ensure_response(
 			array(
 				'ok'        => true,
-				'reply'     => sanitize_textarea_field( (string) $result['reply'] ),
+				// 2.1.26 — NEVER sanitize_textarea_field here. WP core's _sanitize_text_fields
+				// deletes every %XX sequence, and WP stores non-ASCII slugs percent-encoded
+				// in post_name — get_permalink() output is FULL of %d8%XX octets. That is how
+				// «/تماس-با-ما/» reached the visitor's bubble as «/--/» (and the 2.1.24-era
+				// model-typed /-%8فا------/). sanitize_reply strips tags/scripts without
+				// touching the percent-encoded octets a real Persian permalink needs.
+				'reply'     => Haa_Chat::sanitize_reply( (string) $result['reply'] ),
 				'cached'    => (bool) $result['cached'],
 				'offline'   => (bool) $result['offline'],
 				'handoff'   => ! empty( $result['handoff'] ),

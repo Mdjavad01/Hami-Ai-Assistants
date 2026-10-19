@@ -134,6 +134,45 @@ final class Haa_Util {
         }
 
         /**
+         * 2.1.26 — the readable display form of a WordPress permalink.
+         *
+         * WP stores non-ASCII slugs percent-encoded in post_name, so
+         * get_permalink()/get_term_link() return
+         * «/shop-page/…/%d8%b3%db%8c%d8%ae/» while the browser's address bar
+         * shows «/shop-page/…/سیخ/». Chat answers that print the raw octet
+         * form look broken to the visitor even though they resolve fine, so
+         * every URL handed to a visitor or to the model goes through here.
+         *
+         * Only octets that decode to a non-ASCII byte (>= 0x80) are decoded —
+         * Persian slug parts. ASCII octets (%20 space, %26 ampersand, %3F
+         * query mark…) keep their exact meaning, so URLs with a query string
+         * or encoded separators can never be re-assembled wrongly. A mix that
+         * would decode into invalid UTF-8 falls back to the untouched input.
+         * Idempotent: already-decoded URLs pass through unchanged.
+         *
+         * @param string $url Permalink or archive URL.
+         * @return string
+         */
+        public static function pretty_url( $url ) {
+                $url = (string) $url;
+                if ( '' === $url || false === strpos( $url, '%' ) ) {
+                        return $url;
+                }
+                $pretty = preg_replace_callback(
+                        '/%([0-9A-Fa-f]{2})/',
+                        static function ( $m ) {
+                                $byte = (int) hexdec( $m[1] );
+                                return $byte >= 0x80 ? chr( $byte ) : $m[0];
+                        },
+                        $url
+                );
+                if ( ! is_string( $pretty ) || ! preg_match( '//u', $pretty ) ) {
+                        return $url;
+                }
+                return $pretty;
+        }
+
+        /**
          * Strip tags but keep paragraph breaks readable.
          *
          * @param string $html HTML.

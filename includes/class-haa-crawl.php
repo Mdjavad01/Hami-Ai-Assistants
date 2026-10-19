@@ -1028,7 +1028,9 @@ final class Haa_Crawl {
                         foreach ( (array) $titles as $pid ) {
                                 if ( false !== mb_strpos( (string) get_the_title( (int) $pid ), 'تماس' ) || false !== mb_strpos( (string) get_the_title( (int) $pid ), 'ارتباط' ) ) {
                                         $link = get_permalink( (int) $pid );
-                                        return is_string( $link ) ? $link : '';
+                                        // 2.1.26 — decoded display form for every consumer
+                                        // (contact reply, page links, contact chunk).
+                                        return is_string( $link ) ? Haa_Util::pretty_url( $link ) : '';
                                 }
                         }
                 }
@@ -1045,7 +1047,7 @@ final class Haa_Crawl {
                 );
                 if ( $by_slug ) {
                         $link = get_permalink( (int) $by_slug[0] );
-                        return is_string( $link ) ? $link : '';
+                        return is_string( $link ) ? Haa_Util::pretty_url( $link ) : '';
                 }
                 return '';
         }

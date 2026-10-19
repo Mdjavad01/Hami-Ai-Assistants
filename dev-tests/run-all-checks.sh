@@ -37,6 +37,7 @@ suites=(
   dev-tests/tmp-checks33-contact22.php
   dev-tests/tmp-checks34-aeo.php
   dev-tests/tmp-checks35-extremes-links.php
+  dev-tests/tmp-checks36-replyurls.php
 )
 for s in "${suites[@]}"; do
   out=$("$PHP" "$s" 2>&1)

@@ -950,8 +950,60 @@ function esc_attr( $t ) { return htmlspecialchars( (string) $t, ENT_QUOTES, 'UTF
 function esc_url( $t ) { return $t; }
 function esc_url_raw( $u, $p = null ) { return $u; }
 function esc_textarea( $t ) { return htmlspecialchars( (string) $t, ENT_QUOTES, 'UTF-8' ); }
-function sanitize_text_field( $t ) { return trim( (string) $t ); }
-function sanitize_textarea_field( $t ) { return trim( (string) $t ); }
+/**
+ * 2.1.26 — FAITHFUL to WP core (wp-includes/formatting.php). The old one-line
+ * trim() stub hid a REAL live-site bug: core _sanitize_text_fields() deletes
+ * every %XX percent-encoded sequence, and WP stores non-ASCII slugs
+ * percent-encoded in post_name — so the REST reply path's
+ * sanitize_textarea_field() destroyed every Persian-slug permalink inside the
+ * visitor's chat bubble (/- %8فا------/, /--/, //). A naive stub could never
+ * catch that; this one behaves exactly like the shipped WordPress.
+ */
+function wp_check_invalid_utf8( $text, $strip = false ) {
+        $text = (string) $text;
+        if ( '' === $text ) {
+                return '';
+        }
+        if ( preg_match( '//u', $text ) ) {
+                return $text;
+        }
+        if ( ! $strip ) {
+                return '';
+        }
+        // wp_scrub_utf8 semantics: keep every COMPLETE valid UTF-8 sequence
+        // (so «قالی» survives), drop the stray invalid bytes only. The naive
+        // [\x80-\xFF] strip would delete the Persian text itself.
+        preg_match_all(
+                '/[\x00-\x7F]|[\xC2-\xDF][\x80-\xBF]|\xE0[\xA0-\xBF][\x80-\xBF]|[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}|\xED[\x80-\x9F][\x80-\xBF]{2}|\xF0[\x90-\xBF][\x80-\xBF]{2}|[\xF1-\xF3][\x80-\xBF]{3}|\xF4[\x80-\x8F][\x80-\xBF]{3}/',
+                $text,
+                $m
+        );
+        return implode( '', $m[0] );
+}
+function _haai_stub_sanitize_text_fields( $str, $keep_newlines = false ) {
+        $str = (string) $str;
+        $filtered = wp_check_invalid_utf8( $str );
+        if ( false !== strpos( $filtered, '<' ) ) {
+                $filtered = wp_strip_all_tags( $filtered, false );
+                $filtered = str_replace( "<\n", "&lt;\n", $filtered );
+        }
+        if ( ! $keep_newlines ) {
+                $filtered = preg_replace( '/[\r\n\t ]+/', ' ', $filtered );
+        }
+        $filtered = trim( $filtered );
+        // The %XX-eating loop — the exact lines that mangled the live URLs.
+        $found = false;
+        while ( preg_match( '/%[a-f0-9]{2}/i', $filtered, $m ) ) {
+                $filtered = str_replace( $m[0], '', $filtered );
+                $found    = true;
+        }
+        if ( $found ) {
+                $filtered = trim( preg_replace( '/ +/', ' ', $filtered ) );
+        }
+        return $filtered;
+}
+function sanitize_text_field( $t ) { return _haai_stub_sanitize_text_fields( (string) $t, false ); }
+function sanitize_textarea_field( $t ) { return _haai_stub_sanitize_text_fields( (string) $t, true ); }
 function sanitize_key( $t ) { return preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) $t ) ) ?? ''; }
 function sanitize_email( $t ) { return $t; }
 function sanitize_html_class( $t ) { return preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $t ); }
@@ -1010,7 +1062,16 @@ function taxonomy_exists( $t ) { return in_array( $t, array( 'product_cat', 'pro
 function wp_list_pluck( $list, $field ) {
         $out = array();
         foreach ( (array) $list as $row ) {
-                $out[] = is_object( $row ) ? ( isset( $row->$field ) ? $row->$field : null ) : ( isset( $row[ $field ] ) ? $row[ $field ] : null );
+                // 2.1.26 — faithful: core WP_List_Util::pluck reads objects and
+                // arrays only and SKIPS scalars. The old stub pushed null for
+                // strings, masking the real empty-دسته bug (wp_get_post_terms
+                // fields=names returns strings; plucking 'name' from them
+                // yields nothing on real WP).
+                if ( is_object( $row ) ) {
+                        if ( isset( $row->$field ) ) { $out[] = $row->$field; }
+                } elseif ( is_array( $row ) ) {
+                        if ( isset( $row[ $field ] ) ) { $out[] = $row[ $field ]; }
+                }
         }
         return $out;
 }
@@ -1737,9 +1798,16 @@ function wp_update_post( $args, $wp_error = false ) {
         return $id;
 }
 
-/** @return string Permalink for a stored post. */
+/**
+ * @return string Permalink for a stored post. 2.1.26 — seedable via
+ * $GLOBALS['permalinks'][ $id ] so suites can fix real WordPress-shaped
+ * permalinks: non-ASCII slugs stored percent-encoded in post_name.
+ */
 function get_permalink( $id = 0 ) {
         $id = is_object( $id ) ? (int) $id->ID : (int) $id;
+        if ( isset( $GLOBALS['permalinks'][ $id ] ) ) {
+                return (string) $GLOBALS['permalinks'][ $id ];
+        }
         return 'http://local.test/?post=' . $id;
 }
 
