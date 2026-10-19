@@ -802,13 +802,14 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <span class="haai-badge haai-badge--accent"><?php esc_html_e( 'جدید', 'hami-ai-assistant' ); ?></span>
                         </h2>
                         <p class="haai-panel__note">
-                                <?php esc_html_e( 'موضوع را بنویسید: پیشنهادهای واقعی تایپ کاربران (گوگل و بینگ، بدون کلید)، جست‌وجوهای بی‌نتیجهٔ همین سایت، فرصت‌های سرچ‌کنسول، عنوان نتایج SERP (در صورت اتصال سرویس) و ایده‌های مدل ترکیب و بدون تکرار نمایش داده می‌شوند. هر عبارت نیت، «مناسب پاسخ هوش مصنوعی» و وضعیت صفحهٔ جواب را نشان می‌دهد.', 'hami-ai-assistant' ); ?>
+                                <?php esc_html_e( 'موضوع را بنویسید: پیشنهادهای واقعی تایپ کاربران (بینگ، اکوسیا و گوگل، بدون کلید)، عنوان‌های ویکی‌پدیا، جست‌وجوهای بی‌نتیجهٔ همین سایت، فرصت‌های سرچ‌کنسول، عنوان نتایج SERP (در صورت اتصال سرویس) و ایده‌های مدل ترکیب و بدون تکرار نمایش داده می‌شوند. هر عبارت نیت، «مناسب پاسخ هوش مصنوعی» و وضعیت صفحهٔ جواب را نشان می‌دهد و وضعیت تک‌تک منابع پایین فهرست گزارش می‌شود.', 'hami-ai-assistant' ); ?>
                         </p>
                         <div class="haai-kw__bar">
                                 <input type="text" id="haai-kw-seed" class="haai-kw__input" placeholder="<?php esc_attr_e( 'مثلاً: روغن آرگان برای مو', 'hami-ai-assistant' ); ?>" />
                                 <button type="button" class="button button-primary" id="haai-kw-run"><?php esc_html_e( 'پیدا کن', 'hami-ai-assistant' ); ?></button>
                         </div>
                         <div id="haai-kw-status" class="haai-kw__status" hidden></div>
+                        <div id="haai-kw-diag" class="haai-kw__diag" hidden></div>
 
                         <form id="haai-kw-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" <?php echo ( $gsc_rows || $misses ) ? '' : 'hidden'; ?>>
                                 <?php wp_nonce_field( 'haai_aw' ); ?>

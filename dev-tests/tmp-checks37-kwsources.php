@@ -193,27 +193,32 @@ $SUG = json_encode( array( 'x', array( 'فرش ماشینی ۷۰۰ شانه', '�
 $GLOBALS['http_map'] = array(
         'suggestqueries.google.com' => array( 'code' => 200, 'body' => $SUG ),
         'api.bing.com'              => array( 'code' => 200, 'body' => $SUG ),
+        'ac.ecosia.org'             => array( 'code' => 200, 'body' => $SUG ),
 );
 $GLOBALS['http_log'] = array();
 
 $out = Haa_Keywords::suggest_multi( 'فرش دستباف' );
 $hosts = array();
 foreach ( $GLOBALS['http_log'] as $h ) {
-        $hosts[] = false !== strpos( $h['url'], 'bing' ) ? 'bing' : 'google';
+        if ( false !== strpos( $h['url'], 'bing' ) ) { $hosts[] = 'bing'; }
+        elseif ( false !== strpos( $h['url'], 'ecosia' ) ) { $hosts[] = 'ecosia'; }
+        else { $hosts[] = 'google'; }
 }
-ok( 'both engines queried (Google AND Bing)', in_array( 'google', $hosts, true ) && in_array( 'bing', $hosts, true ), '' );
-ok( 'call budget respected (≤ 6 HTTP calls)', count( $GLOBALS['http_log'] ) <= Haa_Keywords::SUGGEST_CALLS, 'calls=' . count( $GLOBALS['http_log'] ) );
+ok( 'all three engines queried (Google AND Bing AND Ecosia)',
+        in_array( 'google', $hosts, true ) && in_array( 'bing', $hosts, true ) && in_array( 'ecosia', $hosts, true ), '' );
+ok( 'call budget respected (≤ SUGGEST_CALLS)', count( $GLOBALS['http_log'] ) <= Haa_Keywords::SUGGEST_CALLS, 'calls=' . count( $GLOBALS['http_log'] ) );
 ok( 'suggestions returned and deduped', count( $out ) >= 4 && count( $out ) === count( array_unique( $out ) ), '' );
-ok( 'Persian modifiers actually used (seed+قیمت requested)', false !== strpos( implode( '|', wp_list_pluck( $GLOBALS['http_log'], 'url' ) ), rawurlencode( ' قیمت' ) ), '' );
+ok( 'Persian modifiers actually used (seed+چگونه requested)', false !== strpos( implode( '|', wp_list_pluck( $GLOBALS['http_log'], 'url' ) ), rawurlencode( ' چگونه' ) ), '' );
 
-// Google blocked (the Iranian-host default) — Bing must carry the panel.
+// Google blocked (the Iranian-host default) — Bing + Ecosia must carry the panel.
 $GLOBALS['http_map'] = array(
         'suggestqueries.google.com' => array( 'error' => 'cURL error 28' ),
         'api.bing.com'              => array( 'code' => 200, 'body' => $SUG ),
+        'ac.ecosia.org'             => array( 'code' => 200, 'body' => $SUG ),
 );
 $GLOBALS['http_log'] = array();
 $out2 = Haa_Keywords::suggest_multi( 'فرش دستباف' );
-ok( 'Google down → Bing still fills the list', count( $out2 ) >= 4, '' );
+ok( 'Google down → Bing + Ecosia still fill the list', count( $out2 ) >= 4, '' );
 
 echo "\n=== E. research() end-to-end: ranks, flags, coverage, cap ===\n";
 
@@ -226,6 +231,8 @@ Haa_API::$fail         = true; // Model down: the panel must still be full from 
 $GLOBALS['http_map']   = array(
         'suggestqueries.google.com' => array( 'code' => 200, 'body' => $SUG ),
         'api.bing.com'              => array( 'code' => 200, 'body' => $SUG ),
+        'ac.ecosia.org'             => array( 'code' => 200, 'body' => $SUG ),
+        'fa.wikipedia.org'          => array( 'code' => 200, 'body' => json_encode( array( 'فرش نمدی', array( 'فرش نمدی چیست' ), array(), array() ), JSON_UNESCAPED_UNICODE ) ),
 );
 
 $res = Haa_Keywords::research( 'فرش نمدی' );
@@ -244,6 +251,16 @@ foreach ( $res['rows'] as $row ) {
 ok( 'misses source appears in the panel', null !== $miss_row, '' );
 ok( 'miss row carries the counter note', null !== $miss_row && '' !== $miss_row['note'], '' );
 ok( 'GSC source appears with real numbers in note', null !== $gsc_row && false !== strpos( $gsc_row['note'], 'نمایش' ), '' );
+
+$wiki_row = null;
+foreach ( $res['rows'] as $row ) {
+        if ( 'wiki' === $row['source'] && null === $wiki_row ) { $wiki_row = $row; }
+}
+ok( 'wiki source appears with its own badge label', null !== $wiki_row, '' );
+ok( 'diag present and counts local sources',
+        isset( $res['diag'] ) && is_array( $res['diag'] ) && count( $res['diag'] ) >= 5, '' );
+$diag37 = implode( ' | ', (array) ( $res['diag'] ?? array() ) );
+ok( 'diag names the model failure explicitly', false !== strpos( $diag37, 'مدل: ' ), '' );
 
 $first = $res['rows'][0];
 ok( 'suggest ranks first (real user typing wins)', 'suggest' === $first['source'], 'got=' . $first['source'] );
@@ -323,5 +340,5 @@ foreach ( $js_actions as $js_action ) {
 ok( 'kw research handler is registered on wp_ajax_ (2.1.28 hotfix)',
         false !== strpos( $php_registry, "add_action( 'wp_ajax_haai_kw_research', array( \$this, 'ajax_kw_research' ) )" ) );
 
-echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 48 CHECKS GREEN\n" );
+echo ( $fail ? "\nFAILURES: $fail\n" : "\nALL 51 CHECKS GREEN\n" );
 exit( $fail ? 1 : 0 );

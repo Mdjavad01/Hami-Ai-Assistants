@@ -950,6 +950,7 @@ body.haai-theme-dark .haai-wrap {
 .haai-kw__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--haai-sp-2); margin-block-end: var(--haai-sp-3); }
 .haai-kw__input { flex: 1 1 260px; min-width: 0; }
 .haai-kw__status { margin-block: 0 var(--haai-sp-3); padding: var(--haai-sp-2) var(--haai-sp-3); background: var(--haai-surface-2); border: 1px solid var(--haai-border); border-radius: var(--haai-r-sm); color: var(--haai-muted); font-size: 13px; line-height: 1.7; }
+.haai-kw__diag { margin-block: 0 var(--haai-sp-3); color: var(--haai-muted); font-size: 12px; line-height: 1.9; overflow-wrap: anywhere; }
 .haai-kw__rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: var(--haai-sp-2); margin-block: 0 var(--haai-sp-4); }
 .haai-kw__row { display: flex; align-items: center; gap: var(--haai-sp-2); padding: var(--haai-sp-2) var(--haai-sp-3); background: var(--haai-surface-2); border: 1px solid var(--haai-border); border-radius: var(--haai-r-sm); cursor: pointer; transition: border-color var(--haai-dur) var(--haai-ease), background var(--haai-dur) var(--haai-ease); }
 .haai-kw__row:hover { border-color: var(--haai-accent); }

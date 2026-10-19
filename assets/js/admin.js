@@ -710,13 +710,24 @@
                 var run = document.getElementById('haai-kw-run');
                 var seed = document.getElementById('haai-kw-seed');
                 var status = document.getElementById('haai-kw-status');
+                var diagBox = document.getElementById('haai-kw-diag');
                 var form = document.getElementById('haai-kw-form');
                 var rows = document.getElementById('haai-kw-rows');
+
+                // Per-source status lines from the server (which engine answered,
+                // which failed and why, what to do about it). Always shown when
+                // present — the admin never has to guess again.
+                function showDiag(d) {
+                        if (!diagBox) return;
+                        var lines = (d && d.diag && d.diag.length) ? d.diag.join('  •  ') : '';
+                        diagBox.textContent = lines;
+                        diagBox.hidden = !lines;
+                }
                 // The GSC opportunities and the site's misses are server-rendered
                 // inside the same form — show it without waiting for a search.
                 var staticForm = form && form.querySelector('[data-haai-kw-static]');
                 if (staticForm) form.hidden = false;
-                var SRC = { suggest: 'گوگل/بینگ ساجست', serp: 'نتایج جستجو', snapshot: 'تحلیل رقبا', ai: 'مدل', local: 'پیشنهاد خودکار', planner: 'برنامه‌ریز', misses: 'بی‌نتیجه', gsc: 'سرچ‌کنسول' };
+                var SRC = { suggest: 'ساجست کاربران', wiki: 'ویکی‌پدیا', serp: 'نتایج جستجو', snapshot: 'تحلیل رقبا', ai: 'مدل', local: 'پیشنهاد خودکار', planner: 'برنامه‌ریز', misses: 'بی‌نتیجه', gsc: 'سرچ‌کنسول' };
                 var INT = { informational: 'اطلاعاتی', commercial: 'تجاری', transactional: 'خرید', local: 'محلی' };
                 var COV = { has: 'جواب دارد', half: 'نیمه', none: 'بی‌جواب' };
 
@@ -789,6 +800,7 @@
                         post('haai_kw_research', { seed: q })
                                 .then(function (d) {
                                         if (!d || !d.ok) throw new Error((d && d.error) || (C.i18n && C.i18n.fail) || 'خطا');
+                                        showDiag(d);
                                         if (!d.rows || !d.rows.length) { say('پیشنهادی پیدا نشد؛ موضوع دیگری امتحان کنید.'); return; }
                                         say(d.error ? 'یادداشت: ' + d.error : '');
                                         d.rows.forEach(row);

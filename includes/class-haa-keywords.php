@@ -71,6 +71,15 @@ final class Haa_Keywords {
         /** Bing Suggest OSJSON endpoint — no key, and reachable from Iran. */
         const BING_EP = 'https://api.bing.com/osjson.aspx?query=';
 
+        /** Ecosia Suggest endpoint — the same Bing-backed data without the key,
+         *  and unlike api.bing.com it does not geo-block Iranian hosts (the exact
+         *  production failure 2.1.29 exposed: BOTH Bing and Google dead at once). */
+        const ECOSIA_EP = 'https://ac.ecosia.org/autocomplete?type=list&q=';
+
+        /** Persian Wikipedia OpenSearch — real article titles, no key, reachable
+         *  from Iran; a suggestion family the query engines cannot cover. */
+        const WIKI_EP = 'https://fa.wikipedia.org/w/api.php?action=opensearch&limit=10&namespace=0&format=json&search=';
+
         /**
          * Deterministic long-tail templates for the last-resort source. When
          * Google Suggest is unreachable (no proxy), no SERP service is set, the
@@ -108,11 +117,25 @@ final class Haa_Keywords {
                         );
                 }
 
-                $rows = array();
+                $rows         = array();
+                $suggest_errs = array();
+                $suggest_n    = 0;
+                $wiki_err     = '';
+                $wiki_n       = 0;
+                $misses_n     = 0;
+                $gsc_n        = 0;
+                $serp_diag    = '';
+                $ai_n         = 0;
+                $planner_n    = 0;
 
-                // 1) Google + Bing Suggest — real user typing, when reachable.
+                // 1) Bing + Ecosia + Google Suggest — real user typing, when
+                //    reachable. $suggest_errs remembers WHY each engine failed, so
+                //    the panel can answer «why is the list short?» honestly — the
+                //    2.1.29 live report showed a generic model-layer message
+                //    standing in for a network outage. Deep silence helps nobody.
                 if ( ! empty( Haa_Research::config()['suggest_enabled'] ) ) {
-                        foreach ( self::suggest_multi( $seed ) as $k ) {
+                        foreach ( self::suggest_multi( $seed, $suggest_errs ) as $k ) {
+                                $suggest_n++;
                                 $rows[] = array(
                                         'keyword' => $k,
                                         'source'  => 'suggest',
@@ -120,10 +143,24 @@ final class Haa_Keywords {
                                         'note'    => '',
                                 );
                         }
+
+                        // Persian Wikipedia titles — a different suggestion family
+                        // (what people actually look up), still no key, still
+                        // reachable from Iranian hosts.
+                        foreach ( self::wiki_titles( $seed, $wiki_err ) as $t ) {
+                                $wiki_n++;
+                                $rows[] = array(
+                                        'keyword' => $t,
+                                        'source'  => 'wiki',
+                                        'intent'  => self::guess_intent( $t ),
+                                        'note'    => __( 'عنوان ویکی‌پدیا', 'hami-ai-assistant' ),
+                                );
+                        }
                 }
 
                 // 2) Site misses — what visitors searched and found nothing for.
                 foreach ( Haa_Misses::matching( $seed, 12 ) as $m ) {
+                        $misses_n++;
                         $rows[] = array(
                                 'keyword' => (string) $m['phrase'],
                                 'source'  => 'misses',
@@ -139,6 +176,7 @@ final class Haa_Keywords {
 
                 // 3) Search-Console opportunities related to the seed.
                 foreach ( self::gsc_matching( $seed, 10 ) as $g ) {
+                        $gsc_n++;
                         $rows[] = array(
                                 'keyword' => (string) $g['query'],
                                 'source'  => 'gsc',
@@ -168,6 +206,11 @@ final class Haa_Keywords {
                                         'note'    => (string) ( $r['url'] ?? '' ),
                                 );
                         }
+                        $serp_diag = sprintf( __( 'SERP: %d عنوان', 'hami-ai-assistant' ), count( (array) $serp['results'] ) );
+                } elseif ( ! empty( $serp['error'] ) && Haa_Research::serp_ready() ) {
+                        // Only when a service IS configured — an unconfigured SERP is
+                        // already covered by the panel copy («در صورت اتصال سرویس»).
+                        $serp_diag = __( 'SERP: ', 'hami-ai-assistant' ) . (string) $serp['error'];
                 }
 
                 // 5) A previously built AI snapshot may already carry keywords.
@@ -187,6 +230,7 @@ final class Haa_Keywords {
                         $ai_error = $ai->get_error_message();
                 } else {
                         foreach ( $ai as $k ) {
+                                $ai_n++;
                                 $rows[] = array(
                                         'keyword' => $k,
                                         'source'  => 'ai',
@@ -199,6 +243,7 @@ final class Haa_Keywords {
 
                 // 7) Site gaps — our own topics nobody covered yet.
                 foreach ( Haa_Planner::rows( 'suggested', 10 ) as $row ) {
+                        $planner_n++;
                         $rows[] = array(
                                 'keyword' => (string) $row['title'],
                                 'source'  => 'planner',
@@ -217,10 +262,52 @@ final class Haa_Keywords {
 
                 $rows = self::decorate( $rows );
 
+                // Per-source status lines: the panel must ALWAYS say which sources
+                // delivered and which failed — and, for the suggest engines, what
+                // the admin can do about it (configure the provider proxy).
+                $diag = array();
+
+                if ( ! empty( Haa_Research::config()['suggest_enabled'] ) ) {
+                        $line = sprintf( __( 'ساجست (بینگ/اکوسیا/گوگل): %d عبارت', 'hami-ai-assistant' ), $suggest_n );
+                        $errs = array();
+                        foreach ( $suggest_errs as $label => $msg ) {
+                                $errs[] = $label . ': ' . $msg;
+                        }
+                        if ( $errs ) {
+                                $line .= ' — ' . implode( '؛ ', $errs );
+                                if ( 0 === $suggest_n ) {
+                                        $line .= ' — ' . __( 'برای دسترسی به موتورهای ساجست، پروکسی خروجی را در تب «ارائه‌دهنده AI» تنظیم کنید و دوباره بیازمایید.', 'hami-ai-assistant' );
+                                }
+                        }
+                        $diag[] = $line;
+
+                        if ( $wiki_n > 0 ) {
+                                $diag[] = sprintf( __( 'ویکی‌پدیا: %d عنوان', 'hami-ai-assistant' ), $wiki_n );
+                        } elseif ( '' !== $wiki_err ) {
+                                $diag[] = __( 'ویکی‌پدیا: ', 'hami-ai-assistant' ) . $wiki_err;
+                        }
+                }
+
+                $diag[] = sprintf( __( 'بی‌نتیجه‌های همین سایت: %d', 'hami-ai-assistant' ), $misses_n );
+                $diag[] = $gsc_n > 0
+                        ? sprintf( __( 'سرچ‌کنسول: %d عبارت', 'hami-ai-assistant' ), $gsc_n )
+                        : __( 'سرچ‌کنسول: فایل هنوز ایمپورت نشده', 'hami-ai-assistant' );
+
+                if ( '' !== $serp_diag ) {
+                        $diag[] = $serp_diag;
+                }
+
+                $diag[] = '' !== $ai_error
+                        ? __( 'مدل: ', 'hami-ai-assistant' ) . $ai_error
+                        : sprintf( __( 'مدل: %d ایده', 'hami-ai-assistant' ), $ai_n );
+
+                $diag[] = sprintf( __( 'برنامه‌ریز: %d موضوع پیشنهادی', 'hami-ai-assistant' ), $planner_n );
+
                 return array(
                         'ok'    => true,
                         'error' => isset( $ai_error ) ? $ai_error : '',
                         'rows'  => $rows,
+                        'diag'  => $diag,
                 );
         }
 
@@ -251,21 +338,27 @@ final class Haa_Keywords {
         }
 
         /**
-         * Suggest across both engines under a strict call + wall-clock budget.
+         * Suggest across THREE no-key engines under a strict call + wall-clock
+         * budget.
          *
-         * Plan: Google and Bing on the bare seed first (highest-value rows),
-         * then the Persian intent modifiers, then the alphabet-soup expansion
-         * over ALPHABET — engines alternating, Bing first, because on Iranian
-         * hosts suggestqueries.google.com is usually blocked while api.bing.com
-         * usually answers, and neither needs a key. The pool counts UNIQUE
-         * suggestions only, so an engine echoing the same rows can never fake
-         * an early exit. Every phase stops the moment the budget (SUGGEST_CALLS
-         * calls or SUGGEST_TIME seconds) or its pool target is reached.
+         * Plan: every engine on the bare seed first (highest-value rows), then
+         * the Persian intent modifiers, then the alphabet-soup expansion over
+         * ALPHABET — engines cycling بینگ ← اکوسیا ← گوگل, because on Iranian
+         * hosts api.bing.com often geo-blocks (the 2.1.29 live report), Ecosia
+         * serves the same Bing-backed data without the block, and
+         * suggestqueries.google.com usually needs the provider proxy. The pool
+         * counts UNIQUE suggestions only, so an engine echoing the same rows can
+         * never fake an early exit. Every phase stops the moment the budget
+         * (SUGGEST_CALLS calls or SUGGEST_TIME seconds) or its pool target is
+         * reached.
          *
          * @param string $seed Topic.
+         * @param array  $errs OUT: first error per engine (label => message) for
+         *                     the panel diagnostics; a later success in the same
+         *                     sweep drops the stale entry.
          * @return array<int,string> Cleaned, unique suggestion strings.
          */
-        public static function suggest_multi( $seed ) {
+        public static function suggest_multi( $seed, &$errs = array() ) {
                 $seed = trim( (string) $seed );
                 if ( '' === $seed ) {
                         return array();
@@ -277,7 +370,7 @@ final class Haa_Keywords {
                 $t0    = microtime( true );
 
                 // One bounded outbound call; null = budget spent / unreachable / unreadable.
-                $call = static function ( $endpoint, $q ) use ( &$calls, $t0 ) {
+                $call = static function ( $label, $endpoint, $q ) use ( &$calls, &$errs, $t0 ) {
                         if ( $calls >= self::SUGGEST_CALLS || ( microtime( true ) - $t0 ) >= self::SUGGEST_TIME ) {
                                 return null;
                         }
@@ -287,12 +380,19 @@ final class Haa_Keywords {
                                 array( 'accept' => 'application/json', 'timeout' => self::SUGGEST_TIMEOUT )
                         );
                         if ( is_wp_error( $body ) ) {
+                                if ( ! isset( $errs[ $label ] ) ) {
+                                        $errs[ $label ] = $body->get_error_message();
+                                }
                                 return null;
                         }
                         $json = json_decode( (string) $body, true );
                         if ( ! is_array( $json ) ) {
+                                if ( ! isset( $errs[ $label ] ) ) {
+                                        $errs[ $label ] = __( 'پاسخ قابل خواندن نبود.', 'hami-ai-assistant' );
+                                }
                                 return null;
                         }
+                        unset( $errs[ $label ] ); // the engine answered — drop any stale error.
                         $list = array();
                         foreach ( (array) ( $json[1] ?? array() ) as $s ) {
                                 $s = trim( (string) $s );
@@ -318,26 +418,32 @@ final class Haa_Keywords {
                         }
                 };
 
-                // 1) Both engines on the bare seed — these are the highest-value rows.
-                $add( $call( self::GOOGLE_EP, $seed ) );
-                $add( $call( self::BING_EP, $seed ) );
+                $labels = array_keys( self::engines() );
+                $eps    = array_values( self::engines() );
+                $n_eng  = count( $eps );
 
-                // 2) Persian intent modifiers, engines alternating, until the pool
+                // 1) Every engine on the bare seed — the highest-value rows.
+                for ( $e = 0; $e < $n_eng; $e++ ) {
+                        $add( $call( $labels[ $e ], $eps[ $e ], $seed ) );
+                }
+
+                // 2) Persian intent modifiers, engines cycling, until the pool
                 //    is rich or the modifier share of the budget is spent.
                 $i = 0;
                 foreach ( self::MODIFIERS as $mod ) {
                         if ( count( $out ) >= self::SUGGEST_TARGET || $i >= self::MODIFIER_CALLS ) {
                                 break;
                         }
-                        $ep = ( 0 === $i % 2 ) ? self::BING_EP : self::GOOGLE_EP;
-                        $add( $call( $ep, $seed . ' ' . $mod ) );
+                        $e = $i % $n_eng;
+                        $add( $call( $labels[ $e ], $eps[ $e ], $seed . ' ' . $mod ) );
                         $i++;
                 }
 
-                // 3) Alphabet soup: seed + one Persian letter, engines alternating
-                //    (Bing first — the reachable one). The start letter rotates per
-                //    seed, so each topic walks a different slice of the alphabet;
-                //    repeated clicks on one topic stay deterministic.
+                // 3) Alphabet soup: seed + one Persian letter, engines cycling
+                //    (Bing first — the historically reachable one). The start
+                //    letter rotates per seed, so each topic walks a different
+                //    slice of the alphabet; repeated clicks on one topic stay
+                //    deterministic.
                 $n      = count( self::ALPHABET );
                 $offset = $n > 0 ? ( abs( crc32( $seed ) ) % $n ) : 0;
                 for ( $j = 0; $j < $n; $j++ ) {
@@ -345,11 +451,27 @@ final class Haa_Keywords {
                                 break;
                         }
                         $letter = self::ALPHABET[ ( $offset + $j ) % $n ];
-                        $ep     = ( 0 === $j % 2 ) ? self::BING_EP : self::GOOGLE_EP;
-                        $add( $call( $ep, $seed . ' ' . $letter ) );
+                        $e      = $j % $n_eng;
+                        $add( $call( $labels[ $e ], $eps[ $e ], $seed . ' ' . $letter ) );
                 }
 
                 return array_values( $out );
+        }
+
+        /**
+         * The suggest engines in call order. Bing first (the historically
+         * reachable one), then Ecosia — same Bing-backed data, no Iranian
+         * geo-block — then Google (usually needs the provider proxy from an
+         * Iranian host). Labels feed the panel diagnostics.
+         *
+         * @return array<string,string> label => endpoint prefix.
+         */
+        private static function engines() {
+                return array(
+                        'بینگ'   => self::BING_EP,
+                        'اکوسیا' => self::ECOSIA_EP,
+                        'گوگل'   => self::GOOGLE_EP,
+                );
         }
 
         /**
@@ -404,6 +526,48 @@ final class Haa_Keywords {
         }
 
         /**
+         * Persian Wikipedia OpenSearch titles for the seed — one call, no key,
+         * reachable from Iran. Returns article titles people actually look up:
+         * a suggestion family the query engines cannot cover.
+         *
+         * @param string $seed Topic.
+         * @param string $err  OUT: readable failure message, '' on success.
+         * @return array<int,string>
+         */
+        public static function wiki_titles( $seed, &$err = '' ) {
+                $out  = array();
+                $err  = '';
+                $seed = trim( (string) $seed );
+                if ( '' === $seed ) {
+                        return $out;
+                }
+
+                $body = Haa_Research::get(
+                        self::WIKI_EP . rawurlencode( $seed ),
+                        array( 'accept' => 'application/json', 'timeout' => self::SUGGEST_TIMEOUT )
+                );
+                if ( is_wp_error( $body ) ) {
+                        $err = $body->get_error_message();
+                        return $out;
+                }
+
+                $json = json_decode( (string) $body, true );
+                if ( ! is_array( $json ) ) {
+                        $err = __( 'پاسخ قابل خواندن نبود.', 'hami-ai-assistant' );
+                        return $out;
+                }
+
+                foreach ( (array) ( $json[1] ?? array() ) as $t ) {
+                        $t = trim( wp_strip_all_tags( (string) $t ) );
+                        if ( mb_strlen( $t ) >= 4 ) {
+                                $out[] = $t;
+                        }
+                }
+
+                return array_values( array_unique( $out ) );
+        }
+
+        /**
          * The model's keyword ideas. Grounded on Gemini (real search), plain
          * knowledge elsewhere.
          *
@@ -432,6 +596,10 @@ final class Haa_Keywords {
                         'operation'  => 'keywords',
                         'max_tokens' => 1800,
                         'grounding'  => $ground,
+                        // A lone failing primary must not double the panel's wait
+                        // with backoff retries; the suggest sweep already spent
+                        // its budget and the panel must come back soon.
+                        'retries'    => 0,
                 );
 
                 $api = new Haa_API();
@@ -977,16 +1145,17 @@ final class Haa_Keywords {
                 $seen = array( Haa_Search::normalize_text( (string) $seed ) => true );
                 $out  = array();
 
-                // Source priority: suggest > misses > gsc > serp > snapshot > ai > local > planner.
+                // Source priority: suggest > misses > gsc > serp > wiki > snapshot > ai > local > planner.
                 $rank = array(
                         'suggest'  => 0,
                         'misses'   => 1,
                         'gsc'      => 2,
                         'serp'     => 3,
-                        'snapshot' => 4,
-                        'ai'       => 5,
-                        'local'    => 6,
-                        'planner'  => 7,
+                        'wiki'     => 4,
+                        'snapshot' => 5,
+                        'ai'       => 6,
+                        'local'    => 7,
+                        'planner'  => 8,
                 );
                 usort(
                         $rows,
