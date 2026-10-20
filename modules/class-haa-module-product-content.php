@@ -2120,6 +2120,9 @@ final class Haa_Module_Product_Content implements Haa_Module_Interface {
                 if ( '' !== $ok ) {
                         $args['haai_msg'] = rawurlencode( Haa_Util::cut( $ok, 300 ) );
                 }
+                if ( Haa_Ajax_Form::respond( '' !== $error ? $error : $ok, '' !== $error ) ) {
+                        return;
+                }
                 wp_safe_redirect( Haa_Util::screen_url( 'product-content', $args ) );
                 exit;
         }

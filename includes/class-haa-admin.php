@@ -413,6 +413,13 @@ final class Haa_Admin {
          * @param array  $extra   Additional query args (import token).
          */
         private function redirect( $section, $extra = array() ) {
+                // 2.1.40 — the AJAX transport needs the HUMAN text now, not a
+                // code the next render would translate; the classic redirect
+                // still carries the code for the no-JS fallback.
+                $row = self::status_text( (string) $this->status );
+                if ( $row && Haa_Ajax_Form::respond( $row[1], 'error' === $row[0] ) ) {
+                        return;
+                }
                 $url = add_query_arg(
                         array_merge(
                                 array(
@@ -428,9 +435,15 @@ final class Haa_Admin {
                 exit;
         }
 
-        /** @return void */
-        public function notice() {
-                $ok  = isset( $_GET['haai_ok'] ) ? sanitize_key( wp_unslash( $_GET['haai_ok'] ) ) : '';
+        /**
+         * 2.1.40 — the notice map, shared by notice() (GET render) and
+         * redirect() (the AJAX transport needs the human text at respond
+         * time, before any reload happens).
+         *
+         * @param string $code Status code.
+         * @return array|null array( type, text ) or null when unknown.
+         */
+        private static function status_text( $code ) {
                 $map = array(
                         'saved'            => array( 'success', __( 'ذخیره شد.', 'hami-ai-assistant' ) ),
                         'import-preview'   => array( 'info', __( 'فایل بررسی شد. تغییرات را ببینید و سپس تأیید کنید؛ هنوز چیزی اعمال نشده است.', 'hami-ai-assistant' ) ),
@@ -447,11 +460,18 @@ final class Haa_Admin {
                         'restore-none'     => array( 'error', __( 'نسخه‌ی پشتیبانی برای بازگردانی وجود ندارد.', 'hami-ai-assistant' ) ),
                         'module-saved'     => array( 'success', __( 'ماژول‌ها به‌روزرسانی شد.', 'hami-ai-assistant' ) ),
                 );
-                if ( isset( $map[ $ok ] ) ) {
+                return isset( $map[ $code ] ) ? $map[ $code ] : null;
+        }
+
+        /** @return void */
+        public function notice() {
+                $ok = isset( $_GET['haai_ok'] ) ? sanitize_key( wp_unslash( $_GET['haai_ok'] ) ) : '';
+                $row = self::status_text( $ok );
+                if ( $row ) {
                         printf(
                                 '<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>',
-                                esc_attr( $map[ $ok ][0] ),
-                                esc_html( $map[ $ok ][1] )
+                                esc_attr( $row[0] ),
+                                esc_html( $row[1] )
                         );
                         return;
                 }

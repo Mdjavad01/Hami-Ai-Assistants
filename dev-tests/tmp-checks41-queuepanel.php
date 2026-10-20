@@ -1,6 +1,6 @@
 <?php
 /**
- * Regression suite: the queue stopped being a black box (2.1.39).
+ * Regression suite: the queue stopped being a black box (2.1.40).
  *
  * Tenth live report (2.1.37): «افزودن به صف و زدم، صف کجا رفت اصلا؟ هیچ جا
  * مشخص نیست، تو اتوپایلوت میره؟» — jobs went into wp_haai_queue, a cron
@@ -505,6 +505,6 @@ ok( 'G: SELECT claims pending AND stale running', 1 === substr_count( $q_src, "W
 ok( 'G: the conditional UPDATE claims the same set', 1 === substr_count( $q_src, "WHERE id = %d AND status IN ('pending','running') AND (locked_until IS NULL OR locked_until < %s)" ), '' );
 ok( 'G: stats/rows/job/requeue/purge_done all exist', preg_match( '/function stats\( \$module = null \)/', $q_src ) && preg_match( '/function rows\( \$module, \$limit = 12 \)/', $q_src ) && preg_match( '/function job\( \$id \)/', $q_src ) && preg_match( '/function requeue\( \$id \)/', $q_src ) && preg_match( '/function purge_done\(\)/', $q_src ), '' );
 
-echo "\n--- suite 41: queue visibility (2.1.39) ---\n";
+echo "\n--- suite 41: queue visibility (2.1.40) ---\n";
 echo "checks: " . ( $pass + $fail ) . "  FAIL=$fail\n";
 exit( $fail ? 1 : 0 );

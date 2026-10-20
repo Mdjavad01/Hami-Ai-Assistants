@@ -1362,6 +1362,9 @@ final class Haa_Crawl {
                 $msg   = is_wp_error( $res )
                         ? $res->get_error_message()
                         : __( 'خزش صفحات شروع شد؛ نوار پیشرفت آن را دنبال می‌کند.', 'hami-ai-assistant' );
+                if ( Haa_Ajax_Form::respond( $msg, is_wp_error( $res ) ) ) {
+                        return;
+                }
                 wp_safe_redirect( add_query_arg( 'haai_msg', rawurlencode( $msg ), wp_get_referer() ? wp_get_referer() : admin_url( 'admin.php?page=hami-ai-assistant' ) ) );
                 exit;
         }
@@ -1370,6 +1373,9 @@ final class Haa_Crawl {
         public static function handle_wipe() {
                 Haa_Util::guard_admin_post( 'haai_admin' );
                 self::wipe();
+                if ( Haa_Ajax_Form::respond( __( 'تکه‌های خزش‌شده پاک شد.', 'hami-ai-assistant' ) ) ) {
+                        return;
+                }
                 wp_safe_redirect( add_query_arg( 'haai_msg', rawurlencode( __( 'تکه‌های خزش‌شده پاک شد.', 'hami-ai-assistant' ) ), wp_get_referer() ? wp_get_referer() : admin_url( 'admin.php?page=hami-ai-assistant' ) ) );
                 exit;
         }

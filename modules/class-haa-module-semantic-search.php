@@ -408,6 +408,9 @@ final class Haa_Module_Semantic_Search implements Haa_Module_Interface {
 
         /** @return void */
         private function back( $message = '' ) {
+                if ( Haa_Ajax_Form::respond( '' !== $message ? $message : __( 'انجام شد.', 'hami-ai-assistant' ), false ) ) {
+                        return;
+                }
                 $args = array();
                 if ( '' !== $message ) {
                         $args['haai_msg'] = rawurlencode( Haa_Util::cut( $message, 300 ) );

@@ -81,6 +81,12 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 // 2.1.28 shipped the method without this registration (Task: hotfix).
                 add_action( 'wp_ajax_haai_kw_research', array( $this, 'ajax_kw_research' ) );
 
+                // 2.1.40 — panel re-render for the AJAX transport: after a form
+                // succeeds without a page reload, admin.js asks for fresh panel
+                // HTML (whitelist below) and swaps it in — the queue/planner
+                // tables stay true without a single URL change.
+                add_action( 'wp_ajax_haai_panel', array( $this, 'ajax_panel' ) );
+
                 // Review / publish decisions (D3).
                 add_action( 'admin_post_haai_pipe_approve', array( $this, 'handle_pipe_approve' ) );
                 add_action( 'admin_post_haai_pipe_reject', array( $this, 'handle_pipe_reject' ) );
@@ -317,7 +323,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <?php esc_html_e( 'هر موضوع یک مقاله می‌سازد و پیش‌نویس در بخش «نوشته‌ها» منتظر شما می‌ماند. اگر موضوع آماده ندارید، از پنل «پیشنهاد کلمه کلیدی» بالا شروع کنید: تیک بزنید، به برنامه‌ریز اضافه کنید و بعد همین‌جا به صف بفرستید.', 'hami-ai-assistant' ); ?>
                         </p>
 
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" data-haai-refresh="haai-queue-panel">
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                 <input type="hidden" name="action" value="haai_aw_queue">
 
@@ -374,7 +380,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 </p>
                         </form>
 
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-actions" data-haai-confirm>
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-actions" data-haai-confirm data-haai-refresh="haai-queue-panel">
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                 <input type="hidden" name="action" value="haai_aw_purge">
                                 <button type="submit" class="button-link-delete"><?php esc_html_e( 'پاک کردن کارهای ناموفق', 'hami-ai-assistant' ); ?></button>
@@ -473,7 +479,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 </p>
 
                 <?php if ( $draft ) : ?>
-                        <div class="haai-panel">
+                        <div class="haai-panel" id="haai-profile-panel">
                                 <h3 class="haai-group__title"><?php esc_html_e( 'پیش‌نویس ساخته‌شده از خودِ سایت — هنوز ذخیره نشده', 'hami-ai-assistant' ); ?></h3>
                                 <?php foreach ( $labels as $key => $label ) : ?>
                                         <?php $val = trim( (string) ( $draft[ $key ] ?? '' ) ); ?>
@@ -488,13 +494,13 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                         <?php if ( '' === trim( (string) ( $draft['domain'] ?? '' ) ) && '' === trim( (string) ( $draft['offerings'] ?? '' ) ) ) : ?>
                                                 <span class="description"><?php esc_html_e( 'چیزی روی سایت پیدا نشد که از آن پیش‌نویس ساخته شود.', 'hami-ai-assistant' ); ?></span>
                                         <?php else : ?>
-                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline">
+                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-refresh="haai-profile-panel">
                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                         <input type="hidden" name="action" value="haai_profile_approve">
                                                         <button type="submit" class="button button-primary"><?php esc_html_e( 'تأیید و جایگزینی در پروفایل', 'hami-ai-assistant' ); ?></button>
                                                 </form>
                                         <?php endif; ?>
-                                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline">
+                                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-refresh="haai-profile-panel">
                                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                                 <input type="hidden" name="action" value="haai_profile_discard">
                                                 <button type="submit" class="button-link-delete"><?php esc_html_e( 'حذف پیش‌نویس', 'hami-ai-assistant' ); ?></button>
@@ -502,7 +508,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 </p>
                         </div>
                 <?php else : ?>
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" data-haai-refresh="haai-profile-panel" data-haai-busy="در حال خواندن سایت و ساخت پیش‌نویس… این پنجره را نبندید.">
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                 <input type="hidden" name="action" value="haai_profile_build">
                                 <p>
@@ -536,7 +542,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         return;
                 }
                 ?>
-                <div class="haai-panel haai-panel--review">
+                <div class="haai-panel haai-panel--review" id="haai-review-panel">
                         <h2 class="haai-panel__title">
                                 <?php esc_html_e( 'بازبینی مقاله‌های ساخته‌شده', 'hami-ai-assistant' ); ?>
                                 <span class="haai-badge haai-badge--accent"><?php echo esc_html( (string) count( $rows ) ); ?></span>
@@ -652,7 +658,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                 <div class="haai-review__sections">
                                                         <span class="haai-field__hint"><?php esc_html_e( 'بازنویسی یک بخش:', 'hami-ai-assistant' ); ?></span>
                                                         <?php foreach ( (array) $state['sections'] as $i => $sec ) : ?>
-                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form">
+                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form" data-haai-refresh="haai-review-panel" data-haai-busy="در حال نوشتن بخش با مدل…">
                                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                                         <input type="hidden" name="action" value="haai_pipe_section" />
                                                                         <input type="hidden" name="topic_id" value="<?php echo (int) $row['id']; ?>" />
@@ -667,7 +673,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                 <div class="haai-review__backlinks">
                                                         <span class="haai-field__hint"><?php esc_html_e( 'پیشنهاد لینک برگشتی از نوشته‌های قدیمی (فقط با کلیک شما اعمال می‌شود):', 'hami-ai-assistant' ); ?></span>
                                                         <?php foreach ( $links as $bl ) : ?>
-                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form">
+                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form" data-haai-refresh="haai-review-panel">
                                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                                         <input type="hidden" name="action" value="haai_pipe_backlink" />
                                                                         <input type="hidden" name="old_id" value="<?php echo (int) ( $bl['post_id'] ?? 0 ); ?>" />
@@ -683,7 +689,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                         <a class="button" href="<?php echo esc_url( $edit ); ?>"><?php esc_html_e( 'ویرایش در وردپرس', 'hami-ai-assistant' ); ?></a>
                                                 <?php endif; ?>
 
-                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form">
+                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form" data-haai-refresh="haai-review-panel">
                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                         <input type="hidden" name="action" value="haai_pipe_approve" />
                                                         <input type="hidden" name="post_id" value="<?php echo (int) $post->ID; ?>" />
@@ -691,7 +697,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                         <button type="submit" class="button button-primary"><?php esc_html_e( 'انتشار', 'hami-ai-assistant' ); ?></button>
                                                 </form>
 
-                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form haai-review__schedule">
+                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form haai-review__schedule" data-haai-refresh="haai-review-panel">
                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                         <input type="hidden" name="action" value="haai_pipe_approve" />
                                                         <input type="hidden" name="post_id" value="<?php echo (int) $post->ID; ?>" />
@@ -703,7 +709,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                         <button type="submit" class="button"><?php esc_html_e( 'زمان‌بندی', 'hami-ai-assistant' ); ?></button>
                                                 </form>
 
-                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form">
+                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form" data-haai-refresh="haai-review-panel">
                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                         <input type="hidden" name="action" value="haai_pipe_reject" />
                                                         <input type="hidden" name="post_id" value="<?php echo (int) $post->ID; ?>" />
@@ -731,7 +737,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
 
                 $rows = Haa_Refresh::needing( 12 );
                 ?>
-                <div class="haai-panel haai-panel--refresh">
+                <div class="haai-panel haai-panel--refresh" id="haai-refresh-panel">
                         <h2 class="haai-panel__title">
                                 <?php esc_html_e( 'بازنگری ماهانه', 'hami-ai-assistant' ); ?>
                                 <span class="haai-badge">
@@ -742,7 +748,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <?php esc_html_e( 'این فهرست پیشنهاد است. هیچ نوشته‌ای خودکار بازنویسی نمی‌شود و تاریخ «ویرایش» جز با یک تغییر واقعی عوض نمی‌شود.', 'hami-ai-assistant' ); ?>
                         </p>
 
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form">
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form" data-haai-refresh="haai-refresh-panel" data-haai-busy="در حال بررسی نوشته‌ها…">
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                 <input type="hidden" name="action" value="haai_rf_scan" />
                                 <label>
@@ -776,14 +782,14 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                                 <span class="haai-badge haai-badge--danger"><?php esc_html_e( 'خراب', 'hami-ai-assistant' ); ?></span>
                                                                                 <strong><?php echo esc_html( Haa_Util::cut( (string) ( $b['url'] ?? '' ), 70 ) ); ?></strong>
                                                                                 <span><?php echo esc_html( (string) ( $b['reason'] ?? '' ) ); ?></span>
-                                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form">
+                                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form" data-haai-refresh="haai-refresh-panel">
                                                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                                                         <input type="hidden" name="action" value="haai_rf_drop" />
                                                                                         <input type="hidden" name="post_id" value="<?php echo (int) $post->ID; ?>" />
                                                                                         <input type="hidden" name="url" value="<?php echo esc_attr( (string) ( $b['url'] ?? '' ) ); ?>" />
                                                                                         <button type="submit" class="button button-small"><?php esc_html_e( 'برداشتن لینک', 'hami-ai-assistant' ); ?></button>
                                                                                 </form>
-                                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form">
+                                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form" data-haai-refresh="haai-refresh-panel">
                                                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                                                         <input type="hidden" name="action" value="haai_rf_dismiss" />
                                                                                         <input type="hidden" name="post_id" value="<?php echo (int) $post->ID; ?>" />
@@ -863,7 +869,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         <div id="haai-kw-status" class="haai-kw__status" hidden></div>
                         <div id="haai-kw-diag" class="haai-kw__diag" hidden></div>
 
-                        <form id="haai-kw-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" <?php echo ( $gsc_rows || $misses ) ? '' : 'hidden'; ?>>
+                        <form id="haai-kw-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" data-haai-refresh="haai-plan-panel" <?php echo ( $gsc_rows || $misses ) ? '' : 'hidden'; ?>>
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                 <input type="hidden" name="action" value="haai_kw_queue" />
 
@@ -898,7 +904,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <p class="submit">
                                         <button type="submit" class="button button-primary"><?php esc_html_e( 'افزودن انتخاب‌شده‌ها به برنامه‌ریز', 'hami-ai-assistant' ); ?></button>
                                         <?php /* 2.1.36: نیمهٔ گمشدهٔ حلقه — از فهرست جست‌وجو مستقیم به صف مقاله. Live report: «الان فقط خروجی اکسل میده، جایی برای تیک زدن و افزودن به تقویم محتوایی یا مقاله نویسی نیست». */ ?>
-                                        <button type="submit" class="button" formaction="<?php echo esc_url( admin_url( 'admin-post.php?action=haai_kw_article' ) ); ?>" data-haai-spend="<?php esc_attr_e( 'برای هر عبارت انتخاب‌شده یک مقاله به صف تولید محتوا اضافه می‌شود و توکن مصرف می‌کند. ادامه می‌دهید؟', 'hami-ai-assistant' ); ?>"><?php esc_html_e( 'ساخت مقاله برای انتخاب‌شده‌ها', 'hami-ai-assistant' ); ?></button>
+                                        <button type="submit" class="button" formaction="<?php echo esc_url( admin_url( 'admin-post.php?action=haai_kw_article' ) ); ?>" data-haai-spend="<?php esc_attr_e( 'برای هر عبارت انتخاب‌شده یک مقاله به صف تولید محتوا اضافه می‌شود و توکن مصرف می‌کند. ادامه می‌دهید؟', 'hami-ai-assistant' ); ?>" data-haai-refresh="haai-queue-panel,haai-research-panel"><?php esc_html_e( 'ساخت مقاله برای انتخاب‌شده‌ها', 'hami-ai-assistant' ); ?></button>
                                 </p>
                                 <p class="description">
                                         <?php esc_html_e( '«افزودن به برنامه‌ریز» رایگان است و اول موضوع‌ها را برای مرور به «برنامه‌ریز موضوع» می‌برد؛ «ساخت مقاله» همان عبارت‌ها را بدون توقف به صف تولید مقاله می‌فرستد و پیش‌نویس‌ها یکی‌یکی در «نوشته‌ها» ظاهر می‌شوند.', 'hami-ai-assistant' ); ?>
@@ -934,7 +940,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 $gaps    = Haa_Research::gaps( 10 );
                 $serp    = Haa_Research::serp_ready();
                 ?>
-                <div class="haai-panel haai-panel--research">
+                <div class="haai-panel haai-panel--research" id="haai-research-panel">
                         <h2 class="haai-panel__title">
                                 <?php esc_html_e( 'تحلیل رقبا', 'hami-ai-assistant' ); ?>
                                 <?php if ( ! $enabled ) : ?>
@@ -979,7 +985,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
 
                                 <div class="haai-plan__actions">
                                         <?php if ( $sites ) : ?>
-                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form">
+                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form" data-haai-refresh="haai-research-panel" data-haai-busy="در حال تحلیل رقبا… ممکن است تا یک دقیقه طول بکشد.">
                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                         <input type="hidden" name="action" value="haai_rs_analyze" />
                                                         <button type="submit" class="button button-primary">
@@ -989,7 +995,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                 </form>
                                         <?php endif; ?>
                                         <?php if ( $snap ) : ?>
-                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form">
+                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline-form" data-haai-refresh="haai-research-panel">
                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                         <input type="hidden" name="action" value="haai_rs_drop" />
                                                         <button type="submit" class="button button-link-delete"><?php esc_html_e( 'پاک‌کردن نتایج', 'hami-ai-assistant' ); ?></button>
@@ -1015,7 +1021,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <?php endif; ?>
 
                                 <?php if ( $gaps ) : ?>
-                                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-plan-form">
+                                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-plan-form" data-haai-refresh="haai-plan-panel">
                                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                                 <input type="hidden" name="action" value="haai_rs_gap" />
                                                 <h3 class="haai-plan__subtitle"><?php esc_html_e( 'شکاف‌های محتوایی', 'hami-ai-assistant' ); ?></h3>
@@ -1064,7 +1070,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 // Row actions and the queue need different markup, so split once.
                 $rows = array_values( $rows );
                 ?>
-                <div class="haai-panel haai-panel--plan">
+                <div class="haai-panel haai-panel--plan" id="haai-plan-panel">
                 <h2 class="haai-panel__title"><?php esc_html_e( 'برنامه‌ریز موضوع', 'hami-ai-assistant' ); ?></h2>
 
                 <div class="haai-cards">
@@ -1087,12 +1093,12 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 </div>
 
                 <p class="haai-filterbar">
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline">
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-refresh="haai-plan-panel">
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                 <input type="hidden" name="action" value="haai_plan_gaps">
                                 <button type="submit" class="button"><?php esc_html_e( 'ساخت موضوع از خوشه‌های خالی (رایگان)', 'hami-ai-assistant' ); ?></button>
                         </form>
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline">
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-refresh="haai-plan-panel" data-haai-busy="مدل دارد موضوع پیشنهاد می‌دهد… تا نیم دقیقه صبر کنید.">
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                 <input type="hidden" name="action" value="haai_plan_model">
                                 <button type="submit" class="button" <?php disabled( '' !== $plan['blocked'] ); ?>>
@@ -1208,7 +1214,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                 </td>
                                                                 <td class="haai-plan-actions">
                                                                         <?php if ( 'suggested' === $r['status'] || 'rejected' === $r['status'] ) : ?>
-                                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline">
+                                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-refresh="haai-plan-panel">
                                                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                                                         <input type="hidden" name="action" value="haai_plan_status">
                                                                                         <input type="hidden" name="id" value="<?php echo (int) $r['id']; ?>">
@@ -1217,7 +1223,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                                 </form>
                                                                         <?php endif; ?>
                                                                         <?php if ( 'approved' === $r['status'] ) : ?>
-                                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline">
+                                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-refresh="haai-plan-panel">
                                                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                                                         <input type="hidden" name="action" value="haai_plan_status">
                                                                                         <input type="hidden" name="id" value="<?php echo (int) $r['id']; ?>">
@@ -1226,7 +1232,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                                 </form>
                                                                         <?php endif; ?>
                                                                         <?php if ( 'rejected' !== $r['status'] && in_array( $r['status'], array( 'suggested', 'approved' ), true ) ) : ?>
-                                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline">
+                                                                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-refresh="haai-plan-panel">
                                                                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                                                                         <input type="hidden" name="action" value="haai_plan_status">
                                                                                         <input type="hidden" name="id" value="<?php echo (int) $r['id']; ?>">
@@ -1234,7 +1240,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                                         <button type="submit" class="button button-small"><?php esc_html_e( 'رد', 'hami-ai-assistant' ); ?></button>
                                                                                 </form>
                                                                         <?php endif; ?>
-                                                                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-confirm>
+                                                                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-confirm data-haai-refresh="haai-plan-panel">
                                                                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                                                                 <input type="hidden" name="action" value="haai_plan_delete">
                                                                                 <input type="hidden" name="id" value="<?php echo (int) $r['id']; ?>">
@@ -1247,7 +1253,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 </table>
                         </div>
 
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="haai-plan-queue" data-haai-plan-form data-per-article="<?php echo (int) Haa_Planner::estimate_tokens( 1 ); ?>">
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="haai-plan-queue" data-haai-plan-form data-haai-refresh="haai-plan-panel,haai-queue-panel" data-per-article="<?php echo (int) Haa_Planner::estimate_tokens( 1 ); ?>">
                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                 <input type="hidden" name="action" value="haai_plan_queue">
 
@@ -1437,7 +1443,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                         <td><?php echo esc_html( $created ? human_time_diff( $created ) . ' پیش' : '' ); ?></td>
                                                                         <td>
                                                                                 <?php if ( 'failed' === $j['status'] ) : ?>
-                                                                                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline">
+                                                                                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-refresh="haai-queue-panel">
                                                                                                 <?php wp_nonce_field( 'haai_aw' ); ?>
                                                                                                 <input type="hidden" name="action" value="haai_aw_requeue">
                                                                                                 <input type="hidden" name="id" value="<?php echo (int) $j['id']; ?>">
@@ -1453,17 +1459,17 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         <?php endif; ?>
 
                         <p class="haai-filterbar">
-                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline">
+                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-refresh="haai-queue-panel" data-haai-busy="در حال ساخت مقاله… این پنجره را نبندید؛ ممکن است چند دقیقه طول بکشد.">
                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                         <input type="hidden" name="action" value="haai_aw_run_one">
                                         <button type="submit" class="button button-primary" data-haai-spend="<?php esc_attr_e( 'یک مقاله از صف همین حالا ساخته می‌شود؛ توکن مصرف می‌شود و ممکن است تا چند دقیقه طول بکشد. ادامه می‌دهید؟', 'hami-ai-assistant' ); ?>" <?php disabled( ! $stats['pending'] ); ?>><?php esc_html_e( 'ساخت همین حالا (یک مقاله)', 'hami-ai-assistant' ); ?></button>
                                 </form>
-                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-confirm>
+                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-confirm data-haai-refresh="haai-queue-panel">
                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                         <input type="hidden" name="action" value="haai_aw_purge">
                                         <button type="submit" class="button-link-delete" <?php disabled( ! $stats['failed'] ); ?>><?php esc_html_e( 'پاک کردن کارهای ناموفق', 'hami-ai-assistant' ); ?></button>
                                 </form>
-                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-confirm>
+                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-confirm data-haai-refresh="haai-queue-panel">
                                         <?php wp_nonce_field( 'haai_aw' ); ?>
                                         <input type="hidden" name="action" value="haai_aw_purge_done">
                                         <button type="submit" class="button-link-delete" <?php disabled( ! $stats['done'] ); ?>><?php esc_html_e( 'پاک‌سازی کارهای ساخته‌شده', 'hami-ai-assistant' ); ?></button>
@@ -1954,6 +1960,48 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 Haa_Util::guard_admin_post( 'haai_aw' );
                 Haa_Research::drop_snapshot();
                 $this->back( __( 'نتایج تحلیل رقبا پاک شد.', 'hami-ai-assistant' ) );
+        }
+
+        /**
+         * AJAX (2.1.40): fresh HTML for one panel of this screen.
+         *
+         * The generic form transport answers a submit with a message and —
+         * when the form declares data-haai-refresh — admin.js comes back
+         * here for every panel it should redraw, so the queue/planner/
+         * research tables stay true without reloading the page or touching
+         * the URL. The whitelist is the security boundary: only these
+         * renderers may be pulled, nothing else is callable by name.
+         *
+         * @return void Sends JSON {success, data:{panel, html}}.
+         */
+        public function ajax_panel() {
+                Haa_Util::guard_admin_ajax();
+
+                $panels = array(
+                        'haai-queue-panel'    => 'render_queue_panel',
+                        'haai-plan-panel'     => 'render_planner_panel',
+                        'haai-research-panel' => 'render_research_panel',
+                        'haai-review-panel'   => 'render_review_panel',
+                        'haai-refresh-panel'  => 'render_refresh_panel',
+                        'haai-profile-panel'  => 'render_profile_panel',
+                );
+
+                $want = isset( $_POST['panel'] ) ? sanitize_key( wp_unslash( (string) $_POST['panel'] ) ) : '';
+                if ( ! $want || ! isset( $panels[ $want ] ) || ! method_exists( $this, $panels[ $want ] ) ) {
+                        wp_send_json_error( array( 'message' => __( 'پنل شناخته نشد.', 'hami-ai-assistant' ) ) );
+                        return; // wp_send_json_error exits in production; the return keeps stub-based tests alive.
+                }
+
+                ob_start();
+                $this->{$panels[ $want ]}();
+                $html = (string) ob_get_clean();
+
+                wp_send_json_success(
+                        array(
+                                'panel' => $want,
+                                'html'  => $html,
+                        )
+                );
         }
 
         /**
@@ -2453,11 +2501,18 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
         /**
          * POST → Redirect → GET, with the message riding along in the URL.
          *
+         * 2.1.40 — under the generic AJAX transport the message leaves as
+         * JSON instead: no URL churn, no full reload. The classic redirect
+         * stays as the no-JS fallback.
+         *
          * @param string $message Banner text.
          * @param bool   $error   Render it as a failure, not a success.
          * @return void
          */
         private function back( $message, $error = false ) {
+                if ( Haa_Ajax_Form::respond( $message, $error ) ) {
+                        return;
+                }
                 wp_safe_redirect(
                         Haa_Util::screen_url(
                                 'article-writer',

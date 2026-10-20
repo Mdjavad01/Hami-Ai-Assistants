@@ -137,7 +137,7 @@ final class Haa_Admin_Dashboard {
                                 ) );
                                 ?>
                         </p>
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-actions" data-haai-crawl-form>
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-actions" data-haai-crawl-form data-haai-noajax>
                                 <?php wp_nonce_field( 'haai_admin' ); ?>
                                 <input type="hidden" name="action" value="haai_crawl_start">
                                 <button type="submit" class="button button-primary" data-haai-crawl-start>
