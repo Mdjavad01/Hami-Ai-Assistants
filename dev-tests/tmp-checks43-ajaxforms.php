@@ -1,6 +1,6 @@
 <?php
 /**
- * Regression suite: every admin form went AJAX (2.1.40).
+ * Regression suite: every admin form went AJAX (2.1.41).
  *
  * Eleventh live report (2.1.39): the admin clicked «ساخت همین حالا» and the
  * browser landed on
@@ -556,8 +556,8 @@ $admin = file_get_contents( __DIR__ . '/../includes/class-haa-admin.php' );
 $js    = file_get_contents( __DIR__ . '/../assets/js/admin.js' );
 $jsmin = file_get_contents( __DIR__ . '/../assets/js/admin.min.js' );
 
-ok( 'version header is 2.1.40', false !== strpos( $main, '* Version:           2.1.40' ) );
-ok( 'HAAI_VERSION is 2.1.40', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.40' )" ) );
+ok( 'version header is 2.1.41', false !== strpos( $main, '* Version:           2.1.41' ) );
+ok( 'HAAI_VERSION is 2.1.41', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.41' )" ) );
 ok( 'boot registers the transport', false !== strpos( $main, 'Haa_Ajax_Form::hooks()' ) );
 ok( 'wp_ajax_haai_form_submit registered in the class', false !== strpos( $cls, "add_action( 'wp_ajax_haai_form_submit'" ) );
 ok( 'wp_ajax_haai_panel registered in the module', false !== strpos( $awp, "add_action( 'wp_ajax_haai_panel'" ) );
@@ -623,6 +623,6 @@ foreach ( array( 'haai-plan-panel', 'haai-research-panel', 'haai-review-panel', 
 ok( 'crawl dashboard form opted out of the generic transport', false !== strpos( $dash, 'data-haai-crawl-form data-haai-noajax' ) );
 ok( 'panel whitelist guards against arbitrary renderers', false !== strpos( $awp, 'method_exists' ) );
 
-echo "\n--- suite 43: AJAX forms (2.1.40) ---\n";
+echo "\n--- suite 43: AJAX forms (2.1.41) ---\n";
 echo "passed: {$GLOBALS['passed']}, failed: {$GLOBALS['failed']}\n";
 exit( $GLOBALS['failed'] ? 1 : 0 );

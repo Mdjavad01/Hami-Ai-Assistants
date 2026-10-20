@@ -226,6 +226,25 @@ final class Haa_Pipeline {
                         $parts[] = __( 'صفحه‌هایی که خوب است به آن‌ها برسیم:', 'hami-ai-assistant' ) . ' ' . implode( '، ', $goals );
                 }
 
+                // 2.1.41: the competitor analysis finally reaches queued articles.
+                // Until now the snapshot only touched the gaps list and the
+                // structure-similarity gate; the plan itself was written blind.
+                // Same matching rule as brief() — headings sharing a word with the
+                // topic keyword, plus the site's own content gaps, capped so the
+                // prompt stays small and the extra context costs zero tokens.
+                $kw = trim( (string) ( $topic['keyword'] ?? '' ) );
+                if ( '' === $kw ) {
+                        $kw = trim( (string) $topic['title'] );
+                }
+                $rel = Haa_Research::related_headings( $kw, 10 );
+                if ( $rel ) {
+                        $parts[] = __( 'سرفصل‌هایی که سایت‌های رقیب برای همین موضوع دارند (برای پوشش کامل موضوع؛ عیناً کپی نشود):', 'hami-ai-assistant' ) . "\n- " . implode( "\n- ", $rel );
+                }
+                $rgaps = Haa_Research::gaps( 6 );
+                if ( $rgaps ) {
+                        $parts[] = __( 'شکاف‌های محتوایی سایت ما (سرفصل‌هایی که رقبا دارند و ما نه — اگر به موضوع مربوط‌اند پوشش داده شوند):', 'hami-ai-assistant' ) . "\n- " . implode( "\n- ", wp_list_pluck( $rgaps, 'heading' ) );
+                }
+
                 $user = implode( "\n\n", array_filter( $parts ) ) . "\n\n" . __( 'طرح را بنویس.', 'hami-ai-assistant' );
 
                 $raw = Haa_Content::generate(

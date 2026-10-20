@@ -48,7 +48,9 @@ final class Haa_Research {
         public static function fields() {
                 return array(
                         array( 'key' => 'research.enabled', 'type' => 'checkbox', 'label' => __( 'تحلیل رقبا فعال باشد', 'hami-ai-assistant' ), 'hint' => __( 'اگر خاموش باشد، کل خط لوله فقط از محتوای خود سایت استفاده می‌کند.', 'hami-ai-assistant' ) ),
-                        array( 'key' => 'research.competitors', 'type' => 'textarea', 'label' => __( 'آدرس رقبا', 'hami-ai-assistant' ), 'hint' => __( 'هر خط یک دامنه. حداکثر ۱۰ مورد. فقط ساختار صفحات خوانده می‌شود، نه متن آن‌ها.', 'hami-ai-assistant' ) ),
+                        /* 2.1.41: the URL complaint — full page addresses are accepted;
+                         * only their domain is analysed, and the hint now says so. */
+                        array( 'key' => 'research.competitors', 'type' => 'textarea', 'label' => __( 'آدرس رقبا', 'hami-ai-assistant' ), 'hint' => __( 'هر خط یک آدرس؛ هم «example.com» قبول است هم آدرس کامل (URL). از URL فقط دامنه‌اش تحلیل می‌شود و بقیه‌ی آدرس کنار گذاشته می‌شود. حداکثر ۱۰ دامنه؛ فقط ساختار صفحات خوانده می‌شود، نه متن آن‌ها.', 'hami-ai-assistant' ) ),
                         array( 'key' => 'research.user_agent', 'type' => 'text', 'label' => __( 'شناسه‌ی کاربر (User-Agent)', 'hami-ai-assistant' ), 'hint' => __( 'محرمانه نبودن هویت درخواست لازم است؛ ربات‌های ناشناس معمولاً مسدود می‌شوند.', 'hami-ai-assistant' ) ),
                         array( 'key' => 'research.respect_robots', 'type' => 'checkbox', 'label' => __( 'پایبندی به robots.txt', 'hami-ai-assistant' ), 'hint' => __( 'توصیه‌ی اکید: با خاموش‌کردن آن، هم ادب crawling نقض می‌شود هم احتمال بن‌شدن IP سرور شما می‌رود.', 'hami-ai-assistant' ) ),
                         array( 'key' => 'research.delay_ms', 'type' => 'number', 'label' => __( 'فاصله‌ی بین درخواست‌ها (میلی‌ثانیه)', 'hami-ai-assistant' ), 'min' => 200, 'max' => 10000 ),
@@ -1018,6 +1020,127 @@ final class Haa_Research {
                 return $out;
         }
 
+        /**
+         * Snapshot headings that share at least one word with the topic keyword.
+         *
+         * 2.1.41: this loop used to live inside brief() while the queue's own
+         * outline stage built plans with no competitor knowledge at all — the
+         * analysis really did "go nowhere" for queued articles. Extracted so
+         * Haa_Pipeline::outline() can feed the same context into its prompt.
+         *
+         * @param string $keyword Topic keyword (title is the natural fallback).
+         * @param int    $max     Cap; the model prompt must stay small.
+         * @return array<int,string>
+         */
+        public static function related_headings( $keyword, $max = 12 ) {
+                $snap = self::snapshot();
+                if ( empty( $snap['headings'] ) ) {
+                        return array();
+                }
+
+                $keyword = trim( (string) $keyword );
+                if ( '' === $keyword ) {
+                        return array();
+                }
+
+                $tokens_b = Haa_Search::tokenize( $keyword );
+                if ( ! $tokens_b ) {
+                        return array();
+                }
+
+                $out = array();
+                foreach ( (array) $snap['headings'] as $h ) {
+                        $tokens_a = Haa_Search::tokenize( (string) $h );
+                        if ( count( array_intersect( array_map( 'strval', $tokens_a ), array_map( 'strval', $tokens_b ) ) ) > 0 ) {
+                                $out[] = (string) $h;
+                        }
+                        if ( count( $out ) >= max( 1, (int) $max ) ) {
+                                break;
+                        }
+                }
+
+                return $out;
+        }
+
+        /**
+         * Panel-shaped view of the snapshot: what was actually learned.
+         *
+         * 2.1.41: the research panel used to answer «تحلیل ساخته شد» with a bare
+         * «۱ سایت، ۶ صفحه» — the result itself was never rendered, which is why
+         * it felt like it went nowhere. This turns the raw snapshot into three
+         * display blocks (per-site rows, shared terms, questions) with no new
+         * option writes and no new fetches — pure projection of stored data.
+         *
+         * @return array{
+         *   mode:string, generated:string, sites:int, pages:int,
+         *   rows:array<int,array{host:string,pages:int,avg_words:int,titles:array<int,string>,headings:array<int,string>}>,
+         *   terms:array<int,string>, questions:array<int,string>
+         * }
+         */
+        public static function result_digest() {
+                $snap = self::snapshot();
+                if ( ! $snap ) {
+                        return array(
+                                'mode'      => '',
+                                'generated' => '',
+                                'sites'     => 0,
+                                'pages'     => 0,
+                                'rows'      => array(),
+                                'terms'     => array(),
+                                'questions' => array(),
+                        );
+                }
+
+                $rows = array();
+                foreach ( (array) ( $snap['sites'] ?? array() ) as $host => $pages ) {
+                        $list     = array_values( (array) $pages );
+                        $words    = 0;
+                        $counted  = 0;
+                        $titles   = array();
+                        $headings = array();
+
+                        foreach ( $list as $p ) {
+                                if ( ! is_array( $p ) ) {
+                                        continue;
+                                }
+                                $w = (int) ( $p['words'] ?? 0 );
+                                if ( $w > 0 ) {
+                                        $words += $w;
+                                        $counted++;
+                                }
+                                if ( '' !== (string) ( $p['title'] ?? '' ) ) {
+                                        $titles[] = (string) $p['title'];
+                                }
+                                foreach ( array_merge( (array) ( $p['h2'] ?? array() ), (array) ( $p['h3'] ?? array() ) ) as $h ) {
+                                        $h = trim( (string) $h );
+                                        if ( '' !== $h ) {
+                                                $headings[] = $h;
+                                        }
+                                }
+                        }
+
+                        $rows[] = array(
+                                // AI-mode rows have words=0 (the model only reports
+                                // structure); an average of 0 renders as «—».
+                                'host'     => (string) $host,
+                                'pages'    => count( $list ),
+                                'avg_words' => $counted ? (int) round( $words / $counted ) : 0,
+                                'titles'   => array_slice( array_unique( $titles ), 0, 6 ),
+                                'headings' => array_slice( array_unique( $headings ), 0, 8 ),
+                        );
+                }
+
+                return array(
+                        'mode'      => (string) ( $snap['mode'] ?? '' ),
+                        'generated' => (string) ( $snap['generated'] ?? '' ),
+                        'sites'     => count( $rows ),
+                        'pages'     => (int) ( $snap['pages'] ?? 0 ),
+                        'rows'      => $rows,
+                        'terms'     => array_slice( (array) ( $snap['terms'] ?? array() ), 0, 15 ),
+                        'questions' => array_slice( (array) ( $snap['questions'] ?? array() ), 0, 8 ),
+                );
+        }
+
         /* ------------------------------------------------------------------
          * Optional SERP provider
          * ---------------------------------------------------------------- */
@@ -1158,7 +1281,6 @@ final class Haa_Research {
                 $snap      = self::snapshot();
                 $gaps      = self::gaps( 8 );
                 $serp      = self::serp( $keyword, 8 );
-                $competitor_headings = array();
 
                 // No usable snapshot and the model can research live: build one now
                 // so the brief is grounded in the real market instead of nothing.
@@ -1169,18 +1291,8 @@ final class Haa_Research {
                         }
                 }
 
-                if ( ! empty( $snap['headings'] ) ) {
-                        foreach ( (array) $snap['headings'] as $h ) {
-                                $tokens_a = Haa_Search::tokenize( (string) $h );
-                                $tokens_b = Haa_Search::tokenize( $keyword );
-                                if ( count( array_intersect( array_map( 'strval', $tokens_a ), array_map( 'strval', $tokens_b ) ) ) > 0 ) {
-                                        $competitor_headings[] = (string) $h;
-                                }
-                                if ( count( $competitor_headings ) >= 12 ) {
-                                        break;
-                                }
-                        }
-                }
+                // 2.1.41: same matching rule the queue's outline now uses (2.1.41 loop extraction).
+                $competitor_headings = $snap ? self::related_headings( '' !== $keyword ? $keyword : $title, 12 ) : array();
 
                 $system = __( 'تو استراتژیک محتوای سئو برای یک سایت فارسی‌زبانی. برای موضوع داده‌شده یک بریف تولید می‌کنی.', 'hami-ai-assistant' ) . "\n"
                         . __( 'خروجی فقط یک شیء JSON با این کلیدها، بدون متن اضافه و بدون کد فنس:', 'hami-ai-assistant' ) . "\n"
