@@ -224,8 +224,8 @@ ok( 'G: the handler queues through the SAME queue() the planner uses',
 ok( 'G: an already-queued/published twin is skipped honestly',
         false !== strpos( $hk_src, 'هیچ مقاله‌ای صف نشد' ), '' );
 
-ok( 'G: the guide strip teaches the direct loop too',
-        false !== strpos( $aw, 'مسیر پیشنهادی' ) && false !== strpos( $aw, 'مستقیم «ساخت مقاله برای انتخاب‌شده‌ها»' ), '' );
+ok( 'G: the guide strip teaches the direct loop too (2.1.42 compact path)',
+        false !== strpos( $aw, 'مسیر: «پیشنهاد کلمه کلیدی»' ) && false !== strpos( $aw, 'انتخاب‌شده‌ها را به صف بده' ), '' );
 
 /* ===================================================================
  * H. The DB migration + version wiring
@@ -244,8 +244,8 @@ ok( 'H: the migration heals through Haa_Planner::repair_statuses()',
 ok( 'H: the migration guards a missing topics table / class',
         false !== strpos( $db_src, 'SHOW TABLES LIKE %s' ), '' );
 ok( 'H: the schema constant is bumped to 10', false !== strpos( $main, "define( 'HAAI_DB_VERSION', '10' )" ), '' );
-ok( 'H: version header is 2.1.41', false !== strpos( $main, '2.1.41' ), '' );
-ok( 'H: HAAI_VERSION constant is 2.1.41', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.41' )" ), '' );
+ok( 'H: version header is 2.1.42', false !== strpos( $main, '2.1.42' ), '' );
+ok( 'H: HAAI_VERSION constant is 2.1.42', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.42' )" ), '' );
 ok( 'H: hydrate() carries the normalization guard',
         false !== strpos( $plan_src, "! in_array( \$status, self::STATUSES, true )" ), '' );
 ok( 'H: counts() folds unknown buckets into suggested',

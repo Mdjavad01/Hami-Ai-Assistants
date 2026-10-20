@@ -45,6 +45,8 @@ suites=(
   dev-tests/tmp-checks41-queuepanel.php
   dev-tests/tmp-checks42-editor-core.php
   dev-tests/tmp-checks43-ajaxforms.php
+  dev-tests/tmp-checks44-research-result.php
+  dev-tests/tmp-checks45-queue-unified.php
 )
 for s in "${suites[@]}"; do
   out=$("$PHP" "$s" 2>&1)

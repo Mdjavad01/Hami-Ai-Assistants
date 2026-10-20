@@ -33,14 +33,95 @@ final class Haa_Queue {
         }
 
         /**
-         * Cron callback: clear a stale mutex, then drain a few jobs. The batch is
-         * bounded so a default 30-second WP-Cron request can never time out.
+         * Cron callback: clear a stale mutex, revive article jobs whose final
+         * failure is old enough for the scheduled retry (2.1.42), then drain
+         * a few jobs. The batch is bounded so a default 30-second WP-Cron
+         * request can never time out.
          *
          * @return int Jobs run.
          */
         public static function run_tick() {
                 self::break_stale_lock();
+                self::revive_failed();
                 return self::drain( 3 );
+        }
+
+        /**
+         * Normalize a topic for duplicate comparison. Persian text needs more
+         * than mb_strtolower: the ZWNJ («نیم‌فاصله») comes and goes between
+         * copy-pastes, Arabic ي/ك and Persian ی/ک look identical but hash
+         * differently, and a trailing «؟» is punctuation, not a different
+         * subject.
+         *
+         * @param string $topic Raw topic/title.
+         * @return string
+         */
+        public static function normalize_topic( $topic ) {
+                $t = (string) $topic;
+                $t = str_replace( "\xE2\x80\x8C", '', $t ); // ZWNJ.
+                $t = str_replace( array( 'ي', 'ك', 'ۀ' ), array( 'ی', 'ک', 'ه' ), $t );
+                $t = mb_strtolower( $t, 'UTF-8' );
+                $t = preg_replace( '/[\x{064B}-\x{065F}\x{0670}]/u', '', $t ); // diacritics.
+                $t = preg_replace( '/\s+/u', ' ', $t );
+                $t = trim( $t );
+                $t = preg_replace( '/[\s\p{P}]+$/u', '', $t ); // trailing ؟ ? ! . ؛ ، :
+                return trim( $t );
+        }
+
+        /**
+         * 2.1.42: has this subject already been sent to the queue or written?
+         *
+         * The live report was «صف تولید محتوا از یه مقاله دو تا تولید کرده» —
+         * the same topic built twice, because every enqueue path (manual box,
+         * planner bulk, keyword panel) pushed without looking at what was
+         * already pending/done, the planner's title check was byte-exact
+         * (a missing «؟» created a second row), and deleting a queued planner
+         * row left its queue job alive. Every enqueue path now asks here
+         * first: one normalized comparison against the module's own queue
+         * rows AND against the site's existing posts.
+         *
+         * @param string $topic  Raw topic or title.
+         * @param string $module Owning module slug.
+         * @return bool True when an active/finished row or a post already carries this subject.
+         */
+        public static function topic_taken( $topic, $module = 'article-writer' ) {
+                global $wpdb;
+                $norm = self::normalize_topic( $topic );
+                if ( '' === $norm ) {
+                        return false;
+                }
+
+                // Queue rows of this module (payload carries the topic). The table
+                // is purged after 7 days, so a bounded scan is cheap.
+                $table = Haa_DB::table( 'queue' );
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $rows = $wpdb->get_results( $wpdb->prepare( "SELECT payload FROM $table WHERE module = %s AND job = 'aw_article' ORDER BY id DESC LIMIT 100", $module ), ARRAY_A );
+                foreach ( (array) $rows as $r ) {
+                        $payload = json_decode( (string) ( $r['payload'] ?? '' ), true );
+                        $have    = is_array( $payload ) ? (string) ( $payload['topic'] ?? '' ) : '';
+                        if ( '' !== $have && self::normalize_topic( $have ) === $norm ) {
+                                return true;
+                        }
+                }
+
+                // Existing posts with the same title (any state but trash) — the
+                // duplicate the admin actually sees twice in «نوشته‌ها».
+                $needle = '%' . $wpdb->esc_like( mb_substr( $norm, 0, 25 ) ) . '%';
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                $posts = $wpdb->get_results(
+                        $wpdb->prepare(
+                                "SELECT post_title FROM {$wpdb->posts} WHERE post_type = 'post' AND post_status IN ('publish','draft','pending','future','private') AND post_title LIKE %s LIMIT 30",
+                                $needle
+                        ),
+                        ARRAY_A
+                );
+                foreach ( (array) $posts as $p ) {
+                        if ( self::normalize_topic( (string) $p['post_title'] ) === $norm ) {
+                                return true;
+                        }
+                }
+
+                return false;
         }
 
         /**
@@ -313,11 +394,22 @@ final class Haa_Queue {
                 }
                 $can_retry = $attempts < $cap;
 
+                // 2.1.42: article retries get a spacing. The live report was
+                // «برنامه و زمانبندی نداریم؟» — three attempts fired within ten
+                // minutes (cron every 5), so a one-hour provider hiccup burned the
+                // whole cap and left the topic permanently failed. A pending row
+                // with a future locked_until is invisible to claim_next, which is
+                // exactly a "not before" schedule without a schema change.
+                $retry_in = 0;
+                if ( $can_retry && 'article-writer' === $module ) {
+                        $retry_in = max( 0, min( 120, (int) Haa_Settings::get( 'article.retry_backoff_minutes', 10 ) ) );
+                }
+
                 $wpdb->update(
                         Haa_DB::table( 'queue' ),
                         array(
                                 'status'       => $can_retry ? 'pending' : 'failed',
-                                'locked_until' => null,
+                                'locked_until' => $can_retry ? ( $retry_in ? gmdate( 'Y-m-d H:i:s', time() + $retry_in * MINUTE_IN_SECONDS ) : null ) : null,
                                 'last_error'   => substr( (string) $error, 0, 2000 ),
                                 'updated'      => current_time( 'mysql', true ),
                         ),
@@ -325,6 +417,80 @@ final class Haa_Queue {
                         array( '%s', '%s', '%s', '%s' ),
                         array( '%d' )
                 );
+        }
+
+        /**
+         * 2.1.42: the scheduled second chance. A failed article job whose last
+         * attempt is old enough (article.auto_retry_hours, default 2) is put
+         * back in line ONCE — payload gains _revived so a job can never loop
+         * forever on a topic the model simply cannot write. Called from
+         * run_tick() before the drain; bounded to two revivals per tick.
+         *
+         * @return int Rows revived.
+         */
+        public static function revive_failed() {
+                global $wpdb;
+                $hours = (int) Haa_Settings::get( 'article.auto_retry_hours', 2 );
+                if ( $hours <= 0 ) {
+                        return 0;
+                }
+
+                $table   = Haa_DB::table( 'queue' );
+                $cutoff  = gmdate( 'Y-m-d H:i:s', time() - $hours * HOUR_IN_SECONDS );
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $rows    = $wpdb->get_results(
+                        $wpdb->prepare(
+                                "SELECT * FROM $table WHERE module = 'article-writer' AND job = 'aw_article' AND status = 'failed' AND updated < %s ORDER BY id ASC LIMIT 5",
+                                $cutoff
+                        ),
+                        ARRAY_A
+                );
+
+                $revived = 0;
+                foreach ( (array) $rows as $row ) {
+                        if ( $revived >= 2 ) {
+                                break;
+                        }
+                        $payload = json_decode( (string) ( $row['payload'] ?? '' ), true );
+                        if ( ! is_array( $payload ) ) {
+                                $payload = array();
+                        }
+                        if ( ! empty( $payload['_revived'] ) ) {
+                                continue;
+                        }
+                        $payload['_revived'] = 1;
+                        $wpdb->update(
+                                $table,
+                                array(
+                                        'status'       => 'pending',
+                                        'attempts'     => 0,
+                                        'locked_until' => null,
+                                        'payload'      => wp_json_encode( $payload ),
+                                        'updated'      => current_time( 'mysql', true ),
+                                ),
+                                array( 'id' => (int) $row['id'] ),
+                                array( '%s', '%d', '%s', '%s', '%s' ),
+                                array( '%d' )
+                        );
+                        $revived++;
+                }
+                return $revived;
+        }
+
+        /**
+         * 2.1.42: remove one row, whatever its state. The escape hatch for the
+         * dedup: a blocked «این موضوع قبلاً صف شده» tells the admin to delete
+         * the row they no longer want, so re-queuing the subject becomes
+         * possible again. Deleting a planner row must also remove its pending
+         * job — the orphaned job is what built the duplicate article.
+         *
+         * @param int $id Job id.
+         * @return bool Whether a row was deleted.
+         */
+        public static function delete( $id ) {
+                global $wpdb;
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                return (bool) $wpdb->delete( Haa_DB::table( 'queue' ), array( 'id' => (int) $id ), array( '%d' ) );
         }
 
         /**

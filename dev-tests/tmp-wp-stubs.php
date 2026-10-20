@@ -744,6 +744,14 @@ final class Haa_Queue {
         public static function job( $id ) { return null; }
         /** 2.1.38: the queue panel lists this module's jobs — none here. */
         public static function rows( $m, $limit = 12 ) { return array(); }
+        /** 2.1.42: dedup gate — false unless a test pre-fills $GLOBALS['taken_topics']. */
+        public static function topic_taken( $topic, $module = 'article-writer' ) {
+                return ! empty( $GLOBALS['taken_topics'] ) && in_array( (string) $topic, (array) $GLOBALS['taken_topics'], true );
+        }
+        /** 2.1.42: the planner uses it for in-batch duplicate keys. */
+        public static function normalize_topic( $topic ) { return trim( (string) $topic ); }
+        /** 2.1.42: one-row delete (planner delete cleans up its job). */
+        public static function delete( $id ) { $GLOBALS['queue_deletes'][] = (int) $id; return true; }
         /** Records what a batch queued instead of touching a table. */
         public static function push( $job, $payload = array(), $args = array() ) {
                 $GLOBALS['jobs'][] = array( 'job' => $job, 'payload' => $payload, 'args' => $args );

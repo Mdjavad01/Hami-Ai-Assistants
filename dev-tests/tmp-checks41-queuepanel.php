@@ -80,6 +80,16 @@ class Haa_DB {
 }
 class Haa_Settings {
         public static function get( $key, $default = null ) {
+                // 2.1.42: the schedule keys default to spacing (10 min) and an
+                // automatic second round (2 h) in production. This suite tests the
+                // OLD drain semantics (retries back-to-back), so both are 0 here.
+                $map = array(
+                        'article.retry_backoff_minutes' => 0,
+                        'article.auto_retry_hours'      => 0,
+                );
+                if ( isset( $map[ $key ] ) ) {
+                        return $map[ $key ];
+                }
                 return $default;
         }
 }
@@ -454,16 +464,17 @@ echo "=== E. queue panel source contracts ===\n";
 
 $aw = file_get_contents( dirname( __DIR__ ) . '/modules/class-haa-module-article-writer.php' );
 ok( 'E: the panel exists with its anchor', false !== strpos( $aw, 'id="haai-queue-panel"' ), '' );
-ok( 'E: the panel is titled «صف تولید محتوا»', false !== strpos( $aw, 'صف تولید محتوا' ), '' );
+ok( 'E: the panel is titled «صف تولید مقاله» (2.1.42 rename)', false !== strpos( $aw, 'صف تولید مقاله' ), '' );
 ok( 'E: the autopilot question is answered in the UI', false !== strpos( $aw, 'ربطی به اتوپایلوت ندارد' ), '' );
 ok( 'E: the cron cadence is stated (هر ۵ دقیقه)', false !== strpos( $aw, 'هر ۵ دقیقه' ), '' );
 ok( 'E: drafts destination is named («نوشته‌ها»)', false !== strpos( $aw, 'پیش‌نویس هر مقاله در «نوشته‌ها» ظاهر می‌شود' ), '' );
 ok( 'E: next-run line from wp_next_scheduled(haai_queue_tick)', false !== strpos( $aw, "wp_next_scheduled( 'haai_queue_tick' )" ), '' );
 
-$p1 = strpos( $aw, '$this->render_topics_form();' );
+$p1 = strpos( $aw, '$this->render_planner_panel();' );
 $p2 = strpos( $aw, '$this->render_queue_panel();' );
 $p3 = strpos( $aw, '$this->render_research_panel();' );
-ok( 'E: the panel sits between the write form and research', false !== $p1 && false !== $p2 && false !== $p3 && $p1 < $p2 && $p2 < $p3, '' );
+ok( 'E: the panel sits between the planner and research (2.1.42: the write form merged in)', false !== $p1 && false !== $p2 && false !== $p3 && $p1 < $p2 && $p2 < $p3, '' );
+ok( 'E: the old topics form is gone (merged into the queue panel)', false === strpos( $aw, 'render_topics_form' ), '' );
 
 ok( 'E: run-one is wired (admin_post + tick)', false !== strpos( $aw, "admin_post_haai_aw_run_one" ) && false !== strpos( $aw, 'Haa_Queue::tick()' ), '' );
 ok( 'E: run-one raises the time limit first', false !== strpos( $aw, 'set_time_limit( 300 )' ), '' );
@@ -471,17 +482,21 @@ ok( 'E: run-one button spends tokens → Persian confirm', false !== strpos( $aw
 ok( 'E: run-one disabled when nothing pending', false !== strpos( $aw, 'disabled( ! $stats[\'pending\'] )' ), '' );
 ok( 'E: requeue wired (admin_post + Haa_Queue::requeue + «تلاش دوباره»)', false !== strpos( $aw, 'admin_post_haai_aw_requeue' ) && false !== strpos( $aw, 'Haa_Queue::requeue(' ) && false !== strpos( $aw, 'تلاش دوباره' ), '' );
 ok( 'E: purge_done wired (admin_post + Haa_Queue::purge_done)', false !== strpos( $aw, 'admin_post_haai_aw_purge_done' ) && false !== strpos( $aw, 'Haa_Queue::purge_done()' ), '' );
-ok( 'E: the panel has its own empty state', false !== strpos( $aw, 'صف مقاله‌نویس خالی است' ), '' );
-ok( 'E: the screen cards are module-filtered now', false !== strpos( $aw, "Haa_Queue::stats( 'article-writer' )" ), '' );
+ok( 'E: the panel has its own empty state', false !== strpos( $aw, 'صف خالی است' ), '' );
+ok( 'E: the panel is module-filtered', false !== strpos( $aw, "Haa_Queue::stats( \$module )" ) && false !== strpos( $aw, "\$module  = 'article-writer'" ), '' );
+ok( 'E: the manual add form lives inside the queue panel now', false !== strpos( $aw, 'افزودن موضوع تازه' ) && false !== strpos( $aw, 'name="action" value="haai_aw_queue"' ), '' );
+ok( 'E: the recent-posts list closes the loop inside the panel', false !== strpos( $aw, 'آخرین مقاله‌های ساخته‌شده' ), '' );
+ok( 'E: per-row delete is wired (haai_aw_qdelete)', false !== strpos( $aw, 'admin_post_haai_aw_qdelete' ) && false !== strpos( $aw, 'value="haai_aw_qdelete"' ), '' );
+ok( 'E: the schedule line names both settings', false !== strpos( $aw, 'article.retry_backoff_minutes' ) && false !== strpos( $aw, 'article.auto_retry_hours' ), '' );
 
 /* ===================================================================
  * F. notices + planner wiring + category dedupe
  * =================================================================== */
 echo "=== F. notices, planner wiring, category dedupe ===\n";
 
-ok( 'F: handle_queue notice points at the panel', false !== strpos( $aw, 'وضعیت هر کدام را در پنل «صف تولید محتوا»' ), '' );
-ok( 'F: handle_plan_queue notice points at the panel', false !== strpos( $aw, 'وضعیت هر مقاله در پنل «صف تولید محتوا»' ), '' );
-ok( 'F: handle_kw_article notice points at the panel', false !== strpos( $aw, 'در پنل «صف تولید محتوا» (صفحهٔ مقاله‌نویس)' ), '' );
+ok( 'F: handle_queue notice points at the panel', false !== strpos( $aw, 'وضعیت هر کدام را در پنل «صف تولید مقاله»' ), '' );
+ok( 'F: handle_plan_queue notice points at the panel', false !== strpos( $aw, 'وضعیت هر مقاله در پنل «صف تولید مقاله»' ), '' );
+ok( 'F: handle_kw_article notice points at the panel', false !== strpos( $aw, 'در پنل «صف تولید مقاله» (صفحهٔ مقاله‌نویس)' ), '' );
 
 ok( 'F: queued planner rows read the live job', false !== strpos( $aw, "Haa_Queue::job( \$r['job_id'] )" ), '' );
 ok( 'F: the sub-states are named in Persian', false !== strpos( $aw, 'منتظر نوبت' ) && false !== strpos( $aw, 'در حال ساخت' ) && false !== strpos( $aw, 'کارِ صف پیدا نشد' ), '' );
@@ -492,8 +507,8 @@ ok( 'F: category_select skips the default term (no double «بدون دسته»)
 ok( 'F: the default option is labeled «بدون دسته (پیش‌فرض)»', false !== strpos( $cat_src, 'بدون دسته (پیش‌فرض)' ), '' );
 ok( 'F: a site with no real categories is taught where to make them', false !== strpos( $cat_src, 'haai-cat-hint' ) && false !== strpos( $cat_src, 'دسته‌ها' ), '' );
 
-ok( 'F: the guide strip kept its 2.1.36 anchors', false !== strpos( $aw, 'مسیر پیشنهادی' ) && false !== strpos( $aw, 'ساخت مقاله برای انتخاب‌شده‌ها' ), '' );
-ok( 'F: the guide strip now ends at the queue panel', false !== strpos( $aw, 'در پنل «صف تولید محتوا» همین پایین ردیف دارد' ), '' );
+ok( 'F: the page has the 2.1.42 jump-nav', false !== strpos( $aw, 'پرش به:' ) && false !== strpos( $aw, 'href="#haai-queue-panel"' ), '' );
+ok( 'F: the guide strip is one compact path now', false !== strpos( $aw, 'مسیر: «پیشنهاد کلمه کلیدی»' ) && false !== strpos( $aw, 'انتخاب‌شده‌ها را به صف بده' ), '' );
 
 /* ===================================================================
  * G. queue source: the reclaim SQL exists in BOTH statements

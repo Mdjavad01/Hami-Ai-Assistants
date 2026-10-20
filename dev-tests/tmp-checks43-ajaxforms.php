@@ -1,6 +1,6 @@
 <?php
 /**
- * Regression suite: every admin form went AJAX (2.1.41).
+ * Regression suite: every admin form went AJAX (2.1.42).
  *
  * Eleventh live report (2.1.39): the admin clicked «ساخت همین حالا» and the
  * browser landed on
@@ -94,6 +94,10 @@ function esc_html( $s ) {
 function esc_attr( $s ) {
         return htmlspecialchars( (string) $s, ENT_QUOTES, 'UTF-8', false );
 }
+/* 2.1.42: the unified queue panel prints the pre-filled textarea. */
+function esc_textarea( $s ) {
+        return htmlspecialchars( (string) $s, ENT_QUOTES, 'UTF-8', false );
+}
 function esc_url( $s ) {
         return $s;
 }
@@ -174,6 +178,17 @@ function disabled( $cond ) {
 function checked( $cond ) {
         return $cond ? ' checked="checked"' : '';
 }
+function selected( $a, $b, $echo = true ) {
+        return ( (string) $a === (string) $b ) ? ' selected="selected"' : '';
+}
+/* 2.1.42: the unified queue panel renders the recent-posts list — none here. */
+function get_posts( $args = array() ) {
+        return array();
+}
+/* 2.1.42: ...and the category select — one default term, no extras. */
+function get_categories( $args = array() ) {
+        return array();
+}
 
 /* The exit path lands here — the interesting globals ride out in JSON. */
 register_shutdown_function( function () {
@@ -203,6 +218,13 @@ class Haa_Util {
                 }
                 return $text;
         }
+        /* 2.1.42: the unified queue panel renders the tone/length selects. */
+        public static function tones() {
+                return array( '' => 'پیش‌فرض', 'friendly' => 'صمیمی' );
+        }
+        public static function lengths() {
+                return array( '' => 'پیش‌فرض', 'long' => 'بلند' );
+        }
         public static function guard_admin_post( $action = 'haai_admin' ) {
                 return true;
         }
@@ -218,6 +240,13 @@ class Haa_Queue {
         public static function push( $type, $payload, $meta = array() ) {
                 $GLOBALS['qjobs'][] = array( 'type' => $type, 'payload' => $payload );
                 return 1;
+        }
+        /* 2.1.42: the enqueue dedup — nothing is taken in this suite. */
+        public static function topic_taken( $topic, $module = 'article-writer' ) {
+                return false;
+        }
+        public static function normalize_topic( $topic ) {
+                return trim( (string) $topic );
         }
         public static function requeue( $id ) {
                 return ! empty( $GLOBALS['qflags']['failed'][ (int) $id ] );
@@ -530,7 +559,7 @@ $mod->ajax_panel();
 $j = $GLOBALS['json'];
 ok( 'queue panel renders through the endpoint', is_array( $j ) && true === $j['success'] );
 ok( 'payload carries panel id + html', isset( $j['data']['panel'], $j['data']['html'] ) && 'haai-queue-panel' === $j['data']['panel'] );
-ok( 'html is the queue panel markup', false !== strpos( (string) $j['data']['html'], 'صف تولید محتوا' ) );
+ok( 'html is the queue panel markup (2.1.42 rename)', false !== strpos( (string) $j['data']['html'], 'صف تولید مقاله' ) );
 ok( 'html keeps the anchor id for the JS swap', false !== strpos( (string) $j['data']['html'], 'id="haai-queue-panel"' ) );
 
 $_POST = array( 'panel' => 'haai-plan-panel' );
@@ -556,8 +585,8 @@ $admin = file_get_contents( __DIR__ . '/../includes/class-haa-admin.php' );
 $js    = file_get_contents( __DIR__ . '/../assets/js/admin.js' );
 $jsmin = file_get_contents( __DIR__ . '/../assets/js/admin.min.js' );
 
-ok( 'version header is 2.1.41', false !== strpos( $main, '* Version:           2.1.41' ) );
-ok( 'HAAI_VERSION is 2.1.41', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.41' )" ) );
+ok( 'version header is 2.1.42', false !== strpos( $main, '* Version:           2.1.42' ) );
+ok( 'HAAI_VERSION is 2.1.42', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.42' )" ) );
 ok( 'boot registers the transport', false !== strpos( $main, 'Haa_Ajax_Form::hooks()' ) );
 ok( 'wp_ajax_haai_form_submit registered in the class', false !== strpos( $cls, "add_action( 'wp_ajax_haai_form_submit'" ) );
 ok( 'wp_ajax_haai_panel registered in the module', false !== strpos( $awp, "add_action( 'wp_ajax_haai_panel'" ) );
@@ -623,6 +652,6 @@ foreach ( array( 'haai-plan-panel', 'haai-research-panel', 'haai-review-panel', 
 ok( 'crawl dashboard form opted out of the generic transport', false !== strpos( $dash, 'data-haai-crawl-form data-haai-noajax' ) );
 ok( 'panel whitelist guards against arbitrary renderers', false !== strpos( $awp, 'method_exists' ) );
 
-echo "\n--- suite 43: AJAX forms (2.1.41) ---\n";
+echo "\n--- suite 43: AJAX forms (2.1.42) ---\n";
 echo "passed: {$GLOBALS['passed']}, failed: {$GLOBALS['failed']}\n";
 exit( $GLOBALS['failed'] ? 1 : 0 );

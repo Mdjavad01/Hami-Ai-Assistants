@@ -885,6 +885,12 @@ body.haai-theme-dark .haai-wrap {
 
 .haai-panel__title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--haai-sp-2); margin-block: 0 var(--haai-sp-3); font-size: 16px; font-weight: var(--haai-fw-strong); }
 
+/* 2.1.42: sub-sections inside the unified queue panel + the page jump-nav. */
+.haai-panel__subtitle { margin-block: var(--haai-sp-5) var(--haai-sp-3); padding-block-start: var(--haai-sp-4); border-block-start: 1px solid var(--haai-border, #e2e8f0); font-size: 14px; font-weight: var(--haai-fw-strong); }
+.haai-jumpnav { font-size: 13px; }
+.haai-jumpnav a { text-decoration: none; padding: 2px 10px; border: 1px solid var(--haai-border, #e2e8f0); border-radius: 999px; }
+.haai-jumpnav a:hover { background: var(--haai-surface-2, #f1f5f9); }
+
 .haai-panel__note { margin-block: 0 var(--haai-sp-4); color: var(--haai-muted); font-size: 13px; line-height: 1.75; }
 
 .haai-page-title { margin-block: 0 var(--haai-sp-4); font-size: 19px; font-weight: var(--haai-fw-strong); }

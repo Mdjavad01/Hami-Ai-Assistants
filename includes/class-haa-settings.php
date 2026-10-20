@@ -224,6 +224,12 @@ final class Haa_Settings {
                                 'gate_word_ratio'  => 70,
                                 'flag_claims'      => 1,
 
+                                // 2.1.42 queue schedule: minutes between automatic retries of a
+                                // failed article job, and hours after which a finally-failed job
+                                // gets ONE more full round on its own. 0 disables that side.
+                                'retry_backoff_minutes' => 10,
+                                'auto_retry_hours' => 2,
+
                                 // D4 monthly refresh. Off by default: re-writing a published URL
                                 // is a change to something already indexed.
                                 'refresh_enabled'  => 0,
@@ -1174,6 +1180,8 @@ final class Haa_Settings {
                         'article.flag_claims'     => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
 
                         // Monthly refresh (D4).
+                        'article.retry_backoff_minutes' => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 0, 'max' => 120 ),
+                        'article.auto_retry_hours' => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 0, 'max' => 48 ),
                         'article.refresh_enabled' => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'article.refresh_days'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 30, 'max' => 365 ),
                         'article.refresh_mode'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'suggest', 'draft' ) ),
@@ -2416,7 +2424,7 @@ final class Haa_Settings {
                         'programmatic'     => array( 'programmatic.enabled', 'programmatic.source', 'programmatic.attribute', 'programmatic.template', 'programmatic.title_template', 'programmatic.min_words', 'programmatic.similar_threshold', 'programmatic.daily_cap', 'programmatic.hub_page', 'programmatic.noindex', 'programmatic.default_status' ),
                         'comments'         => array( 'comments.enabled', 'comments.author_name', 'comments.author_email', 'comments.default_status', 'comments.generate_questions', 'comments.generate_answers', 'comments.max_per_run' ),
                         'product-content'  => array( 'content.default_language', 'content.default_tone', 'content.default_length', 'content.default_audience', 'content.enable_images', 'content.image_size', 'content.image_style', 'content.image_quality', 'content.internal_links', 'content.link_count', 'content.include_price' ),
-                        'article-writer'   => array( 'article.default_status', 'article.default_author', 'article.batch_size', 'article.daily_token_cap', 'article.daily_article_cap', 'article.dup_threshold', 'article.plan_count', 'article.publish_mode', 'article.target_words', 'article.max_sections', 'article.inline_images', 'article.faq_schema', 'article.link_cap', 'article.gate_word_ratio', 'article.flag_claims', 'article.refresh_enabled', 'article.refresh_days', 'article.refresh_mode', 'profile.enabled', 'profile.domain', 'profile.audience', 'profile.voice', 'profile.offerings', 'profile.glossary', 'profile.forbidden', 'profile.examples', 'profile.key_pages', 'profile.max_chars', 'research.enabled', 'research.competitors', 'research.user_agent', 'research.respect_robots', 'research.delay_ms', 'research.timeout', 'research.max_pages', 'research.max_kb', 'research.cache_hours', 'research.serp_enabled', 'research.serp_kind', 'research.serp_base_url', 'research.serp_key', 'research.fallback_ai', 'research.suggest_enabled' ),
+                        'article-writer'   => array( 'article.default_status', 'article.default_author', 'article.batch_size', 'article.daily_token_cap', 'article.daily_article_cap', 'article.dup_threshold', 'article.plan_count', 'article.publish_mode', 'article.target_words', 'article.max_sections', 'article.inline_images', 'article.faq_schema', 'article.link_cap', 'article.gate_word_ratio', 'article.flag_claims', 'article.retry_backoff_minutes', 'article.auto_retry_hours', 'article.refresh_enabled', 'article.refresh_days', 'article.refresh_mode', 'profile.enabled', 'profile.domain', 'profile.audience', 'profile.voice', 'profile.offerings', 'profile.glossary', 'profile.forbidden', 'profile.examples', 'profile.key_pages', 'profile.max_chars', 'research.enabled', 'research.competitors', 'research.user_agent', 'research.respect_robots', 'research.delay_ms', 'research.timeout', 'research.max_pages', 'research.max_kb', 'research.cache_hours', 'research.serp_enabled', 'research.serp_kind', 'research.serp_base_url', 'research.serp_key', 'research.fallback_ai', 'research.suggest_enabled' ),
                         'autopilot'        => array( 'autopilot.daily_token_cap', 'autopilot.daily_post_cap', 'autopilot.retry_limit', 'autopilot.default_status', 'autopilot.default_tone', 'autopilot.default_length', 'autopilot.enable_images', 'autopilot.default_category' ),
                         'leads'            => array( 'leads.retention_days', 'leads.stages', 'leads.csv_enabled', 'leads.ai_summary', 'leads.score_phone', 'leads.score_message', 'leads.score_buying', 'leads.auto_create' ),
                         'discount'         => array( 'discount.enabled', 'discount.max_rounds', 'discount.global_max_percent', 'discount.default_max_percent', 'discount.per_visitor', 'discount.rate_minutes', 'discount.coupon_expiry_days', 'discount.min_cart', 'discount.max_uses' ),

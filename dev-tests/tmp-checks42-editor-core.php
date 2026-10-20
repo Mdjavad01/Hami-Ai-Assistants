@@ -1,6 +1,6 @@
 <?php
 /**
- * Regression suite: the content engine now runs on the store-editor core (2.1.41).
+ * Regression suite: the content engine now runs on the store-editor core (2.1.42).
  *
  * Eleventh live report (2.1.38): the admin read the pipeline's carpet guide and
  * its problems were structural, not cosmetic —
@@ -300,8 +300,8 @@ ok( 'H: editor_core is wired into style_suffix', false !== mb_strpos( $cont, '$o
 echo "\n=== I. version ===\n";
 
 $main = file_get_contents( __DIR__ . '/../hami-ai-assistant.php' );
-ok( 'I: header says 2.1.41', false !== mb_strpos( $main, ' * Version:           2.1.41' ), '' );
-ok( 'I: HAAI_VERSION is 2.1.41', false !== mb_strpos( $main, "define( 'HAAI_VERSION', '2.1.41' );" ), '' );
+ok( 'I: header says 2.1.42', false !== mb_strpos( $main, ' * Version:           2.1.42' ), '' );
+ok( 'I: HAAI_VERSION is 2.1.42', false !== mb_strpos( $main, "define( 'HAAI_VERSION', '2.1.42' );" ), '' );
 
 echo "\n";
 if ( $fail ) {

@@ -857,6 +857,19 @@ final class Haa_Planner {
          */
         public static function delete( $id ) {
                 global $wpdb;
+                $row = self::row( $id );
+                // 2.1.42: deleting a planner row must also remove its queue job.
+                // The orphaned pending job is what built the same article twice
+                // (live report: «صف تولید محتوا از یه مقاله دو تا تولید کرده») —
+                // the row disappeared, the keyword panel re-added the subject, and
+                // both jobs built. A running job is left alone (deleting it
+                // mid-build buys nothing; the tick finishes and updates nothing).
+                if ( $row && ! empty( $row['job_id'] ) ) {
+                        $job = Haa_Queue::job( (int) $row['job_id'] );
+                        if ( $job && in_array( $job['status'], array( 'pending', 'failed' ), true ) ) {
+                                Haa_Queue::delete( (int) $row['job_id'] );
+                        }
+                }
                 return (bool) $wpdb->delete( self::table(), array( 'id' => (int) $id ), array( '%d' ) ); // phpcs:ignore WordPress.DB
         }
         /**
@@ -1068,6 +1081,7 @@ final class Haa_Planner {
                 }
                 $queued  = 0;
                 $skipped = 0;
+                $dupes   = 0;
                 foreach ( $ids as $id ) {
                         if ( $queued >= $room ) {
                                 $skipped++;
@@ -1076,6 +1090,14 @@ final class Haa_Planner {
                         $row = self::row( $id );
                         if ( ! $row || ! in_array( $row['status'], array( 'suggested', 'approved' ), true ) ) {
                                 $skipped++;
+                                continue;
+                        }
+                        // 2.1.42: the queue is the last gate — a subject already in the
+                        // queue or already written never gets a second job here. The
+                        // planner's own title check is byte-exact, so «...کنیم؟» and
+                        // «...کنیم» used to become two rows and two articles.
+                        if ( Haa_Queue::topic_taken( (string) $row['title'] ) ) {
+                                $dupes++;
                                 continue;
                         }
                         $job = Haa_Queue::push(
@@ -1110,7 +1132,8 @@ final class Haa_Planner {
                 return array(
                         'queued'   => $queued,
                         'skipped'  => $skipped,
-                        'reason'   => $skipped ? sprintf( /* translators: %d: count. */ __( '%d موضوع صف نشد (تکراری، ردشده یا سقف روزانه).', 'hami-ai-assistant' ), $skipped ) : '',
+                        'dupes'    => $dupes,
+                        'reason'   => ( $skipped || $dupes ) ? sprintf( /* translators: 1: duplicates, 2: other skips. */ __( '%1$d موضوع تکراری صف نشد (همین موضوع در صف است یا پیش‌نویس/مقاله‌اش از قبل هست)؛ %2$d مورد هم ردشده یا بالای سقف روزانه بود.', 'hami-ai-assistant' ), $dupes, $skipped ) : '',
                         'estimate' => self::estimate( $queued, ! empty( $args['with_image'] ) ),
                 );
         }

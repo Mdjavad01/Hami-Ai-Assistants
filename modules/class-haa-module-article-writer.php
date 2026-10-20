@@ -50,6 +50,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 add_action( 'admin_post_haai_aw_run_one', array( $this, 'handle_run_one' ) );
                 add_action( 'admin_post_haai_aw_purge_done', array( $this, 'handle_purge_done' ) );
                 add_action( 'admin_post_haai_aw_requeue', array( $this, 'handle_requeue' ) );
+                add_action( 'admin_post_haai_aw_qdelete', array( $this, 'handle_qdelete' ) );
                 add_action( 'haai_run_job_aw_article', array( $this, 'run_job' ), 10, 2 );
 
                 // Site profile drafts (D1).
@@ -172,6 +173,10 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 $fields[] = array( 'key' => 'article.dup_threshold', 'type' => 'float', 'label' => __( 'آستانه‌ی «تکراری است»', 'hami-ai-assistant' ), 'min' => 0.1, 'max' => 1, 'step' => 0.05, 'hint' => __( 'شباهت موضوع تازه با محتوای خود سایت؛ پایین‌تر یعنی سخت‌گیرتر.', 'hami-ai-assistant' ) );
                 $fields[] = array( 'key' => 'article.plan_count', 'type' => 'number', 'label' => __( 'تعداد موضوع در هر برنامه‌ریزی', 'hami-ai-assistant' ), 'min' => 1, 'max' => 20 );
 
+                // 2.1.42: the queue schedule — visible, tunable, off-switchable.
+                $fields[] = array( 'key' => 'article.retry_backoff_minutes', 'type' => 'number', 'label' => __( 'فاصله‌ی تلاش‌های مجدد (دقیقه)', 'hami-ai-assistant' ), 'min' => 0, 'max' => 120, 'hint' => __( 'اگر ساخت مقاله ناموفق شد، تلاش بعدی بعد از این فاصله انجام می‌شود؛ ۰ یعنی بلافاصله (رفتار قدیمی).', 'hami-ai-assistant' ) );
+                $fields[] = array( 'key' => 'article.auto_retry_hours', 'type' => 'number', 'label' => __( 'تلاش خودکار بعد از شکست نهایی (ساعت)', 'hami-ai-assistant' ), 'min' => 0, 'max' => 48, 'hint' => __( 'کار ناموفق بعد از این مدت خودش یک دور کامل دیگر تلاش می‌کند (فقط یک‌بار)؛ ۰ = خاموش.', 'hami-ai-assistant' ) );
+
                 // Staged pipeline (D3).
                 $fields[] = array( 'key' => 'article.publish_mode', 'type' => 'select', 'label' => __( 'حالت انتشار مقاله', 'hami-ai-assistant' ), 'choices' => array( 'draft' => __( 'پیش‌نویس', 'hami-ai-assistant' ), 'review' => __( 'نیازمند تأیید', 'hami-ai-assistant' ), 'auto' => __( 'انتشار خودکار فقط با قبول همه‌ی بررسی‌ها', 'hami-ai-assistant' ) ), 'hint' => __( 'اگر هر بررسی قرمز شود، مقاله به «نیازمند تأیید» برمی‌گردد؛ خودکار یعنی ریسک‌پذیر.', 'hami-ai-assistant' ) );
                 $fields[] = array( 'key' => 'article.target_words', 'type' => 'number', 'label' => __( 'طول هدف مقاله (کلمه)', 'hami-ai-assistant' ), 'min' => 600, 'max' => 5000, 'hint' => __( 'بخش‌به‌بخش نوشته می‌شود؛ هر ~۴۵۰ کلمه تقریباً یک درخواست اضافه است. مقاله‌ی جامع یعنی ۳۰۰۰ تا ۴۵۰۰.', 'hami-ai-assistant' ) );
@@ -231,7 +236,6 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 if ( ! current_user_can( 'manage_options' ) ) {
                         return;
                 }
-                $queue = Haa_Queue::stats( 'article-writer' );
                 ?>
                 <div class="wrap haai-wrap">
                         <?php Haa_Admin::page_header( __( 'مقاله‌نویس', 'hami-ai-assistant' ) ); ?>
@@ -247,176 +251,29 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         }
                         ?>
 
-                        <div class="haai-cards">
-                                <div class="haai-card">
-                                        <div class="haai-card__value"><?php echo esc_html( number_format_i18n( (int) $queue['pending'] ) ); ?></div>
-                                        <div class="haai-card__label"><?php esc_html_e( 'در صف', 'hami-ai-assistant' ); ?></div>
-                                </div>
-                                <div class="haai-card">
-                                        <div class="haai-card__value"><?php echo esc_html( number_format_i18n( (int) $queue['running'] ) ); ?></div>
-                                        <div class="haai-card__label"><?php esc_html_e( 'در حال اجرا', 'hami-ai-assistant' ); ?></div>
-                                </div>
-                                <div class="haai-card">
-                                        <div class="haai-card__value"><?php echo esc_html( number_format_i18n( (int) $queue['failed'] ) ); ?></div>
-                                        <div class="haai-card__label"><?php esc_html_e( 'ناموفق', 'hami-ai-assistant' ); ?></div>
-                                </div>
-                                <div class="haai-card">
-                                        <div class="haai-card__value"><?php echo esc_html( number_format_i18n( (int) $queue['done'] ) ); ?></div>
-                                        <div class="haai-card__label"><?php esc_html_e( 'انجام‌شده', 'hami-ai-assistant' ); ?></div>
-                                </div>
-                        </div>
+                        <?php /* 2.1.42: the four stat cards that duplicated the queue panel's
+                              own cards are gone; one compact jump-nav + one path line
+                              replaced them. The page now reads: find → plan → queue. */ ?>
+                        <p class="haai-filterbar haai-jumpnav">
+                                <span><?php esc_html_e( 'پرش به:', 'hami-ai-assistant' ); ?></span>
+                                <a href="#haai-kw"><?php esc_html_e( 'پیشنهاد کلمه کلیدی', 'hami-ai-assistant' ); ?></a>
+                                <a href="#haai-plan-panel"><?php esc_html_e( 'برنامه‌ریز موضوع', 'hami-ai-assistant' ); ?></a>
+                                <a href="#haai-queue-panel"><?php esc_html_e( 'صف تولید مقاله', 'hami-ai-assistant' ); ?></a>
+                                <a href="#haai-research-panel"><?php esc_html_e( 'تحلیل رقبا', 'hami-ai-assistant' ); ?></a>
+                                <a href="#haai-profile-panel"><?php esc_html_e( 'حافظه‌ی سایت', 'hami-ai-assistant' ); ?></a>
+                        </p>
 
                         <div class="haai-alert haai-alert--info">
-                                <?php esc_html_e( 'مسیر پیشنهادی: ۱) در پنل «پیشنهاد کلمه کلیدی» موضوع را جست‌وجو کنید. ۲) عبارت‌های خوب را تیک بزنید — یا «افزودن انتخاب‌شده‌ها به برنامه‌ریز» (رایگان؛ اول مرور) یا مستقیم «ساخت مقاله برای انتخاب‌شده‌ها» (توکن مصرف می‌کند). ۳) در «برنامه‌ریز موضوع» تیک بزنید و «انتخاب‌شده‌ها را به صف بده» — هر مقاله‌ای که صف می‌شود در پنل «صف تولید محتوا» همین پایین ردیف دارد و پیش‌نویسش در «نوشته‌ها» می‌آید.', 'hami-ai-assistant' ); ?>
+                                <?php esc_html_e( 'مسیر: «پیشنهاد کلمه کلیدی» → تیک عبارت‌ها → برنامه‌ریز → «انتخاب‌شده‌ها را به صف بده». موضوع تکراری دو بار ساخته نمی‌شود و مقاله‌های ناموفق خودش با فاصله دوباره تلاش می‌کند؛ همه‌چیز در پنل «صف تولید مقاله» ردیف دارد و پیش‌نویس‌ها در «نوشته‌ها» می‌آیند.', 'hami-ai-assistant' ); ?>
                         </div>
 
                         <?php $this->render_keywords_panel(); ?>
                         <?php $this->render_planner_panel(); ?>
-                        <?php $this->render_topics_form(); ?>
                         <?php $this->render_queue_panel(); ?>
                         <?php $this->render_research_panel(); ?>
                         <?php $this->render_review_panel(); ?>
                         <?php $this->render_refresh_panel(); ?>
                         <?php $this->render_profile_panel(); ?>
-                </div>
-                <?php
-        }
-
-        /**
-         * D1 panel: the article queue form.
-         *
-         * 2.1.34 moved it AFTER the keyword panel and the planner, so the page
-         * follows the real work order (research → planner → write). The old
-         * top-of-page blank textarea greeted the admin with «write articles»
-         * before any research existed, which read as jumbled (live report:
-         * «خیلی درهم برهمه»). The textarea pre-fills itself from the planner's
-         * suggested/approved topics, so the form proposes what to write and
-         * the admin never faces an empty box.
-         *
-         * @return void
-         */
-        private function render_topics_form() {
-                $prefill = array();
-                foreach ( Haa_Planner::rows( 'suggested', 8 ) as $row ) {
-                        $prefill[] = (string) $row['title'];
-                }
-                if ( count( $prefill ) < 8 ) {
-                        foreach ( Haa_Planner::rows( 'approved', 8 - count( $prefill ) ) as $row ) {
-                                $prefill[] = (string) $row['title'];
-                        }
-                }
-                $recent = get_posts(
-                        array(
-                                'post_type'      => 'post',
-                                'post_status'    => array( 'draft', 'pending', 'publish' ),
-                                'posts_per_page' => 8,
-                                'meta_key'       => '_haai_generated',
-                                'meta_value'     => '1',
-                                'orderby'        => 'date',
-                                'order'          => 'DESC',
-                        )
-                );
-                ?>
-                <div class="haai-panel haai-panel--topics">
-                        <h2 class="haai-panel__title"><?php esc_html_e( 'ساخت مقاله', 'hami-ai-assistant' ); ?></h2>
-                        <p class="haai-panel__note">
-                                <?php esc_html_e( 'هر موضوع یک مقاله می‌سازد و پیش‌نویس در بخش «نوشته‌ها» منتظر شما می‌ماند. اگر موضوع آماده ندارید، از پنل «پیشنهاد کلمه کلیدی» بالا شروع کنید: تیک بزنید، به برنامه‌ریز اضافه کنید و بعد همین‌جا به صف بفرستید.', 'hami-ai-assistant' ); ?>
-                        </p>
-
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" data-haai-refresh="haai-queue-panel">
-                                <?php wp_nonce_field( 'haai_aw' ); ?>
-                                <input type="hidden" name="action" value="haai_aw_queue">
-
-                                <fieldset class="haai-field haai-field--bare">
-                                        <legend class="haai-field__legend"><?php esc_html_e( 'موضوع‌ها (هر خط یک مقاله)', 'hami-ai-assistant' ); ?></legend>
-                                        <textarea name="topics" rows="8" class="large-text code" required
-                                                placeholder="<?php esc_attr_e( "بهترین کوله پشتی برای دانشجویان\nراهنمای خرید لپ‌تاپ در ۱۴۰۴", 'hami-ai-assistant' ); ?>"><?php echo esc_textarea( implode( "\n", $prefill ) ); ?></textarea>
-                                        <?php if ( $prefill ) : ?>
-                                                <p class="description">
-                                                        <?php esc_html_e( 'این موضوع‌ها از برنامه‌ریز پر شده‌اند (پیشنهادهای کلمه‌کلیدی و مدل)؛ هر خط را ویرایش یا حذف کنید و «افزودن به صف» را بزنید.', 'hami-ai-assistant' ); ?>
-                                                </p>
-                                        <?php endif; ?>
-                                </fieldset>
-
-                                <div class="haai-field">
-                                        <label class="haai-field__label"><?php esc_html_e( 'لحن', 'hami-ai-assistant' ); ?></label>
-                                        <div class="haai-field__control">
-                                                <select name="tone">
-                                                        <?php foreach ( Haa_Util::tones() as $slug => $label ) : ?>
-                                                                <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $slug, Haa_Settings::get( 'content.default_tone' ) ); ?>><?php echo esc_html( $label ); ?></option>
-                                                        <?php endforeach; ?>
-                                                </select>
-                                        </div>
-                                </div>
-
-                                <div class="haai-field">
-                                        <label class="haai-field__label"><?php esc_html_e( 'طول', 'hami-ai-assistant' ); ?></label>
-                                        <div class="haai-field__control">
-                                                <select name="length">
-                                                        <?php foreach ( Haa_Util::lengths() as $slug => $label ) : ?>
-                                                                <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $slug, Haa_Settings::get( 'content.default_length' ) ); ?>><?php echo esc_html( $label ); ?></option>
-                                                        <?php endforeach; ?>
-                                                </select>
-                                        </div>
-                                </div>
-
-                                <div class="haai-field">
-                                        <label class="haai-field__label"><?php esc_html_e( 'دسته‌بندی', 'hami-ai-assistant' ); ?></label>
-                                        <div class="haai-field__control"><?php $this->category_select(); ?></div>
-                                </div>
-
-                                <div class="haai-field">
-                                        <label class="haai-field__label"><?php esc_html_e( 'تصویر شاخص', 'hami-ai-assistant' ); ?></label>
-                                        <div class="haai-field__control">
-                                                <label class="haai-checkbox">
-                                                        <input type="checkbox" name="with_image" value="1" <?php checked( ! empty( Haa_Settings::get( 'content.enable_images' ) ) ); ?>>
-                                                        <?php esc_html_e( 'برای هر مقاله یک تصویر بساز', 'hami-ai-assistant' ); ?>
-                                                </label>
-                                        </div>
-                                </div>
-
-                                <p class="submit">
-                                        <button type="submit" class="button button-primary"><?php esc_html_e( 'افزودن به صف', 'hami-ai-assistant' ); ?></button>
-                                </p>
-                        </form>
-
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-actions" data-haai-confirm data-haai-refresh="haai-queue-panel">
-                                <?php wp_nonce_field( 'haai_aw' ); ?>
-                                <input type="hidden" name="action" value="haai_aw_purge">
-                                <button type="submit" class="button-link-delete"><?php esc_html_e( 'پاک کردن کارهای ناموفق', 'hami-ai-assistant' ); ?></button>
-                        </form>
-
-                        <h2><?php esc_html_e( 'آخرین مقاله‌های ساخته‌شده', 'hami-ai-assistant' ); ?></h2>
-                        <?php if ( $recent ) : ?>
-                                <table class="widefat striped haai-table">
-                                        <thead>
-                                                <tr>
-                                                        <th><?php esc_html_e( 'عنوان', 'hami-ai-assistant' ); ?></th>
-                                                        <th><?php esc_html_e( 'وضعیت', 'hami-ai-assistant' ); ?></th>
-                                                        <th><?php esc_html_e( 'تاریخ', 'hami-ai-assistant' ); ?></th>
-                                                        <th></th>
-                                                </tr>
-                                        </thead>
-                                        <tbody>
-                                                <?php foreach ( $recent as $p ) : ?>
-                                                        <tr>
-                                                                <td><?php echo esc_html( $p->post_title ); ?></td>
-                                                                <td><?php echo esc_html( translate_user_role( get_post_status_object( $p->post_status )->label ?? $p->post_status ) ); ?></td>
-                                                                <td><?php echo esc_html( get_the_date( '', $p ) ); ?></td>
-                                                                <td>
-                                                                        <a href="<?php echo esc_url( get_edit_post_link( $p->ID ) ); ?>"><?php esc_html_e( 'ویرایش', 'hami-ai-assistant' ); ?></a>
-                                                                </td>
-                                                        </tr>
-                                                <?php endforeach; ?>
-                                        </tbody>
-                                </table>
-                        <?php else : ?>
-                                <div class="haai-empty">
-                                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M10 10h6M10 14h6"/></svg>
-                                        <span class="haai-empty__title"><?php esc_html_e( 'هنوز مقاله‌ای ساخته نشده است.', 'hami-ai-assistant' ); ?></span>
-                                        <p class="haai-empty__hint"><?php esc_html_e( 'بالا چند موضوع بنویسید و «افزودن به صف» را بزنید؛ صف در cron پردازش می‌شود.', 'hami-ai-assistant' ); ?></p>
-                                </div>
-                        <?php endif; ?>
                 </div>
                 <?php
         }
@@ -904,7 +761,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <p class="submit">
                                         <button type="submit" class="button button-primary"><?php esc_html_e( 'افزودن انتخاب‌شده‌ها به برنامه‌ریز', 'hami-ai-assistant' ); ?></button>
                                         <?php /* 2.1.36: نیمهٔ گمشدهٔ حلقه — از فهرست جست‌وجو مستقیم به صف مقاله. Live report: «الان فقط خروجی اکسل میده، جایی برای تیک زدن و افزودن به تقویم محتوایی یا مقاله نویسی نیست». */ ?>
-                                        <button type="submit" class="button" formaction="<?php echo esc_url( admin_url( 'admin-post.php?action=haai_kw_article' ) ); ?>" data-haai-spend="<?php esc_attr_e( 'برای هر عبارت انتخاب‌شده یک مقاله به صف تولید محتوا اضافه می‌شود و توکن مصرف می‌کند. ادامه می‌دهید؟', 'hami-ai-assistant' ); ?>" data-haai-refresh="haai-queue-panel,haai-research-panel"><?php esc_html_e( 'ساخت مقاله برای انتخاب‌شده‌ها', 'hami-ai-assistant' ); ?></button>
+                                        <button type="submit" class="button" formaction="<?php echo esc_url( admin_url( 'admin-post.php?action=haai_kw_article' ) ); ?>" data-haai-spend="<?php esc_attr_e( 'برای هر عبارت انتخاب‌شده یک مقاله به صف تولید مقاله اضافه می‌شود و توکن مصرف می‌کند. ادامه می‌دهید؟', 'hami-ai-assistant' ); ?>" data-haai-refresh="haai-queue-panel,haai-research-panel"><?php esc_html_e( 'ساخت مقاله برای انتخاب‌شده‌ها', 'hami-ai-assistant' ); ?></button>
                                 </p>
                                 <p class="description">
                                         <?php esc_html_e( '«افزودن به برنامه‌ریز» رایگان است و اول موضوع‌ها را برای مرور به «برنامه‌ریز موضوع» می‌برد؛ «ساخت مقاله» همان عبارت‌ها را بدون توقف به صف تولید مقاله می‌فرستد و پیش‌نویس‌ها یکی‌یکی در «نوشته‌ها» ظاهر می‌شوند.', 'hami-ai-assistant' ); ?>
@@ -1095,7 +952,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <h3 class="haai-plan__subtitle"><?php esc_html_e( 'نتیجه کجا می‌رود؟', 'hami-ai-assistant' ); ?></h3>
                                 <ul class="haai-diag__list">
                                         <li><?php esc_html_e( '«شکاف‌های محتوایی» پایین همین پنل: سرفصل‌هایی که رقبا دارند و شما ندارید — با یک کلیک به برنامه‌ریز موضوع اضافه می‌شوند.', 'hami-ai-assistant' ); ?></li>
-                                        <li><?php esc_html_e( 'طرح هر مقاله در «صف تولید محتوا»: سرفصل‌های مرتبط رقبا و شکاف‌ها به‌صورت خودکار وارد پرامپت طرح می‌شوند؛ تحلیل تازه = طرح آگاهانه‌تر.', 'hami-ai-assistant' ); ?></li>
+                                        <li><?php esc_html_e( 'طرح هر مقاله در «صف تولید مقاله»: سرفصل‌های مرتبط رقبا و شکاف‌ها به‌صورت خودکار وارد پرامپت طرح می‌شوند؛ تحلیل تازه = طرح آگاهانه‌تر.', 'hami-ai-assistant' ); ?></li>
                                         <li><?php esc_html_e( 'گیت «ساختار شبیه رقیب» هنگام ساخت مقاله: اگر طرح، کپی سرفصل‌های رقیب باشد هشدار می‌دهد.', 'hami-ai-assistant' ); ?></li>
                                         <li><?php esc_html_e( 'پنل «کلمات کلیدی»: اگر «پژوهش هوشمند» فعال باشد، واژه‌های تحلیل به پیشنهادها اضافه می‌شود.', 'hami-ai-assistant' ); ?></li>
                                 </ul>
@@ -1430,31 +1287,133 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
         }
 
         /**
-         * 2.1.38: the visible queue.
+         * 2.1.42: the ONE content panel — «صف تولید مقاله».
          *
-         * The live report was «افزودن به صف و زدم، صف کجا رفت اصلا؟ هیچ جا
-         * مشخص نیست، تو اتوپایلوت میره؟» — jobs went into wp_haai_queue, a cron
-         * drained them silently, and the only traces were four numbers at the
-         * top of the page and a status badge. This panel answers the three
-         * questions in one place: WHAT is queued (rows), WHO processes it
-         * (WordPress cron every 5 minutes — explicitly NOT the autopilot
-         * module), and WHERE the result lands («نوشته‌ها»). It also gives the
-         * impatient a button: one job, built right now.
+         * The live report: «صف تولید محتوا از یه مقاله دو تا تولید کرده بقیه
+         * ناموفق هستن، برنامه و زمانبندی نداریم؟ … این بخش خیلی پیچیده است از
+         * لحاظ کاربری، میخوام یکپارچه و جامع باشه». Three answers, one place:
+         *
+         *  - ONE panel: the «ساخت مقاله» textarea, the queue cards, the table,
+         *    the run-now button and the «آخرین مقاله‌های ساخته‌شده» list used to
+         *    live in two separate panels (plus duplicated stat cards on top of
+         *    the page and a duplicated purge button); they are one column now,
+         *    in work order: add → status → results.
+         *  - NO duplicates: enqueue paths ask Haa_Queue::topic_taken() first,
+         *    so one subject can never become two articles.
+         *  - A SCHEDULE: retries space themselves out (retry_backoff_minutes)
+         *    and a finally-failed job gets ONE automatic full round after
+         *    auto_retry_hours — each row shows when its next attempt fires.
          *
          * @return void
          */
         private function render_queue_panel() {
-                $module = 'article-writer';
-                $stats  = Haa_Queue::stats( $module );
-                $jobs   = Haa_Queue::rows( $module, 12 );
-                $next   = wp_next_scheduled( 'haai_queue_tick' );
+                $module  = 'article-writer';
+                $stats   = Haa_Queue::stats( $module );
+                $jobs    = Haa_Queue::rows( $module, 12 );
+                $next    = wp_next_scheduled( 'haai_queue_tick' );
+                $backoff = max( 0, min( 120, (int) Haa_Settings::get( 'article.retry_backoff_minutes', 10 ) ) );
+                $revive  = max( 0, min( 48, (int) Haa_Settings::get( 'article.auto_retry_hours', 2 ) ) );
+                $now     = time();
+
+                // The textarea still proposes what the planner approved (2.1.34).
+                $prefill = array();
+                foreach ( Haa_Planner::rows( 'suggested', 8 ) as $row ) {
+                        $prefill[] = (string) $row['title'];
+                }
+                if ( count( $prefill ) < 8 ) {
+                        foreach ( Haa_Planner::rows( 'approved', 8 - count( $prefill ) ) as $row ) {
+                                $prefill[] = (string) $row['title'];
+                        }
+                }
+
+                // The loop-closer: what the «ساخته شد» rows actually produced.
+                $recent = get_posts(
+                        array(
+                                'post_type'      => 'post',
+                                'post_status'    => array( 'draft', 'pending', 'publish' ),
+                                'posts_per_page' => 8,
+                                'meta_key'       => '_haai_generated',
+                                'meta_value'     => '1',
+                                'orderby'        => 'date',
+                                'order'          => 'DESC',
+                        )
+                );
                 ?>
                 <div class="haai-panel haai-panel--queue" id="haai-queue-panel">
-                        <h2 class="haai-panel__title"><?php esc_html_e( 'صف تولید محتوا', 'hami-ai-assistant' ); ?></h2>
+                        <h2 class="haai-panel__title"><?php esc_html_e( 'صف تولید مقاله', 'hami-ai-assistant' ); ?></h2>
                         <p class="haai-panel__note">
-                                <?php esc_html_e( 'هر موضوعی که با «افزودن به صف» یا «انتخاب‌شده‌ها را به صف بده» فرستاده می‌شود همین‌جا ردیف دارد. این صف مال مقاله‌نویس است و ربطی به اتوپایلوت ندارد؛ وردپرس هر ۵ دقیقه خودش پردازشش می‌کند (هر بار تا ۳ مقاله) و پیش‌نویس هر مقاله در «نوشته‌ها» ظاهر می‌شود.', 'hami-ai-assistant' ); ?>
+                                <?php esc_html_e( 'همهٔ راه‌های ساخت مقاله همین‌جا ردیف دارند: جعبهٔ پایین، «انتخاب‌شده‌ها را به صف بده» برنامه‌ریز و «ساخت مقاله برای انتخاب‌شده‌ها». وردپرس هر ۵ دقیقه تا ۳ مقاله می‌سازد (این صف ربطی به اتوپایلوت ندارد) و پیش‌نویس هر مقاله در «نوشته‌ها» ظاهر می‌شود.', 'hami-ai-assistant' ); ?>
+                        </p>
+                        <p class="haai-diag-clean">
+                                <?php
+                                printf(
+                                        /* translators: 1: retry gap in minutes, 2: hours until the automatic second round. */
+                                        esc_html__( 'زمان‌بندی: موضوع تکراری دو بار صف نمی‌شود؛ اگر ساخت ناموفق شد هر %1$d دقیقه یک تلاش دیگر، و اگر همهٔ تلاش‌ها ناموفق ماند %2$d ساعت بعد یک دور کامل خودکار (یک‌بار).', 'hami-ai-assistant' ),
+                                        number_format_i18n( $backoff ),
+                                        number_format_i18n( $revive )
+                                );
+                                ?>
                         </p>
 
+                        <h3 class="haai-panel__subtitle"><?php esc_html_e( 'افزودن موضوع تازه', 'hami-ai-assistant' ); ?></h3>
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" data-haai-refresh="haai-queue-panel">
+                                <?php wp_nonce_field( 'haai_aw' ); ?>
+                                <input type="hidden" name="action" value="haai_aw_queue">
+
+                                <fieldset class="haai-field haai-field--bare">
+                                        <legend class="haai-field__legend"><?php esc_html_e( 'موضوع‌ها (هر خط یک مقاله)', 'hami-ai-assistant' ); ?></legend>
+                                        <textarea name="topics" rows="8" class="large-text code" required
+                                                placeholder="<?php esc_attr_e( "بهترین کوله پشتی برای دانشجویان\nراهنمای خرید لپ‌تاپ در ۱۴۰۴", 'hami-ai-assistant' ); ?>"><?php echo esc_textarea( implode( "\n", $prefill ) ); ?></textarea>
+                                        <?php if ( $prefill ) : ?>
+                                                <p class="description">
+                                                        <?php esc_html_e( 'این موضوع‌ها از برنامه‌ریز پر شده‌اند؛ هر خط را ویرایش یا حذف کنید و «افزودن به صف» را بزنید. موضوعی که از قبل در صف باشد یا مقاله‌اش ساخته شده باشد دوباره صف نمی‌شود.', 'hami-ai-assistant' ); ?>
+                                                </p>
+                                        <?php endif; ?>
+                                </fieldset>
+
+                                <div class="haai-field">
+                                        <label class="haai-field__label"><?php esc_html_e( 'لحن', 'hami-ai-assistant' ); ?></label>
+                                        <div class="haai-field__control">
+                                                <select name="tone">
+                                                        <?php foreach ( Haa_Util::tones() as $slug => $label ) : ?>
+                                                                <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $slug, Haa_Settings::get( 'content.default_tone' ) ); ?>><?php echo esc_html( $label ); ?></option>
+                                                        <?php endforeach; ?>
+                                                </select>
+                                        </div>
+                                </div>
+
+                                <div class="haai-field">
+                                        <label class="haai-field__label"><?php esc_html_e( 'طول', 'hami-ai-assistant' ); ?></label>
+                                        <div class="haai-field__control">
+                                                <select name="length">
+                                                        <?php foreach ( Haa_Util::lengths() as $slug => $label ) : ?>
+                                                                <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $slug, Haa_Settings::get( 'content.default_length' ) ); ?>><?php echo esc_html( $label ); ?></option>
+                                                        <?php endforeach; ?>
+                                                </select>
+                                        </div>
+                                </div>
+
+                                <div class="haai-field">
+                                        <label class="haai-field__label"><?php esc_html_e( 'دسته‌بندی', 'hami-ai-assistant' ); ?></label>
+                                        <div class="haai-field__control"><?php $this->category_select(); ?></div>
+                                </div>
+
+                                <div class="haai-field">
+                                        <label class="haai-field__label"><?php esc_html_e( 'تصویر شاخص', 'hami-ai-assistant' ); ?></label>
+                                        <div class="haai-field__control">
+                                                <label class="haai-checkbox">
+                                                        <input type="checkbox" name="with_image" value="1" <?php checked( ! empty( Haa_Settings::get( 'content.enable_images' ) ) ); ?>>
+                                                        <?php esc_html_e( 'برای هر مقاله یک تصویر بساز', 'hami-ai-assistant' ); ?>
+                                                </label>
+                                        </div>
+                                </div>
+
+                                <p class="submit">
+                                        <button type="submit" class="button button-primary"><?php esc_html_e( 'افزودن به صف', 'hami-ai-assistant' ); ?></button>
+                                </p>
+                        </form>
+
+                        <h3 class="haai-panel__subtitle"><?php esc_html_e( 'وضعیت صف', 'hami-ai-assistant' ); ?></h3>
                         <div class="haai-cards">
                                 <div class="haai-card">
                                         <div class="haai-card__value"><?php echo esc_html( number_format_i18n( (int) $stats['pending'] ) ); ?></div>
@@ -1483,8 +1442,8 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         <?php if ( ! $jobs ) : ?>
                                 <div class="haai-empty">
                                         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-                                        <span class="haai-empty__title"><?php esc_html_e( 'صف مقاله‌نویس خالی است.', 'hami-ai-assistant' ); ?></span>
-                                        <p class="haai-empty__hint"><?php esc_html_e( 'با «افزودن به صف» یا «انتخاب‌شده‌ها را به صف بده» موضوع اضافه کنید؛ از همان لحظه وضعیت هر مقاله همین‌جا دیده می‌شود.', 'hami-ai-assistant' ); ?></p>
+                                        <span class="haai-empty__title"><?php esc_html_e( 'صف خالی است.', 'hami-ai-assistant' ); ?></span>
+                                        <p class="haai-empty__hint"><?php esc_html_e( 'بالا چند موضوع بنویسید و «افزودن به صف» را بزنید، یا از برنامه‌ریز «انتخاب‌شده‌ها را به صف بده»؛ از همان لحظه وضعیت هر مقاله همین‌جا دیده می‌شود.', 'hami-ai-assistant' ); ?></p>
                                 </div>
                         <?php else : ?>
                                 <div class="haai-table-scroll">
@@ -1506,6 +1465,30 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                         $topic = (string) $j['job'];
                                                                 }
                                                                 $created = strtotime( (string) $j['created'] );
+
+                                                                // 2.1.42: every state names its next step. pending+lock is
+                                                                // the spaced retry, failed names the automatic round (or
+                                                                // admits it already ran) — «برنامه و زمانبندی نداریم؟»
+                                                                $lu      = (string) ( $j['locked_until'] ?? '' );
+                                                                $revived = ! empty( $j['payload']['_revived'] );
+                                                                $hint    = '';
+                                                                if ( 'pending' === $j['status'] ) {
+                                                                        $lu_ts = $lu ? strtotime( $lu ) : 0;
+                                                                        if ( $lu_ts && $lu_ts > $now ) {
+                                                                                $hint = sprintf( /* translators: %s: time until next attempt. */ __( 'تلاش بعدی: حدود %s دیگر.', 'hami-ai-assistant' ), human_time_diff( $lu_ts ) );
+                                                                        } else {
+                                                                                $hint = __( 'منتظر نوبت پردازش است.', 'hami-ai-assistant' );
+                                                                        }
+                                                                } elseif ( 'failed' === $j['status'] ) {
+                                                                        if ( $revive > 0 && ! $revived ) {
+                                                                                $next_try = (int) strtotime( (string) $j['updated'] ) + $revive * HOUR_IN_SECONDS;
+                                                                                $hint     = $next_try > $now
+                                                                                        ? sprintf( /* translators: %s: time until the automatic round. */ __( 'تلاش خودکار: حدود %s دیگر.', 'hami-ai-assistant' ), human_time_diff( $next_try ) )
+                                                                                        : __( 'تلاش خودکار در پردازش بعدی انجام می‌شود.', 'hami-ai-assistant' );
+                                                                        } else {
+                                                                                $hint = __( 'تلاش خودکار هم انجام شد و نشد؛ «تلاش دوباره» بزنید یا ردیف را حذف کنید.', 'hami-ai-assistant' );
+                                                                        }
+                                                                }
                                                                 ?>
                                                                 <tr>
                                                                         <td><strong><?php echo esc_html( $topic ); ?></strong></td>
@@ -1525,6 +1508,9 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                                 );
                                                                                 ?>
                                                                                 <span class="haai-badge <?php echo esc_attr( $q_badge[ $j['status'] ] ?? '' ); ?>"><?php echo esc_html( $q_label[ $j['status'] ] ?? $j['status'] ); ?></span>
+                                                                                <?php if ( '' !== $hint ) : ?>
+                                                                                        <div class="haai-plan-meta"><?php echo esc_html( $hint ); ?></div>
+                                                                                <?php endif; ?>
                                                                                 <?php if ( 'failed' === $j['status'] && '' !== (string) $j['last_error'] ) : ?>
                                                                                         <div class="haai-plan-meta"><?php echo esc_html( Haa_Util::cut( (string) $j['last_error'], 120 ) ); ?></div>
                                                                                 <?php endif; ?>
@@ -1541,6 +1527,14 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                                                 <input type="hidden" name="action" value="haai_aw_requeue">
                                                                                                 <input type="hidden" name="id" value="<?php echo (int) $j['id']; ?>">
                                                                                                 <button type="submit" class="button button-small"><?php esc_html_e( 'تلاش دوباره', 'hami-ai-assistant' ); ?></button>
+                                                                                        </form>
+                                                                                <?php endif; ?>
+                                                                                <?php if ( 'pending' === $j['status'] || 'failed' === $j['status'] ) : ?>
+                                                                                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-inline" data-haai-confirm data-haai-refresh="haai-queue-panel">
+                                                                                                <?php wp_nonce_field( 'haai_aw' ); ?>
+                                                                                                <input type="hidden" name="action" value="haai_aw_qdelete">
+                                                                                                <input type="hidden" name="id" value="<?php echo (int) $j['id']; ?>">
+                                                                                                <button type="submit" class="button-link-delete"><?php esc_html_e( 'حذف', 'hami-ai-assistant' ); ?></button>
                                                                                         </form>
                                                                                 <?php endif; ?>
                                                                         </td>
@@ -1568,6 +1562,38 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                         <button type="submit" class="button-link-delete" <?php disabled( ! $stats['done'] ); ?>><?php esc_html_e( 'پاک‌سازی کارهای ساخته‌شده', 'hami-ai-assistant' ); ?></button>
                                 </form>
                         </p>
+
+                        <h3 class="haai-panel__subtitle"><?php esc_html_e( 'آخرین مقاله‌های ساخته‌شده', 'hami-ai-assistant' ); ?></h3>
+                        <?php if ( $recent ) : ?>
+                                <table class="widefat striped haai-table">
+                                        <thead>
+                                                <tr>
+                                                        <th><?php esc_html_e( 'عنوان', 'hami-ai-assistant' ); ?></th>
+                                                        <th><?php esc_html_e( 'وضعیت', 'hami-ai-assistant' ); ?></th>
+                                                        <th><?php esc_html_e( 'تاریخ', 'hami-ai-assistant' ); ?></th>
+                                                        <th></th>
+                                                </tr>
+                                        </thead>
+                                        <tbody>
+                                                <?php foreach ( $recent as $p ) : ?>
+                                                        <tr>
+                                                                <td><?php echo esc_html( $p->post_title ); ?></td>
+                                                                <td><?php echo esc_html( translate_user_role( get_post_status_object( $p->post_status )->label ?? $p->post_status ) ); ?></td>
+                                                                <td><?php echo esc_html( get_the_date( '', $p ) ); ?></td>
+                                                                <td>
+                                                                        <a href="<?php echo esc_url( get_edit_post_link( $p->ID ) ); ?>"><?php esc_html_e( 'ویرایش', 'hami-ai-assistant' ); ?></a>
+                                                                </td>
+                                                        </tr>
+                                                <?php endforeach; ?>
+                                        </tbody>
+                                </table>
+                        <?php else : ?>
+                                <div class="haai-empty">
+                                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M10 10h6M10 14h6"/></svg>
+                                        <span class="haai-empty__title"><?php esc_html_e( 'هنوز مقاله‌ای ساخته نشده است.', 'hami-ai-assistant' ); ?></span>
+                                        <p class="haai-empty__hint"><?php esc_html_e( 'اولین موضوع را به صف بدهید؛ پیش‌نویس هر مقاله‌ای که ساخته شد همین‌جا فهرست می‌شود.', 'hami-ai-assistant' ); ?></p>
+                                </div>
+                        <?php endif; ?>
                 </div><!-- .haai-panel--queue -->
                 <?php
         }
@@ -1602,8 +1628,20 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 $category = isset( $_POST['category'] ) ? absint( $_POST['category'] ) : 0;
                 $with_img = ! empty( $_POST['with_image'] );
 
-                $queued = 0;
+                // 2.1.42: one subject, one article. The same topic typed twice (or
+                // once here and once via the planner) built two identical posts —
+                // «صف تولید محتوا از یه مقاله دو تا تولید کرده». Inside this batch
+                // the normalized line, and against the queue/site Haa_Queue::topic_taken().
+                $queued   = 0;
+                $dupes    = 0;
+                $in_batch = array();
                 foreach ( $topics as $topic ) {
+                        $norm = Haa_Queue::normalize_topic( $topic );
+                        if ( isset( $in_batch[ $norm ] ) || Haa_Queue::topic_taken( $topic ) ) {
+                                $dupes++;
+                                continue;
+                        }
+                        $in_batch[ $norm ] = true;
                         Haa_Queue::push(
                                 'aw_article',
                                 array(
@@ -1618,13 +1656,26 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         $queued++;
                 }
 
-                $this->back(
-                        sprintf(
-                                /* translators: %d: number of articles queued. */
-                                __( '%d مقاله به صف اضافه شد. وردپرس هر ۵ دقیقه تا ۳ مقاله می‌سازد؛ وضعیت هر کدام را در پنل «صف تولید محتوا» پایین همین صفحه ببینید.', 'hami-ai-assistant' ),
-                                $queued
-                        )
+                if ( ! $queued ) {
+                        $this->back(
+                                __( 'هیچ مقاله‌ای صف نشد — موضوع(های) تکراری بودند: همین موضوع در صف است یا پیش‌نویس/مقاله‌اش از قبل ساخته شده. اگر ساختن دوباره را می‌خواهید، ردیف قبلی را از «صف تولید مقاله» حذف کنید.', 'hami-ai-assistant' ),
+                                true
+                        );
+                }
+
+                $msg = sprintf(
+                        /* translators: 1: number of articles queued. */
+                        __( '%d مقاله به صف اضافه شد. وردپرس هر ۵ دقیقه تا ۳ مقاله می‌سازد؛ وضعیت هر کدام را در پنل «صف تولید مقاله» ببینید.', 'hami-ai-assistant' ),
+                        $queued
                 );
+                if ( $dupes ) {
+                        $msg .= ' ' . sprintf(
+                                /* translators: %d: duplicate count. */
+                                __( '%d مورد تکراری صف نشد (همین موضوع در صف است یا از قبل نوشته شده).', 'hami-ai-assistant' ),
+                                $dupes
+                        );
+                }
+                $this->back( $msg );
         }
 
         /** @return void */
@@ -1663,13 +1714,13 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         $this->back(
                                 sprintf(
                                         /* translators: %s: job error. */
-                                        __( 'ساخت مقاله ناموفق بود: %s — می‌توانید از پنل «صف تولید محتوا» تلاش دوباره بگیرید.', 'hami-ai-assistant' ),
+                                        __( 'ساخت مقاله ناموفق بود: %s — می‌توانید از پنل «صف تولید مقاله» تلاش دوباره بگیرید.', 'hami-ai-assistant' ),
                                         (string) $res['error']
                                 ),
                                 true
                         );
                 }
-                $this->back( __( 'یک مقاله از صف ساخته شد؛ پیش‌نویس در «نوشته‌ها» است و ردیفش در «صف تولید محتوا» «ساخته شد» می‌شود.', 'hami-ai-assistant' ) );
+                $this->back( __( 'یک مقاله از صف ساخته شد؛ پیش‌نویس در «نوشته‌ها» است و ردیفش در «صف تولید مقاله» «ساخته شد» می‌شود.', 'hami-ai-assistant' ) );
         }
 
         /** @return void */
@@ -1688,6 +1739,26 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         $this->back( __( 'این کار دیگر ناموفق نیست؛ فقط کارهای ناموفق قابل تلاش دوباره‌اند.', 'hami-ai-assistant' ), true );
                 }
                 $this->back( __( 'کار دوباره به صف برگشت؛ در نوبت بعدی ساخته می‌شود.', 'hami-ai-assistant' ) );
+        }
+
+        /**
+         * 2.1.42: drop ONE queue row (pending or failed). The dedup needs this
+         * escape hatch: «حذف» on the row the admin no longer wants, then the
+         * subject can be queued again. Running jobs are refused — a build that
+         * is already under way is left to finish or fail on its own.
+         *
+         * @return void
+         */
+        public function handle_qdelete() {
+                Haa_Util::guard_admin_post( 'haai_aw' );
+
+                $id  = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+                $job = $id ? Haa_Queue::job( $id ) : null;
+                if ( ! $job || ! in_array( $job['status'], array( 'pending', 'failed' ), true ) ) {
+                        $this->back( __( 'این ردیف قابل حذف نیست؛ فقط کارِ «در انتظار» یا «ناموفق» حذف می‌شود.', 'hami-ai-assistant' ), true );
+                }
+                Haa_Queue::delete( $id );
+                $this->back( __( 'ردیف از صف حذف شد؛ حالا می‌توانید همان موضوع را دوباره صف کنید.', 'hami-ai-assistant' ) );
         }
 
         /**
@@ -1957,7 +2028,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 $this->back(
                         sprintf(
                                 /* translators: 1: queued, 2: requests, 3: estimated tokens. */
-                                __( '%1$d مقاله در صف رفت؛ تخمین %2$d درخواست و %3$d توکن. %4$sوضعیت هر مقاله در پنل «صف تولید محتوا» پایین همین صفحه دیده می‌شود.', 'hami-ai-assistant' ),
+                                __( '%1$d مقاله در صف رفت؛ تخمین %2$d درخواست و %3$d توکن. %4$sوضعیت هر مقاله در پنل «صف تولید مقاله» دیده می‌شود.', 'hami-ai-assistant' ),
                                 (int) $r['queued'],
                                 (int) $r['estimate']['requests'],
                                 number_format_i18n( (int) $r['estimate']['tokens'] ),
@@ -1981,6 +2052,17 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 $allowed = array( 'suggested', 'approved', 'rejected' );
                 if ( ! in_array( $status, $allowed, true ) ) {
                         $this->back( __( 'وضعیت نامعتبر است.', 'hami-ai-assistant' ), true );
+                }
+
+                // 2.1.42: a queued row moving back to the list must not leave its
+                // pending job behind — that orphan is a duplicate article waiting
+                // for the next tick.
+                $row = Haa_Planner::row( $id );
+                if ( 'suggested' === $status && $row && 'queued' === $row['status'] && ! empty( $row['job_id'] ) ) {
+                        $job = Haa_Queue::job( (int) $row['job_id'] );
+                        if ( $job && 'pending' === $job['status'] ) {
+                                Haa_Queue::delete( (int) $row['job_id'] );
+                        }
                 }
 
                 Haa_Planner::update( $id, array( 'status' => $status ) );
@@ -2275,7 +2357,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 $this->back(
                         sprintf(
                                 /* translators: 1: queued, 2: selected, 3: skip reason. */
-                                __( '%1$d مقاله برای کلیدواژه‌های انتخاب‌شده به صف رفت (از %2$d عبارت). %3$sپیش‌نویس‌ها یکی‌یکی در «نوشته‌ها» ظاهر می‌شوند و وضعیت هر کدام در پنل «صف تولید محتوا» (صفحهٔ مقاله‌نویس) دیده می‌شود.', 'hami-ai-assistant' ),
+                                __( '%1$d مقاله برای کلیدواژه‌های انتخاب‌شده به صف رفت (از %2$d عبارت). %3$sپیش‌نویس‌ها یکی‌یکی در «نوشته‌ها» ظاهر می‌شوند و وضعیت هر کدام در پنل «صف تولید مقاله» (صفحهٔ مقاله‌نویس) دیده می‌شود.', 'hami-ai-assistant' ),
                                 (int) $r['queued'],
                                 count( $selected ),
                                 '' !== $r['reason'] ? $r['reason'] . ' ' : ''

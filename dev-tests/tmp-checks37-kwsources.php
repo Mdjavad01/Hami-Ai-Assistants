@@ -560,23 +560,25 @@ ok( 'L: research() stores the delivered panel; last_research()/csv_research() sh
         && false !== strpos( $kw_l, 'public static function csv_research()' ), '' );
 
 // L5. the page order IS the work order: research → planner → write.
+// 2.1.42: the topics form merged into the queue panel («صف تولید مقاله»).
 $rs_start = strpos( $aw_l, 'public function render_screen()' );
-$rs_end   = strpos( $aw_l, 'private function render_topics_form()' );
-ok( 'L: render_screen body sits before the extracted topics form', false !== $rs_start && false !== $rs_end && $rs_end > $rs_start, '' );
+$rs_end   = strpos( $aw_l, 'private function render_keywords_panel()' );
+ok( 'L: render_screen body sits before the first panel renderer', false !== $rs_start && false !== $rs_end && $rs_end > $rs_start, '' );
 preg_match_all( '/\\$this->render_(\\w+)\\(\\)/', (string) substr( $aw_l, (int) $rs_start, (int) $rs_end - (int) $rs_start ), $m_l );
-ok( 'L: the page order is keywords → planner → topics → queue → research → review → refresh → profile',
-        array( 'keywords_panel', 'planner_panel', 'topics_form', 'queue_panel', 'research_panel', 'review_panel', 'refresh_panel', 'profile_panel' ) === $m_l[1],
+ok( 'L: the page order is keywords → planner → queue → research → review → refresh → profile (2.1.42: one queue panel)',
+        array( 'keywords_panel', 'planner_panel', 'queue_panel', 'research_panel', 'review_panel', 'refresh_panel', 'profile_panel' ) === $m_l[1],
         implode( ',', (array) $m_l[1] ) );
 
 // L6. the article form proposes by itself: pre-fill + honest note + guide.
-ok( 'L: the topics form pre-fills from planner suggestions',
+// 2.1.42: the pre-fill lives inside the unified queue panel now.
+ok( 'L: the queue panel pre-fills from planner suggestions',
         false !== strpos( $aw_l, "Haa_Planner::rows( 'suggested', 8 )" ) && false !== strpos( $aw_l, 'esc_textarea( implode' ), '' );
 ok( 'L: the pre-fill says where its rows came from',
         false !== strpos( $aw_l, 'این موضوع‌ها از برنامه‌ریز پر شده‌اند' ), '' );
-ok( 'L: the page ships the three-step guide strip',
-        false !== strpos( $aw_l, 'مسیر پیشنهادی' ), '' );
-ok( 'L: the article form is a titled panel («ساخت مقاله»)',
-        false !== strpos( $aw_l, 'ساخت مقاله' ), '' );
+ok( 'L: the page ships the compact path line',
+        false !== strpos( $aw_l, 'مسیر: «پیشنهاد کلمه کلیدی»' ), '' );
+ok( 'L: the writing flow is a titled panel («صف تولید مقاله»)',
+        false !== strpos( $aw_l, 'صف تولید مقاله' ), '' );
 
 // L7. the content-plan button cannot produce an empty sheet anymore.
 ok( 'L: the content-plan export is disabled while the planner is empty',
