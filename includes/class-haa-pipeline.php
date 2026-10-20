@@ -125,6 +125,16 @@ final class Haa_Pipeline {
                         return $meta;
                 }
 
+                // 2.1.39: the meta pass writes the real lede — the assembled fallback
+                // (topic title + planner reason) was written before the text existed and
+                // leaks planning language into the first paragraph. The meta intro is
+                // built from the finished text, so it replaces the fallback whenever it
+                // exists.
+                $intro = trim( wp_strip_all_tags( (string) ( $meta['intro'] ?? '' ) ) );
+                if ( '' !== $intro ) {
+                        $merged = self::swap_intro( $merged, $intro );
+                }
+
                 $html = self::inject_faq( $merged, (array) ( $meta['faq'] ?? array() ) );
 
                 // 4. Internal links, by relevance, only to documents that exist.
@@ -203,12 +213,14 @@ final class Haa_Pipeline {
                         . '- ' . sprintf( /* translators: %d: count. */ __( 'دقیقاً %d بخش؛ هر بخش یک موضوع مستقل.', 'hami-ai-assistant' ), $want ) . "\n"
                         . '- ' . __( 'بخش‌ها تکراری نباشند و با هم جمعاً کل موضوع را پوشش دهند.', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'از خود نساز: عدد، آمار، نام یا منبع در طرح نیاری.', 'hami-ai-assistant' ) . "\n"
+                        . '- ' . __( 'بخش «مقدمه» و «نتیجه‌گیری» در طرح نمی‌آید؛ مقدمه و جمع‌بندی را خودم می‌گذارم. هر بخش به یک پرسش واقعی خرید جواب می‌دهد، نه فهرست مشخصات خالی.', 'hami-ai-assistant' ) . "\n"
                         . Haa_Content::no_fabrication();
 
                 $parts = array( Haa_Site_Profile::block( (string) $topic['title'] ) );
                 $parts[] = __( 'موضوع:', 'hami-ai-assistant' ) . ' ' . $topic['title'] . "\n"
                         . __( 'کلیدواژه:', 'hami-ai-assistant' ) . ' ' . $topic['keyword'] . "\n"
-                        . __( 'هدف خواننده از این صفحه:', 'hami-ai-assistant' ) . ' ' . Haa_Planner::intent_label( (string) $topic['intent'] );
+                        . __( 'هدف خواننده از این صفحه:', 'hami-ai-assistant' ) . ' ' . Haa_Planner::intent_label( (string) $topic['intent'] ) . "\n"
+                        . __( 'نوع صفحه:', 'hami-ai-assistant' ) . ' ' . self::page_type_guide( (string) $topic['intent'] );
                 $goals = (array) ( $brief['internal_link_goals'] ?? array() );
                 if ( $goals ) {
                         $parts[] = __( 'صفحه‌هایی که خوب است به آن‌ها برسیم:', 'hami-ai-assistant' ) . ' ' . implode( '، ', $goals );
@@ -316,6 +328,8 @@ final class Haa_Pipeline {
                         . '- ' . __( 'با تیتر بخش شروع نکن؛ تیتر را خودمان می‌گذاریم.', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'هیجانی و کلیشه‌نویس نباشد؛ یک پاراگراف ۳ تا ۵ جمله.', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'ادعای تکراری با بخش‌های قبلی ننویس.', 'hami-ai-assistant' ) . "\n"
+                        . '- ' . __( 'فقط بدنه‌ی همین بخش؛ عنوان سئو، توضیحات متا، سلاگ یا جدول پژوهش در متن نمی‌آید.', 'hami-ai-assistant' ) . "\n"
+                        . '- ' . __( 'جمله‌ی آخر را کامل تمام کن؛ متن ناتمام قطع نشود.', 'hami-ai-assistant' ) . "\n"
                         . Haa_Content::no_fabrication();
 
                 $parts = array();
@@ -347,6 +361,14 @@ final class Haa_Pipeline {
                 }
 
                 $text = trim( (string) $body );
+
+                // 2.1.39: stray SEO-meta labels («**seo_title:** …») lived INSIDE section
+                // bodies — the style suffix names seo_title in its keyword rule, so some
+                // models echo the label mid-text and the line then leaked onto the page.
+                // Stripped before storing, so the carry-over of the next section cannot
+                // inherit the contamination either.
+                list( $text, ) = Haa_Content::strip_meta_markers( $text );
+
                 // Strip a leading markdown/plain repeat of the section heading. Deliberately
                 // not "#" as the delimiter: the pattern matches literal # characters.
                 $text = preg_replace( '~^\s*(?:\#{1,3}\s*)?' . preg_quote( (string) $sec['h2'], '~' ) . '\s*\R~ui', '', $text );
@@ -355,7 +377,105 @@ final class Haa_Pipeline {
                         return new WP_Error( 'haai_pipe_empty', __( 'بخش خالی برگشت.', 'hami-ai-assistant' ) );
                 }
 
+                // 2.1.39: a section that hit the output ceiling used to stay cut
+                // mid-sentence forever (the live carpet guide ended «فرشی با بافت یکدست»).
+                // The provider's finish_reason is authoritative; the shape heuristic covers
+                // providers that do not report it. One continuation pass, then done.
+                if ( Haa_API::last_truncated() || self::looks_truncated( $text, $target ) ) {
+                        $more = self::continue_section( $topic, $sec, $system, $text );
+                        if ( '' !== $more ) {
+                                list( $more, ) = Haa_Content::strip_meta_markers( $more );
+                                $text = self::join_texts( $text, $more );
+                        }
+                }
+
                 return $text;
+        }
+
+        /**
+         * Does this section text end mid-thought?
+         *
+         * Two signals must agree before we pay for a continuation: no terminal
+         * punctuation in the tail AND clearly short of the word budget. A complete
+         * section that merely ends on an unpunctuated list item is at/over budget and
+         * passes — the heuristic must not buy extra paragraphs we did not ask for.
+         *
+         * @param string $text         Section body (plain or HTML).
+         * @param int    $target_words The section's word budget.
+         * @return bool
+         */
+        public static function looks_truncated( $text, $target_words = 0 ) {
+                $text = trim( wp_strip_all_tags( (string) $text ) );
+                if ( '' === $text ) {
+                        return false;
+                }
+
+                $tail = mb_substr( $text, -80 );
+                if ( preg_match( '/[.!?؟…:»]\s*$/u', $tail ) ) {
+                        return false; // Clean ending.
+                }
+
+                if ( $target_words > 0 ) {
+                        $words = count( array_filter( preg_split( '/\s+/u', $text ), 'strlen' ) );
+                        if ( $words >= (int) floor( (int) $target_words * 0.6 ) ) {
+                                return false; // At budget and clean enough: leave it alone.
+                        }
+                }
+
+                return true;
+        }
+
+        /**
+         * One continuation call for a section that was cut off.
+         *
+         * @param array  $topic  Planner row.
+         * @param array  $sec    Outline section.
+         * @param string $system The same system prompt the section used.
+         * @param string $text   What was written so far.
+         * @return string '' when the continuation is not worth appending.
+         */
+        private static function continue_section( $topic, $sec, $system, $text ) {
+                $user = sprintf(
+                        /* translators: 1: section heading, 2: article title. */
+                        __( 'بخش «%1$s» از مقاله‌ی «%2$s» در میانه‌ی جمله قطع شده است. ادامه‌ی همان بخش را بنویس.', 'hami-ai-assistant' ),
+                        (string) $sec['h2'],
+                        (string) $topic['title']
+                ) . "\n\n"
+                        . __( 'آخرِ متن نوشته‌شده (از همین‌جا ادامه بده؛ جمله‌ی ناتمام را اول کامل کن و چیزی که آمده را تکرار نکن):', 'hami-ai-assistant' ) . "\n"
+                        . '«' . Haa_Util::cut( wp_strip_all_tags( $text ), self::CARRY_CHARS ) . '»';
+
+                $more = Haa_Content::generate(
+                        $system,
+                        $user,
+                        array(
+                                'module'     => 'article-writer',
+                                'operation'  => 'section_continue',
+                                'max_tokens' => 2000,
+                        )
+                );
+
+                return is_wp_error( $more ) ? '' : trim( (string) $more );
+        }
+
+        /**
+         * Join a cut body and its continuation with the right seam: a space when the
+         * cut was mid-sentence, a paragraph break when the continuation starts fresh.
+         *
+         * @param string $a First text.
+         * @param string $b Continuation.
+         * @return string
+         */
+        public static function join_texts( $a, $b ) {
+                $a = trim( (string) $a );
+                $b = trim( (string) $b );
+                if ( '' === $b ) {
+                        return $a;
+                }
+                if ( '' === $a ) {
+                        return $b;
+                }
+                $sep = preg_match( '/[.!?؟…:»]\s*$/u', $a ) ? "\n\n" : ' ';
+                return $a . $sep . $b;
         }
 
         /**
@@ -391,7 +511,14 @@ final class Haa_Pipeline {
                         // A short, factual lede assembled from the topic itself. Writing the
                         // intro ourselves costs a call per article and risks a claim; the
                         // meta pass can rewrite it.
-                        $intro = (string) $topic['title'] . '؛ ' . trim( (string) ( $topic['reason'] ?? '' ) );
+                        // 2.1.39: the planner's «چرا این موضوع» note is planning language,
+                        // not prose — «…فهرست محصولات و مشخصات آن‌ها باید بررسی شود.» must
+                        // never open a customer-facing article. is_planner_speak() drops it.
+                        $reason = trim( (string) ( $topic['reason'] ?? '' ) );
+                        if ( '' !== $reason && self::is_planner_speak( $reason ) ) {
+                                $reason = '';
+                        }
+                        $intro = (string) $topic['title'] . ( '' !== $reason ? '؛ ' . $reason : '' );
                 }
                 $blocks[] = '<p>' . esc_html( $intro ) . '</p>';
 
@@ -404,10 +531,82 @@ final class Haa_Pipeline {
                         if ( '' !== $h2 ) {
                                 $blocks[] = '<h2>' . esc_html( $h2 ) . '</h2>';
                         }
+                        // 2.1.39: sections were marker-stripped at birth; this second pass
+                        // covers states written by older builds whose stored bodies still
+                        // carry «**seo_title:**» lines.
+                        list( $body, ) = Haa_Content::strip_meta_markers( $body );
                         $blocks[] = Haa_Content::to_html( $body );
                 }
 
                 return trim( implode( "\n", array_filter( $blocks ) ) );
+        }
+
+        /**
+         * Is this text a planning note instead of prose for the customer?
+         *
+         * The planner writes reasons like «مستقیماً به محصول اصلی سایت و مسیر خرید
+         * مربوط است و برای هدایت بازدیدکننده … مناسب است؛ فهرست محصولات و مشخصات
+         * آن‌ها باید بررسی شود.» — true and useful FOR THE ADMIN, wrong as the first
+         * sentence of an article. One pattern over the phrases that only ever appear
+         * in editorial notes.
+         *
+         * @param string $text Candidate reason text.
+         * @return bool
+         */
+        public static function is_planner_speak( $text ) {
+                // The Persian words below carry literal ZWNJ characters — PCRE has no \u escape.
+                $re = '/باید (?:بررسی|تأیید|تکمیل)|بررسی شود|تأیید شود|مربوط است|هدایت (?:بازدیدکننده|کاربر)|لحاظ نمی|نمی‌شوند|پیشنهاد می‌شود|در برنامه‌ریز|فهرست محصولات و مشخصات|بازنویسی شود|نیاز به داده/u';
+                return (bool) preg_match( $re, (string) $text );
+        }
+
+        /**
+         * Structure guidance per page type (2.1.39, from the owner's master prompt).
+         *
+         * مرحلهٔ دوم of the store-editor prompt: a buying guide reaches a purchase
+         * decision (criteria, option differences, limits, usage scenarios); an
+         * informational guide teaches choosing. The intent the planner stored picks
+         * the line.
+         *
+         * @param string $intent Planner intent slug.
+         * @return string
+         */
+        public static function page_type_guide( $intent ) {
+                if ( in_array( (string) $intent, array( 'commercial', 'transactional' ), true ) ) {
+                        return __( 'راهنمای خرید: بخش‌ها به تصمیم خرید می‌رسند — معیارهای انتخاب، تفاوت گزینه‌ها، مزایا همراه محدودیت‌ها، و پیشنهاد متناسب با سناریوهای استفاده. هر بخش به یک پرسش واقعی خرید جواب می‌دهد.', 'hami-ai-assistant' );
+                }
+                return __( 'راهنمای آگاه‌سازی: معیار انتخاب، تفاوت گزینه‌ها و پاسخ پرسش‌های واقعی خواننده؛ بخش‌ها فهرست مشخصات خالی نیستند و به انتخاب درست خواننده کمک می‌کنند.', 'hami-ai-assistant' );
+        }
+
+        /**
+         * Replace the leading lede paragraph with the meta pass's intro.
+         *
+         * The assembled intro is a fallback by definition — it was written before the
+         * text existed. The meta intro is derived from the finished text and carries
+         * the search answer; when it exists the fallback goes away. No <p> at all (or
+         * a broken one) means the intro is prepended instead.
+         *
+         * @param string $html  Assembled body.
+         * @param string $intro Meta intro (plain text).
+         * @return string
+         */
+        public static function swap_intro( $html, $intro ) {
+                $intro = trim( wp_strip_all_tags( (string) $intro ) );
+                if ( '' === $intro ) {
+                        return (string) $html;
+                }
+                $p = '<p>' . esc_html( $intro ) . '</p>';
+
+                $out = preg_replace_callback(
+                        '#<p[^>]*>.*?</p>#is',
+                        static function () use ( $p ) {
+                                return $p;
+                        },
+                        (string) $html,
+                        1,
+                        $n
+                );
+
+                return $n ? (string) $out : $p . "\n" . (string) $html;
         }
 
         /**
@@ -426,8 +625,9 @@ final class Haa_Pipeline {
                         . __( 'خروجی فقط JSON: {"seo_title":"…","seo_description":"…","slug":"…","excerpt":"…","intro":"…","faq":[{"q":"…","a":"…"}]}', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'seo_title حداکثر ۶۰ نویسه و شامل کلیدواژه.', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'seo_description حداکثر ۱۶۰ نویسه؛ تبلیغ نکن و عدد نساز.', 'hami-ai-assistant' ) . "\n"
+                        . '- ' . __( 'در seo_title و seo_description ادعای تأییدنشده نمی‌آید؛ دقیق و هماهنگ با متن بنویس.', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'slug لاتین، کوتاه، با خط تیره.', 'hami-ai-assistant' ) . "\n"
-                        . '- ' . __( 'intro یک پاراگراف ۲ تا ۳ جمله‌ای برای بالای مقاله، فقط بر پایهٔ متن داده‌شده.', 'hami-ai-assistant' ) . "\n"
+                        . '- ' . __( 'intro پاسخ اصلی جستجو در ۲ تا ۳ جمله است؛ بدون مقدمه‌چینی عمومی، بدون ادعای تأییدنشده و هماهنگ با متن.', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'faq فقط سؤالی که پاسخ آن در متن هست؛ حداکثر ۴ مورد.', 'hami-ai-assistant' ) . "\n"
                         . Haa_Content::no_fabrication();
 
@@ -664,6 +864,14 @@ final class Haa_Pipeline {
                                 if ( ! $id || isset( $seen[ $id ] ) ) {
                                         continue;
                                 }
+                                // 2.1.39: the index bypasses the linkable blacklist that
+                                // internal_links() applies — a «تماس با ما» page must not become
+                                // the first reading suggestion of a buying guide. Categories
+                                // (negative ids) have their own vetting.
+                                if ( $id > 0 && ! Haa_Content::can_link( $id ) ) {
+                                        $seen[ $id ] = true;
+                                        continue;
+                                }
                                 $seen[ $id ] = true;
                                 $found[]     = $hit;
                         }
@@ -715,8 +923,24 @@ final class Haa_Pipeline {
          */
         private static function anchor_needle( $anchor, $html ) {
                 $plain = wp_strip_all_tags( $html );
-                // Prefer the anchor itself; else its first word, else nothing at all.
-                foreach ( array( $anchor, preg_replace( '/\s.*$/u', '', $anchor ) ) as $try ) {
+
+                // 2.1.39: a lone word may hang the link only when it carries the
+                // subject. «فرش دستباف» collapsing to «فرش» — or «راهنمای خرید» to
+                // «راهنمای» — linked the first generic word in the body to whichever
+                // page was nearest; readers saw a link that pointed at nothing.
+                $words = (array) preg_split( '/\s+/u', trim( (string) $anchor ) );
+                $tries = array();
+                if ( count( $words ) >= 2 ) {
+                        $tries[] = trim( (string) $anchor );
+                        if ( count( $words ) >= 3 ) {
+                                // A long title may appear only in its meaningful tail.
+                                $tries[] = implode( ' ', array_slice( $words, -2 ) );
+                        }
+                } elseif ( 1 === count( $words ) && mb_strlen( $anchor ) >= 5 && ! self::is_generic_anchor_word( $anchor ) ) {
+                        $tries[] = trim( (string) $anchor );
+                }
+
+                foreach ( $tries as $try ) {
                         $try = trim( (string) $try );
                         if ( '' === $try ) {
                                 continue;
@@ -726,6 +950,25 @@ final class Haa_Pipeline {
                         }
                 }
                 return '';
+        }
+
+        /**
+         * Words that must never be an anchor on their own (2.1.39).
+         *
+         * These head real titles («راهنمای خرید فرش») but as a lone link label they
+         * are navigation, not reading — the same rule the planner applies to chrome.
+         *
+         * @param string $word Single word.
+         * @return bool
+         */
+        public static function is_generic_anchor_word( $word ) {
+                $word = trim( (string) $word );
+                $list = array(
+                        'راهنمای', 'راهنما', 'خرید', 'بهترین', 'قیمت', 'محصول', 'مقاله', 'سایت',
+                        'فروشگاه', 'بررسی', 'مقایسه', 'آموزش', 'دانلود', 'راه', 'های', 'دسته',
+                        'بدون', 'چیست', 'چگونه', 'جدید', 'ارزان', 'انواع', 'کاربرد', 'مشخصات',
+                );
+                return in_array( $word, $list, true );
         }
 
         /**

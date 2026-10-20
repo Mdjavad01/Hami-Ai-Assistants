@@ -1675,6 +1675,10 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         }
                 }
 
+                // 2.1.39: stray «**seo_title:** …» lines never belong on the page — the
+                // same scrub the staged pipeline applies to every section body.
+                list( $raw, ) = Haa_Content::strip_meta_markers( (string) $raw );
+
                 $html = Haa_Content::to_html( $raw );
                 if ( '' === trim( wp_strip_all_tags( $html ) ) ) {
                         $GLOBALS['haai_job_result'] = new WP_Error( 'haai_aw_empty_body', __( 'مدل متنی برنگرداند.', 'hami-ai-assistant' ) );
