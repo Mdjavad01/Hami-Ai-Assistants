@@ -136,8 +136,30 @@ final class Haa_DB {
 		if ( $old_version < 4 ) {
 			self::migrate_to_v4();
 		}
+		if ( $old_version < 9 ) {
+			self::migrate_to_v9();
+		}
 
 		update_option( 'haai_db_version', HAAI_DB_VERSION );
+	}
+
+	/**
+	 * Migration v9: heal planner rows whose status was never written by the
+	 * current code (early builds stored «0», which later versions refused to
+	 * render a checkbox for — the admin could not queue their own topics).
+	 * Idempotent: valid statuses are left exactly where they are.
+	 */
+	private static function migrate_to_v9() {
+		global $wpdb;
+
+		$table = self::table( 'topics' );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) ) );
+		if ( ! $exists || ! class_exists( 'Haa_Planner' ) ) {
+			return;
+		}
+
+		Haa_Planner::repair_statuses();
 	}
 
 	/**

@@ -68,6 +68,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 add_action( 'admin_post_haai_kw_gsc', array( $this, 'handle_kw_gsc' ) );
                 add_action( 'admin_post_haai_kw_export', array( $this, 'handle_kw_export' ) );
                 add_action( 'admin_post_haai_kw_queue', array( $this, 'handle_kw_queue' ) );
+                add_action( 'admin_post_haai_kw_article', array( $this, 'handle_kw_article' ) );
 
                 // The keyword-research panel posts through admin.js post() — the
                 // handler MUST be hooked on wp_ajax_ or admin-ajax answers
@@ -255,7 +256,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         </div>
 
                         <div class="haai-alert haai-alert--info">
-                                <?php esc_html_e( 'مسیر پیشنهادی: ۱) در پنل «پیشنهاد کلمه کلیدی» موضوع را جست‌وجو کنید. ۲) عبارت‌های خوب را تیک بزنید و «افزودن انتخاب‌شده‌ها به برنامه‌ریز» را بزنید. ۳) در «برنامه‌ریز موضوع» یا فرم «ساخت مقاله» موضوع‌ها را به صف بفرستید — صف در پس‌زمینه مقاله می‌سازد.', 'hami-ai-assistant' ); ?>
+                                <?php esc_html_e( 'مسیر پیشنهادی: ۱) در پنل «پیشنهاد کلمه کلیدی» موضوع را جست‌وجو کنید. ۲) عبارت‌های خوب را تیک بزنید — یا «افزودن انتخاب‌شده‌ها به برنامه‌ریز» (رایگان؛ اول مرور) یا مستقیم «ساخت مقاله برای انتخاب‌شده‌ها» (توکن مصرف می‌کند). ۳) در «برنامه‌ریز موضوع» تیک بزنید و «انتخاب‌شده‌ها را به صف بده» — صف در پس‌زمینه مقاله می‌سازد و پیش‌نویس در «نوشته‌ها» می‌آید.', 'hami-ai-assistant' ); ?>
                         </div>
 
                         <?php $this->render_keywords_panel(); ?>
@@ -890,6 +891,11 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
 
                                 <p class="submit">
                                         <button type="submit" class="button button-primary"><?php esc_html_e( 'افزودن انتخاب‌شده‌ها به برنامه‌ریز', 'hami-ai-assistant' ); ?></button>
+                                        <?php /* 2.1.36: نیمهٔ گمشدهٔ حلقه — از فهرست جست‌وجو مستقیم به صف مقاله. Live report: «الان فقط خروجی اکسل میده، جایی برای تیک زدن و افزودن به تقویم محتوایی یا مقاله نویسی نیست». */ ?>
+                                        <button type="submit" class="button" formaction="<?php echo esc_url( admin_url( 'admin-post.php?action=haai_kw_article' ) ); ?>" data-haai-spend="<?php esc_attr_e( 'برای هر عبارت انتخاب‌شده یک مقاله به صف تولید محتوا اضافه می‌شود و توکن مصرف می‌کند. ادامه می‌دهید؟', 'hami-ai-assistant' ); ?>"><?php esc_html_e( 'ساخت مقاله برای انتخاب‌شده‌ها', 'hami-ai-assistant' ); ?></button>
+                                </p>
+                                <p class="description">
+                                        <?php esc_html_e( '«افزودن به برنامه‌ریز» رایگان است و اول موضوع‌ها را برای مرور به «برنامه‌ریز موضوع» می‌برد؛ «ساخت مقاله» همان عبارت‌ها را بدون توقف به صف تولید مقاله می‌فرستد و پیش‌نویس‌ها یکی‌یکی در «نوشته‌ها» ظاهر می‌شوند.', 'hami-ai-assistant' ); ?>
                                 </p>
                         </form>
 
@@ -1104,12 +1110,9 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <table class="widefat striped haai-table haai-plantable">
                                         <thead>
                                                 <tr>
-                                                        <th class="haai-col-check"></th>
+                                                        <th class="haai-col-check"><input type="checkbox" data-haai-plan-all aria-label="<?php esc_attr_e( 'همه‌ی موضوع‌ها', 'hami-ai-assistant' ); ?>"></th>
                                                         <th><?php esc_html_e( 'موضوع', 'hami-ai-assistant' ); ?></th>
-                                                        <th><?php esc_html_e( 'کلیدواژه', 'hami-ai-assistant' ); ?></th>
-                                                        <th><?php esc_html_e( 'هدف', 'hami-ai-assistant' ); ?></th>
-                                                        <th><?php esc_html_e( 'اولویت', 'hami-ai-assistant' ); ?></th>
-                                                        <th><?php esc_html_e( 'چرا', 'hami-ai-assistant' ); ?></th>
+                                                        <th><?php esc_html_e( 'چرا این موضوع', 'hami-ai-assistant' ); ?></th>
                                                         <th><?php esc_html_e( 'وضعیت', 'hami-ai-assistant' ); ?></th>
                                                         <th></th>
                                                 </tr>
@@ -1117,6 +1120,9 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                         <tbody>
                                                 <?php foreach ( $rows as $r ) : ?>
                                                         <?php
+                                                        // 2.1.36: hydrate() folds legacy statuses (early builds wrote
+                                                        // «0») into 'suggested', so choosability and the badge can no
+                                                        // longer disagree with each other or drop the checkbox.
                                                         $choosable = in_array( $r['status'], array( 'suggested', 'approved' ), true );
                                                         $comp      = $choosable ? Haa_Planner::competition( $r['title'], $r['keyword'] ) : array( 'duplicate' => false, 'title' => '', 'score' => 0 );
                                                         ?>
@@ -1127,16 +1133,19 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                         <?php endif; ?>
                                                                 </td>
                                                                 <td>
-                                                                        <?php echo esc_html( $r['title'] ); ?>
+                                                                        <strong><?php echo esc_html( $r['title'] ); ?></strong>
                                                                         <?php if ( ! empty( $comp['duplicate'] ) ) : ?>
                                                                                 <span class="haai-badge haai-badge--warn" title="<?php echo esc_attr( $comp['title'] ); ?>">
                                                                                         <?php esc_html_e( 'شبیه محتوای موجود', 'hami-ai-assistant' ); ?>
                                                                                 </span>
                                                                         <?php endif; ?>
+                                                                        <?php /* 2.1.36: کلیدواژه، هدف و اولویت زیر عنوان آمدند — هشت ستون در پهنای ستون مدیریتی فشرده و «درهم‌ریخته» می‌شد. */ ?>
+                                                                        <div class="haai-plan-meta">
+                                                                                <code><?php echo esc_html( $r['keyword'] ); ?></code>
+                                                                                <span class="haai-badge"><?php echo esc_html( Haa_Planner::intent_label( $r['intent'] ) ); ?></span>
+                                                                                <span class="haai-badge haai-badge--accent"><?php printf( /* translators: %d: priority. */ esc_html__( 'اولویت %d', 'hami-ai-assistant' ), (int) $r['priority'] ); ?></span>
+                                                                        </div>
                                                                 </td>
-                                                                <td><code><?php echo esc_html( $r['keyword'] ); ?></code></td>
-                                                                <td><?php echo esc_html( Haa_Planner::intent_label( $r['intent'] ) ); ?></td>
-                                                                <td><?php echo (int) $r['priority']; ?></td>
                                                                 <td class="haai-plan-reason"><?php echo esc_html( $r['reason'] ); ?></td>
                                                                 <td>
                                                                         <?php
@@ -1792,6 +1801,89 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         $this->back( __( 'چیزی تازه اضافه نشد — همهٔ انتخاب‌ها از قبل در برنامه‌ریز بودند.', 'hami-ai-assistant' ) );
                 }
                 $this->back( __( 'افزودن به برنامه‌ریز ممکن نشد؛ دوباره تلاش کنید.', 'hami-ai-assistant' ), true );
+        }
+
+        /**
+         * POST: queue articles straight from the keyword panel's ticked rows (2.1.36).
+         *
+         * The research panel could only hand phrases to the planner — the road to
+         * an actual article ran through three more screens, and the live report
+         * read the panel as «الان فقط خروجی اکسل میده». This is the missing half:
+         * same selection, same de-duplication, then straight into the queue the
+         * planner's own «انتخاب‌شده‌ها را به صف بده» uses (topic ids → staged
+         * pipeline). Tone/length/category are the same defaults the two write
+         * forms pre-select, so there is nothing new to configure first. A phrase
+         * that already sits in the planner as suggested/approved joins the batch;
+         * one already queued or published is honestly counted as skipped.
+         *
+         * @return void
+         */
+        public function handle_kw_article() {
+                Haa_Util::guard_admin_post( 'haai_aw' );
+
+                $selected = isset( $_POST['kw'] ) ? (array) wp_unslash( $_POST['kw'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+                $selected = array_filter( array_map( 'sanitize_text_field', $selected ), 'strlen' );
+                if ( ! $selected ) {
+                        $this->back( __( 'هیچ کلیدواژه‌ای انتخاب نشده بود.', 'hami-ai-assistant' ), true );
+                }
+
+                $ids  = array();
+                $dups = 0;
+                foreach ( array_slice( array_values( $selected ), 0, 30 ) as $kw ) {
+                        $existing = (int) Haa_Planner::existing_topic( $kw );
+                        if ( $existing ) {
+                                $row = Haa_Planner::row( $existing );
+                                if ( $row && in_array( $row['status'], array( 'suggested', 'approved' ), true ) ) {
+                                        $ids[] = (int) $existing;
+                                } else {
+                                        $dups++;
+                                }
+                                continue;
+                        }
+                        $id = Haa_Planner::insert(
+                                array(
+                                        'title'    => $kw,
+                                        'keyword'  => $kw,
+                                        'intent'   => Haa_Keywords::guess_intent( $kw ),
+                                        'reason'   => __( 'از پنل پیشنهاد کلمه کلیدی — مستقیم به صف مقاله.', 'hami-ai-assistant' ),
+                                        'source'   => 'keyword',
+                                        'priority' => 5,
+                                )
+                        );
+                        if ( $id ) {
+                                $ids[] = (int) $id;
+                        }
+                }
+
+                Haa_Planner::flush_map();
+
+                if ( ! $ids ) {
+                        $this->back( __( 'هیچ مقاله‌ای صف نشد — انتخاب‌ها یا از قبل در صف/منتشر بودند یا افزودنشان ممکن نشد.', 'hami-ai-assistant' ), true );
+                }
+
+                $r = Haa_Planner::queue(
+                        $ids,
+                        array(
+                                'tone'       => (string) Haa_Settings::get( 'content.default_tone', '' ),
+                                'length'     => (string) Haa_Settings::get( 'content.default_length', '' ),
+                                'category'   => (int) Haa_Settings::get( 'autopilot.default_category', 0 ),
+                                'with_image' => false,
+                        )
+                );
+
+                if ( ! $r['queued'] ) {
+                        $this->back( '' !== $r['reason'] ? $r['reason'] : __( 'چیزی صف نشد.', 'hami-ai-assistant' ), true );
+                }
+
+                $this->back(
+                        sprintf(
+                                /* translators: 1: queued, 2: selected, 3: skip reason. */
+                                __( '%1$d مقاله برای کلیدواژه‌های انتخاب‌شده به صف رفت (از %2$d عبارت). %3$sپیش‌نویس‌ها یکی‌یکی در «نوشته‌ها» ظاهر می‌شوند.', 'hami-ai-assistant' ),
+                                (int) $r['queued'],
+                                count( $selected ),
+                                '' !== $r['reason'] ? $r['reason'] . ' ' : ''
+                        )
+                );
         }
 
         /**

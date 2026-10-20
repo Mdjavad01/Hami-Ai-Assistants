@@ -606,10 +606,20 @@ final class Haa_Planner {
          * string — and (array) on a string silently yields [0 => text], so the
          * pipeline thought there was no outline and paid for a model call again.
          *
+         * 2.1.36: statuses that the current code never wrote (legacy rows from
+         * early builds — the live site showed «0» badges with NO checkbox, NO
+         * تأیید and NO way into the queue) read back as «پیشنهاد». display,
+         * counts() and queue() all agree again. repair_statuses() heals the
+         * stored rows once on upgrade; this guard is the belt to that braces.
+         *
          * @param array $r Raw associative row.
          * @return array
          */
         private static function hydrate( $r ) {
+                $status = (string) $r['status'];
+                if ( ! in_array( $status, self::STATUSES, true ) ) {
+                        $status = 'suggested';
+                }
                 return array(
                         'id'         => (int) $r['id'],
                         'title'      => (string) $r['title'],
@@ -618,7 +628,7 @@ final class Haa_Planner {
                         'intent'     => (string) $r['intent'],
                         'priority'   => (int) $r['priority'],
                         'reason'     => (string) $r['reason'],
-                        'status'     => (string) $r['status'],
+                        'status'     => $status,
                         'source'     => (string) $r['source'],
                         'post_id'    => (int) $r['post_id'],
                         'job_id'     => (int) $r['job_id'],
@@ -716,6 +726,11 @@ final class Haa_Planner {
         /**
          * Rows per status, for the screen header.
          *
+         * 2.1.36: legacy rows whose status never came from this code (early
+         * builds wrote «0») folded into «پیشنهاد» — the same value hydrate()
+         * shows, so the «برنامه‌ریز:» diag on the keyword panel finally counts
+         * them instead of insisting on a 0 that contradicts the visible list.
+         *
          * @return array<string,int>
          */
         public static function counts() {
@@ -724,11 +739,37 @@ final class Haa_Planner {
                 $out   = array_fill_keys( self::STATUSES, 0 );
                 foreach ( (array) $wpdb->get_results( "SELECT status, COUNT(*) AS c FROM $table GROUP BY status", ARRAY_A ) as $row ) { // phpcs:ignore WordPress.DB
                         $status = (string) $row['status'];
-                        if ( isset( $out[ $status ] ) ) {
-                                $out[ $status ] = (int) $row['c'];
+                        if ( ! isset( $out[ $status ] ) ) {
+                                $status = 'suggested';
                         }
+                        $out[ $status ] += (int) $row['c'];
                 }
                 return $out;
+        }
+
+        /**
+         * Heal rows whose status was never written by this code.
+         *
+         * Early builds left topics with statuses like «0»; every later version
+         * then refused them: no checkbox, no تأیید, no queue — a dead end the
+         * admin could only delete (live report: «اصلا نمیشه چیزیو انتخاب کرد»).
+         * They are unwritten proposals, so «پیشنهاد» is what they always were.
+         * Runs once from the DB migration; returns how many rows it healed.
+         *
+         * @return int
+         */
+        public static function repair_statuses() {
+                global $wpdb;
+                $table = self::table();
+                $fixed = 0;
+                foreach ( (array) $wpdb->get_results( "SELECT * FROM $table", ARRAY_A ) as $r ) { // phpcs:ignore WordPress.DB
+                        $st = (string) ( $r['status'] ?? '' );
+                        if ( in_array( $st, self::STATUSES, true ) ) {
+                                continue;
+                        }
+                        $fixed += (int) $wpdb->update( $table, array( 'status' => 'suggested' ), array( 'id' => (int) $r['id'] ), array( '%s' ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                }
+                return $fixed;
         }
         /* ------------------------------------------------------------------
          * Cost control

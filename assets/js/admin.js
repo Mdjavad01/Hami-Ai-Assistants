@@ -644,27 +644,73 @@
                 var planImg = qs('[data-haai-plan-image]', planForm);
                 var perArticle = parseInt(planForm.getAttribute('data-per-article') || '0', 10);
 
-                function planCount() {
-                        return qsa('#haai-plan-queue input[name="ids[]"]:checked').length;
+                // 2.1.36: the row checkboxes are NOT descendants of
+                // #haai-plan-queue — they live in the table above it and point at
+                // the form with the HTML `form` attribute. The old descendant
+                // selector (`#haai-plan-queue input[...]`) never matched them, so
+                // the count stayed 0, the estimate froze on «برای برآورد هزینه…»
+                // and the submit button never unlocked (live report: «اصلا نمیشه
+                // چیزیو انتخاب کرد به صف تولید محتوا برد»). Both spellings count
+                // now; querySelectorAll dedupes an element matched twice.
+                function planBoxes() {
+                        return qsa('input[name="ids[]"][form="haai-plan-queue"], #haai-plan-queue input[name="ids[]"]');
                 }
+                function planCount() {
+                        var n = 0;
+                        planBoxes().forEach(function (cb) { if (cb.checked) n++; });
+                        return n;
+                }
+                var planAll = qs('[data-haai-plan-all]');
 
                 function planSync() {
                         var n = planCount();
                         var dbl = planImg && planImg.checked ? 2 : 1;
                         if (planBtn) planBtn.disabled = n === 0;
+                        if (planAll) {
+                                var total = planBoxes().length;
+                                planAll.checked = n > 0 && n === total;
+                                planAll.indeterminate = n > 0 && n < total;
+                        }
                         if (!planOut) return;
                         planOut.textContent = n
                                 ? n + ' موضوع — تخمین: ' + (n * dbl) + ' درخواست و ' + (n * perArticle * dbl).toLocaleString('fa-IR') + ' توکن'
                                 : 'برای برآورد هزینه، موضوعی را انتخاب کنید.';
                 }
 
+                // «همه» in the table header: one click selects every choosable row
+                // (and a second click lets go of all of them).
+                if (planAll) {
+                        on(planAll, 'change', function () {
+                                planBoxes().forEach(function (cb) { cb.checked = planAll.checked; });
+                                planSync();
+                        });
+                }
+
                 // The checkboxes live in the table and point at this form with the HTML
-                // `form` attribute, so listen on the document and filter.
+                // `form` attribute, so listen on the document and filter. 2.1.36: the
+                // filter matches by NAME, not by a descendant path — the old one never
+                // fired for the table checkboxes, so ticking a row changed nothing.
                 on(document, 'change', function (e) {
-                        if (e.target && e.target.matches && e.target.matches('#haai-plan-queue input[name="ids[]"], [data-haai-plan-image]')) planSync();
+                        if (e.target && e.target.matches && e.target.matches('input[name="ids[]"], [data-haai-plan-image], [data-haai-plan-all]')) planSync();
                 });
                 planSync();
         }
+
+        /* ------------------------------------------------------------------
+         * One-click token spend guard (2.1.36)
+         *
+         * The keyword panel's «ساخت مقاله برای انتخاب‌شده‌ها» queues real
+         * articles from the research list, so it asks once — in Persian, with
+         * the consequence named — before the form posts. The server keeps its
+         * own caps; this is the polite version of that gate.
+         * ---------------------------------------------------------------- */
+
+        qsa('[data-haai-spend]').forEach(function (el) {
+                on(el, 'click', function (e) {
+                        var msg = el.getAttribute('data-haai-spend') || (C.i18n && C.i18n.confirm) || '';
+                        if (!window.confirm(msg)) e.preventDefault();
+                });
+        });
 
         /* ------------------------------------------------------------------
          * Reset confirmation

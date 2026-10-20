@@ -856,6 +856,9 @@ body.haai-theme-dark .haai-wrap {
 
 .haai-plantable td { vertical-align: top; }
 .haai-plan-reason { max-width: 320px; color: var(--haai-muted); font-size: 12px; line-height: 1.75; }
+.haai-plan-meta { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 6px; }
+.haai-plan-meta code { background: var(--haai-surface-2); border: 1px solid var(--haai-border); border-radius: 4px; padding: 1px 6px; font-size: 11px; }
+.haai-plan-meta .haai-badge { font-size: 10px; }
 .haai-plan-actions { white-space: nowrap; }
 .haai-plan-actions .button { margin: 0 0 0 var(--haai-sp-1); }
 
