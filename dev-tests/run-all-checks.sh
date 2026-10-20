@@ -42,6 +42,7 @@ suites=(
   dev-tests/tmp-checks38-alphabet.php
   dev-tests/tmp-checks39-planfix.php
   dev-tests/tmp-checks40-topicquality.php
+  dev-tests/tmp-checks41-queuepanel.php
 )
 for s in "${suites[@]}"; do
   out=$("$PHP" "$s" 2>&1)

@@ -740,6 +740,10 @@ final class Haa_Usage {
 final class Haa_Queue {
         public static function stats() { return array( 'pending' => 0, 'running' => 0, 'failed' => 0, 'done' => 0 ); }
         public static function pending( $m = null ) { return 0; }
+        /** 2.1.38: the planner panel reads the live job of queued rows — none here. */
+        public static function job( $id ) { return null; }
+        /** 2.1.38: the queue panel lists this module's jobs — none here. */
+        public static function rows( $m, $limit = 12 ) { return array(); }
         /** Records what a batch queued instead of touching a table. */
         public static function push( $job, $payload = array(), $args = array() ) {
                 $GLOBALS['jobs'][] = array( 'job' => $job, 'payload' => $payload, 'args' => $args );
@@ -1202,6 +1206,7 @@ function get_bloginfo( $k ) { return 'Hami Shop'; }
 // caps and snapshot freshness silently stopped counting anything.
 function current_time( $t ) { return gmdate( 'Y-m-d H:i:s' ); }
 function number_format_i18n( $n ) { return number_format( (int) $n ); }
+function human_time_diff( $from, $to = 0 ) { $to = $to ?: time(); $d = abs( $to - $from ); return $d < 60 ? '1 min' : ( $d < 3600 ? round( $d / 60 ) . ' mins' : round( $d / 3600 ) . ' hours' ); }
 function mysql2date( $f, $d ) { return (string) $d; }
 function url_to_postid( $u ) {
         // Per-URL map first: the refresh tests need "this link resolves to nothing"

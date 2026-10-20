@@ -564,8 +564,8 @@ $rs_start = strpos( $aw_l, 'public function render_screen()' );
 $rs_end   = strpos( $aw_l, 'private function render_topics_form()' );
 ok( 'L: render_screen body sits before the extracted topics form', false !== $rs_start && false !== $rs_end && $rs_end > $rs_start, '' );
 preg_match_all( '/\\$this->render_(\\w+)\\(\\)/', (string) substr( $aw_l, (int) $rs_start, (int) $rs_end - (int) $rs_start ), $m_l );
-ok( 'L: the page order is keywords → planner → topics → research → review → refresh → profile',
-        array( 'keywords_panel', 'planner_panel', 'topics_form', 'research_panel', 'review_panel', 'refresh_panel', 'profile_panel' ) === $m_l[1],
+ok( 'L: the page order is keywords → planner → topics → queue → research → review → refresh → profile',
+        array( 'keywords_panel', 'planner_panel', 'topics_form', 'queue_panel', 'research_panel', 'review_panel', 'refresh_panel', 'profile_panel' ) === $m_l[1],
         implode( ',', (array) $m_l[1] ) );
 
 // L6. the article form proposes by itself: pre-fill + honest note + guide.
