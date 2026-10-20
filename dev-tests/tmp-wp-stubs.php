@@ -53,6 +53,11 @@ class Fake_WPDB {
                 if ( preg_match( '/SHOW TABLES LIKE .*haai_chunks/i', $q ) ) {
                         return empty( $GLOBALS['chunks_table_missing'] ) ? $GLOBALS['wpdb']->prefix . 'haai_chunks' : null;
                 }
+                // 2.1.37 — the topics table exists unless a test forces it missing
+                // (Haa_Planner::purge_junk_topics() guards on it before deleting).
+                if ( preg_match( '/SHOW TABLES LIKE .*haai_topics/i', $q ) ) {
+                        return empty( $GLOBALS['topics_table_missing'] ) ? $GLOBALS['wpdb']->prefix . 'haai_topics' : null;
+                }
                 // 2.1.19 — the crawler's stored contact chunk (post_id = -1).
                 if ( preg_match( "/SELECT content FROM \S*haai_chunks WHERE post_id = ('?-?\d+'?) AND source = '([^']+)'/i", $q, $m ) ) {
                         $want_id = (int) str_replace( "'", '', $m[1] );
@@ -229,8 +234,9 @@ class Fake_WPDB {
                         }
                         return $out;
                 }
-                // Planner row listing.
-                if ( preg_match( '/SELECT \* FROM \w+_topics/i', $q ) ) {
+                // Planner row listing (SELECT *) and the 2.1.37 purge scan
+                // (SELECT id, title, keyword WHERE status='suggested' LIMIT 500).
+                if ( preg_match( '/SELECT (?:\*|id, title, keyword) FROM \w+_topics/i', $q ) ) {
                         $rows = (array) $GLOBALS['db']['topics'];
                         if ( preg_match( "/WHERE status = '([^']*)'/i", $q, $m ) ) {
                                 $want = stripslashes( $m[1] );

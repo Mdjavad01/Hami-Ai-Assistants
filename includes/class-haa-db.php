@@ -139,6 +139,9 @@ final class Haa_DB {
 		if ( $old_version < 9 ) {
 			self::migrate_to_v9();
 		}
+		if ( $old_version < 10 ) {
+			self::migrate_to_v10();
+		}
 
 		update_option( 'haai_db_version', HAAI_DB_VERSION );
 	}
@@ -160,6 +163,25 @@ final class Haa_DB {
 		}
 
 		Haa_Planner::repair_statuses();
+	}
+
+	/**
+	 * Migration v10: purge planner proposals that older builds minted from
+	 * junk material — the «بدون دسته» (uncategorized) bucket and contact-page
+	 * vocabulary («شماره تماس…»). Only status='suggested' rows are removed;
+	 * anything a human approved or queued stays. Idempotent.
+	 */
+	private static function migrate_to_v10() {
+		global $wpdb;
+
+		$table = self::table( 'topics' );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) ) );
+		if ( ! $exists || ! class_exists( 'Haa_Planner' ) ) {
+			return;
+		}
+
+		Haa_Planner::purge_junk_topics();
 	}
 
 	/**

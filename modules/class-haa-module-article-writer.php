@@ -1095,6 +1095,9 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         </form>
                 </p>
 
+                <?php /* 2.1.37: honest scope — junk clusters and chrome pages never become proposals again. */ ?>
+                <p class="haai-diag-clean"><?php esc_html_e( 'دسته‌ی «بدون دسته» و صفحه‌های عمومی (تماس، درباره ما، قوانین) در پیشنهادها لحاظ نمی‌شوند؛ نوشته‌های بدون دسته را از «نوشته‌ها» دسته‌بندی کنید تا خوشه‌ی واقعی‌شان دیده شود.', 'hami-ai-assistant' ); ?></p>
+
                 <?php if ( '' !== $plan['blocked'] ) : ?>
                         <p class="haai-diag-clean haai-diag-clean--warn"><?php echo esc_html( $plan['blocked'] ); ?></p>
                 <?php endif; ?>

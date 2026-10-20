@@ -22,9 +22,44 @@ if ( ! defined( 'ABSPATH' ) ) {
         exit;
 }
 final class Haa_Planner {
-        /** Map cache lifetime; the index itself only moves when content changes. */
-        const MAP_CACHE = 'haai_planner_map';
+        /** Map cache lifetime; the index itself only moves when content changes.
+         *  2.1.37: key bumped to v2 — the old cached map still carries site-chrome
+         *  terms (تماس، راه، های) that must not seed another junk proposal run. */
+        const MAP_CACHE = 'haai_planner_map_v2';
         const MAP_TTL   = 900;
+        /**
+         * Clusters that are WordPress artifacts, not real subjects. A post filed
+         * under the default bucket has no subject yet, so "we have 2 items and no
+         * article" is noise, not a gap — writing «راهنمای انتخاب بدون دسته» for it
+         * is exactly the kind of proposal this class must never produce again.
+         * Compared through normalize_text(), so ZWNJ and Arabic forms both match.
+         */
+        const JUNK_CLUSTERS = array( 'بدون دسته', 'بدون دسته بندی', 'دسته بندی نشده', 'uncategorized', 'uncategorised', 'general', 'عمومی' );
+        /**
+         * Site-chrome words: navigation, contact and legal boilerplate that
+         * dominates the vocabulary of small sites (contact page titles repeat
+         * in every crawl) but is worthless as a topic seed. Filtered from the
+         * map's term list before the model ever sees it.
+         */
+        const TERMS_STOP = array(
+                'های' => 1, 'هایی' => 1, 'تماس' => 1, 'راه' => 1, 'ارتباط' => 1,
+                'ارتباطی' => 1, 'شماره' => 1, 'درباره' => 1, 'صفحه' => 1, 'اصلی' => 1,
+                'خانه' => 1, 'قوانین' => 1, 'شرایط' => 1, 'حریم' => 1, 'خصوصی' => 1,
+                'سبد' => 1, 'حساب' => 1, 'ورود' => 1, 'ثبت' => 1, 'لینک' => 1,
+                'منو' => 1, 'فهرست' => 1, 'بدون' => 1, 'دسته' => 1, 'سایت' => 1,
+                'مشتریان' => 1, 'کاربران' => 1,
+        );
+        /**
+         * First words that make a short keyword a page label rather than a search
+         * topic («شماره تماس مستردستباف»، «سایت مستردستباف»). Deliberately NARROW:
+         * راه/دسته/بدون are excluded because they begin real subjects too
+         * (راه پله، دسته گل، بدون گلوتن) — those are handled by the phrase
+         * patterns in is_junk_topic() instead.
+         */
+        const CHROME_HEADS = array(
+                'تماس' => 1, 'ارتباط' => 1, 'ارتباطی' => 1, 'شماره' => 1, 'سایت' => 1,
+                'سبد' => 1, 'حساب' => 1, 'قوانین' => 1, 'صفحه' => 1, 'ورود' => 1,
+        );
         /** Search intents, kept in English in the DB and translated in the UI. */
         const INTENTS = array( 'informational', 'commercial', 'transactional', 'local' );
         const STATUSES = array( 'suggested', 'approved', 'queued', 'rejected', 'published' );
@@ -45,6 +80,76 @@ final class Haa_Planner {
                         'local'         => __( 'محلی', 'hami-ai-assistant' ),
                 );
                 return isset( $labels[ $slug ] ) ? $labels[ $slug ] : $slug;
+        }
+        /**
+         * Is this cluster a WordPress artifact rather than a real subject?
+         *
+         * 2.1.37: the «بدون دسته» bucket (any locale spelling, ZWNJ or spaces)
+         * used to reach gap_rows() and mint «راهنمای انتخاب بدون دسته» — a title
+         * about a filing mistake. Such clusters are skipped everywhere a
+         * proposal can be born; they still show in the map so the admin sees
+         * the mess exists.
+         *
+         * @param string $name Cluster name.
+         * @return bool
+         */
+        public static function is_junk_cluster( $name ) {
+                static $junk = null;
+                if ( null === $junk ) {
+                        $junk = array();
+                        foreach ( self::JUNK_CLUSTERS as $c ) {
+                                $junk[ Haa_Search::normalize_text( (string) $c ) ] = 1;
+                        }
+                }
+                $norm = trim( (string) Haa_Search::normalize_text( (string) $name ) );
+                return '' === $norm || isset( $junk[ $norm ] );
+        }
+        /**
+         * Would this title/keyword produce a chrome page instead of an article?
+         *
+         * 2.1.37: the model built «شماره تماس و روش های ارتباطی …» from the
+         * site's contact-page vocabulary because that vocabulary was its seed
+         * material. The seed list is filtered now, but a model (or a feed) can
+         * still be creative — so every proposal path also passes through this
+         * gate before insert(). Manual admin entries are deliberately NOT
+         * gated: the admin who types «تماس با ما» themselves gets what they
+         * asked for.
+         *
+         * @param string $title   Proposed title.
+         * @param string $keyword Proposed main keyword.
+         * @return bool
+         */
+        public static function is_junk_topic( $title, $keyword = '' ) {
+                $t = ' ' . trim( (string) Haa_Search::normalize_text( (string) $title ) ) . ' ';
+                $k = ' ' . trim( (string) Haa_Search::normalize_text( (string) $keyword ) ) . ' ';
+                $patterns = array(
+                        '/بدون دسته/u',
+                        '/راه های? (تماس|ارتباط|ارتباطی)/u',
+                        '/شماره تماس/u',
+                        '/اطلاعات تماس/u',
+                        '/تماس با (ما|سایت|شما)/u',
+                        '/ارتباط با (ما|سایت)/u',
+                        '/(بخش|روش|شیوه) های? ارتباطی/u',
+                        '/راهنمای استفاده از سایت/u',
+                        '/صفحه تماس/u',
+                        '/فرم تماس/u',
+                );
+                foreach ( $patterns as $p ) {
+                        if ( preg_match( $p, $t ) || preg_match( $p, $k ) ) {
+                                return true;
+                        }
+                }
+                // A keyword that is chrome + at most one more word (سایت مستردستباف،
+                // ارتباطی مستردستباف) is a page label, not a search topic.
+                $kn = trim( $k );
+                if ( '' !== $kn ) {
+                        $parts = explode( ' ', $kn );
+                        $head  = $parts[0];
+                        if ( isset( self::CHROME_HEADS[ $head ] ) && count( $parts ) <= 2 ) {
+                                return true;
+                        }
+                }
+                return false;
         }
         /* ------------------------------------------------------------------
          * 1. The site's own map
@@ -83,6 +188,12 @@ final class Haa_Planner {
                                 if ( mb_strlen( $word ) < 3 ) {
                                         // Single letters and two-letter fragments are noise; three is
                                         // where real Persian content words start (کفش, کیف, توپ).
+                                        continue;
+                                }
+                                if ( isset( self::TERMS_STOP[ $word ] ) ) {
+                                        // 2.1.37: contact/nav/legal chrome (تماس، راه، های…) used to
+                                        // dominate the term list of small sites and become the model's
+                                        // seed vocabulary — hence «شماره تماس و راه های ارتباطی…».
                                         continue;
                                 }
                                 $terms[ $word ] = ( isset( $terms[ $word ] ) ? $terms[ $word ] : 0 ) + 1;
@@ -171,6 +282,11 @@ final class Haa_Planner {
                 $posts = self::published_articles();
                 $out = array();
                 foreach ( $map['intents'] as $name => $cluster ) {
+                        if ( self::is_junk_cluster( $name ) ) {
+                                // 2.1.37: «بدون دسته» is a filing state, not a subject — no
+                                // article can be written "about" it and linking to it helps nobody.
+                                continue;
+                        }
                         $articles = 0;
                         foreach ( $posts as $post ) {
                                 if ( self::content_category( $post['id'] ) === $name ) {
@@ -407,6 +523,12 @@ final class Haa_Planner {
                                 if ( $added >= $count ) {
                                         break;
                                 }
+                                if ( self::is_junk_topic( $row['title'], $row['keyword'] ) ) {
+                                        // Belt and braces: gaps() already skips junk clusters, but the
+                                        // template titles embed the cluster name verbatim.
+                                        $skipped++;
+                                        continue;
+                                }
                                 if ( self::competition( $row['title'], $row['keyword'] )['duplicate'] ) {
                                         $skipped++;
                                         continue;
@@ -445,6 +567,12 @@ final class Haa_Planner {
                         }
                         $clean = self::sanitize_row( $row );
                         if ( '' === $clean['title'] ) {
+                                $skipped++;
+                                continue;
+                        }
+                        if ( self::is_junk_topic( $clean['title'], $clean['keyword'] ) ) {
+                                // 2.1.37: competitor headings can be chrome too (their contact
+                                // page is as worthless to us as ours).
                                 $skipped++;
                                 continue;
                         }
@@ -529,7 +657,12 @@ final class Haa_Planner {
                                 break;
                         }
                 }
-                $clusters = array_keys( $map['intents'] );
+                $clusters = array();
+                foreach ( array_keys( $map['intents'] ) as $c ) {
+                        if ( ! self::is_junk_cluster( $c ) ) {
+                                $clusters[] = $c;
+                        }
+                }
                 $system = __( 'تو برنامه‌ریز محتوای سئو برای یک سایت فارسی‌زبان هستی.', 'hami-ai-assistant' ) . "\n"
                         . __( 'خروجی فقط یک آرایه‌ی JSON با همین کلیدها باشد، بدون متن اضافه و بدون کد فنس:', 'hami-ai-assistant' ) . "\n"
                         . '[{"title":"…","keyword":"…","secondary":"…","intent":"informational|commercial|transactional","priority":1,"reason":"…"}]' . "\n"
@@ -537,7 +670,8 @@ final class Haa_Planner {
                         . '- ' . __( 'به داده‌ی جست‌وجوی گوگل، حجم سرچ یا ترند دسترسی نداری؛ ادعای عددی درباره‌شان نساز.', 'hami-ai-assistant' ) . "\n"
                         . '- ' . sprintf( /* translators: %d: number of topics. */ __( 'دقیقاً %d موضوع پیشنهاد بده.', 'hami-ai-assistant' ), $count ) . "\n"
                         . '- ' . __( 'reason باید بگوید چرا این موضوع برای همین سایت سودمند است، نه یک جمله‌ی کلی.', 'hami-ai-assistant' ) . "\n"
-                        . '- ' . __( 'عنوان‌ها را با تیترهای موجود روی سایت تکرار نکن.', 'hami-ai-assistant' );
+                        . '- ' . __( 'عنوان‌ها را با تیترهای موجود روی سایت تکرار نکن.', 'hami-ai-assistant' ) . "\n"
+                        . '- ' . __( 'دسته‌ی «بدون دسته» و صفحه‌های عمومی سایت (تماس با ما، شماره تماس، راه‌های ارتباطی، درباره ما، قوانین، حریم خصوصی، سبد خرید، ورود) موضوع مقاله نیستند؛ فقط درباره‌ی موضوع‌های واقعی سایت (محصولات، خدمات، راهنماهای تخصصی همان حوزه) پیشنهاد بده و نام سایت را در عنوان نیاور.', 'hami-ai-assistant' );
                 $profile = Haa_Site_Profile::block( '');
                 $user    = ( $profile ? $profile . "\n\n" : '' )
                         . __( 'خوشه‌های محتوایی فعلی سایت:', 'hami-ai-assistant' ) . ' ' . implode( '، ', array_slice( $clusters, 0, 20 ) ) . "\n"
@@ -563,7 +697,9 @@ final class Haa_Planner {
                 $skipped = 0;
                 foreach ( (array) $rows as $row ) {
                         $row = self::sanitize_row( is_array( $row ) ? (array) $row + array( 'source' => 'model' ) : array() );
-                        if ( ! $row ) {
+                        if ( ! $row || self::is_junk_topic( $row['title'], $row['keyword'] ) ) {
+                                // 2.1.37: the final gate — a model that still mints a
+                                // «شماره تماس…» title has its row counted as skipped, not stored.
                                 $skipped++;
                                 continue;
                         }
@@ -770,6 +906,35 @@ final class Haa_Planner {
                         $fixed += (int) $wpdb->update( $table, array( 'status' => 'suggested' ), array( 'id' => (int) $r['id'] ), array( '%s' ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
                 }
                 return $fixed;
+        }
+        /**
+         * Remove stored junk proposals left by older builds.
+         *
+         * 2.1.37: sites already hold rows like «راهنمای انتخاب بدون دسته…» and
+         * «شماره تماس و روش های ارتباطی…» from before the gates existed. Only
+         * rows with status='suggested' are touched — the moment a human approved
+         * or queued a row it stopped being ours to delete. Idempotent; called
+         * once from migration v10 and safe to call again.
+         *
+         * @return int Rows removed.
+         */
+        public static function purge_junk_topics() {
+                global $wpdb;
+                $table = self::table();
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                $exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) ) );
+                if ( ! $exists ) {
+                        return 0;
+                }
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                $rows = $wpdb->get_results( "SELECT id, title, keyword FROM $table WHERE status = 'suggested' LIMIT 500", ARRAY_A ); // phpcs:ignore WordPress.DB
+                $purged = 0;
+                foreach ( (array) $rows as $r ) {
+                        if ( self::is_junk_topic( (string) $r['title'], (string) $r['keyword'] ) ) {
+                                $purged += (int) $wpdb->delete( $table, array( 'id' => (int) $r['id'] ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+                        }
+                }
+                return $purged;
         }
         /* ------------------------------------------------------------------
          * Cost control
