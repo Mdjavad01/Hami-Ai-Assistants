@@ -277,7 +277,7 @@ final class Haa_Module_Leads implements Haa_Module_Interface {
                 $stages = self::stages();
                 ?>
                 <div class="wrap haai-wrap">
-                        <?php Haa_Admin::page_header( __( 'لیدها', 'hami-ai-assistant' ) ); ?>
+                        <?php Haa_Admin::page_header( __( 'لیدها', 'hami-ai-assistant' ), 'leads' ); ?>
 
                         <?php
                         $err = isset( $_GET['haai_err'] ) ? sanitize_text_field( wp_unslash( $_GET['haai_err'] ) ) : '';

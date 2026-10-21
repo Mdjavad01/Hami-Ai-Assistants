@@ -385,7 +385,7 @@ final class Haa_Module_Discount implements Haa_Module_Interface {
                 $rows = $wpdb->get_results( "SELECT * FROM $table ORDER BY id DESC LIMIT 200", ARRAY_A );
                 ?>
                 <div class="wrap haai-wrap">
-                        <?php Haa_Admin::page_header( __( 'تخفیف‌ها', 'hami-ai-assistant' ) ); ?>
+                        <?php Haa_Admin::page_header( __( 'تخفیف‌ها', 'hami-ai-assistant' ), 'discount' ); ?>
 
                         <?php
                         $err = isset( $_GET['haai_err'] ) ? sanitize_text_field( wp_unslash( $_GET['haai_err'] ) ) : '';

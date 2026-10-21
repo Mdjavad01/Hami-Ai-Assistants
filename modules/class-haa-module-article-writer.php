@@ -238,7 +238,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 }
                 ?>
                 <div class="wrap haai-wrap">
-                        <?php Haa_Admin::page_header( __( 'مقاله‌نویس', 'hami-ai-assistant' ) ); ?>
+                        <?php Haa_Admin::page_header( __( 'مقاله‌نویس', 'hami-ai-assistant' ), 'article' ); ?>
 
                         <?php
                         $err = isset( $_GET['haai_err'] ) ? sanitize_text_field( wp_unslash( $_GET['haai_err'] ) ) : '';

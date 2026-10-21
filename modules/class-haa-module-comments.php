@@ -315,7 +315,7 @@ final class Haa_Module_Comments implements Haa_Module_Interface {
                 $rows    = $wpdb->get_results( "SELECT * FROM $table $where ORDER BY id DESC LIMIT 100", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
                 ?>
                 <div class="wrap haai-wrap">
-                        <?php Haa_Admin::page_header( __( 'دیدگاه‌ها', 'hami-ai-assistant' ) ); ?>
+                        <?php Haa_Admin::page_header( __( 'دیدگاه‌ها', 'hami-ai-assistant' ), 'comments' ); ?>
 
                         <?php
                         $msg = isset( $_GET['haai_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['haai_msg'] ) ) : '';

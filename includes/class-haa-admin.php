@@ -704,9 +704,10 @@ final class Haa_Admin {
          * provider tab already has a button for that.
          *
          * @param string $title Screen title.
+         * @param string $tab   Settings section slug this screen is configured from.
          * @return void
          */
-        public static function page_header( $title ) {
+        public static function page_header( $title, $tab = '' ) {
                 $provider  = Haa_Settings::provider();
                 $has_key   = '' !== (string) $provider['api_key'];
                 $presets   = Haa_API::presets();
@@ -733,6 +734,11 @@ final class Haa_Admin {
                                         <span class="haai-badge haai-badge--model" title="<?php echo esc_attr( $model ); ?>"><?php echo esc_html( $model ); ?></span>
                                 <?php endif; ?>
                                 <span class="haai-head__version"><?php echo esc_html( HAAI_VERSION ); ?></span>
+                                <?php if ( '' !== (string) $tab ) : ?>
+                                        <?php /* The module's settings live on the settings screen, one tab
+                                                 away — without this link the operator has to know that. */ ?>
+                                        <a class="haai-badge" href="<?php echo esc_url( Haa_Util::screen_url( 'settings', array( 'tab' => (string) $tab ) ) ); ?>"><?php esc_html_e( 'تنظیمات این ماژول', 'hami-ai-assistant' ); ?></a>
+                                <?php endif; ?>
                         </p>
                 </header>
                 <?php

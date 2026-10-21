@@ -219,7 +219,7 @@ final class Haa_Module_Product_Content implements Haa_Module_Interface {
                 $preview = is_array( $preview ) ? $preview : null;
                 ?>
                 <div class="wrap haai-wrap haai-wrap--wide">
-                        <?php Haa_Admin::page_header( __( 'محتوای محصول', 'hami-ai-assistant' ) ); ?>
+                        <?php Haa_Admin::page_header( __( 'محتوای محصول', 'hami-ai-assistant' ), 'content' ); ?>
 
                         <?php
                         $err = isset( $_GET['haai_err'] ) ? sanitize_text_field( wp_unslash( $_GET['haai_err'] ) ) : '';

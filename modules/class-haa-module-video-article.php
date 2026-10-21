@@ -491,6 +491,7 @@ final class Haa_Module_Video_Article implements Haa_Module_Interface {
                 ?>
                 <div class="haai-wrap">
                         <h1 class="haai-page-title"><?php esc_html_e( 'ویدیو به مقاله', 'hami-ai-assistant' ); ?></h1>
+                        <p><a class="haai-badge" href="<?php echo esc_url( Haa_Util::screen_url( 'settings', array( 'tab' => 'video' ) ) ); ?>"><?php esc_html_e( 'تنظیمات این ماژول', 'hami-ai-assistant' ); ?></a></p>
 
                         <div class="haai-panel">
                                 <h2 class="haai-panel__title"><?php esc_html_e( 'ساخت مقاله از ترنسکریپت', 'hami-ai-assistant' ); ?></h2>

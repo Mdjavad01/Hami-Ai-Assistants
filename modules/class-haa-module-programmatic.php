@@ -868,6 +868,7 @@ final class Haa_Module_Programmatic implements Haa_Module_Interface {
                 ?>
                 <div class="haai-wrap">
                         <h1 class="haai-page-title"><?php esc_html_e( 'صفحه‌سازی برنامه‌ریزی‌شده', 'hami-ai-assistant' ); ?></h1>
+                        <p><a class="haai-badge" href="<?php echo esc_url( Haa_Util::screen_url( 'settings', array( 'tab' => 'programmatic' ) ) ); ?>"><?php esc_html_e( 'تنظیمات این ماژول', 'hami-ai-assistant' ); ?></a></p>
 
                         <div class="haai-alert haai-alert--warn">
                                 <?php esc_html_e( 'هشدار محتوای نازک: این ابزار می‌تواند صدها صفحه‌ی مشابه بسازد. نگهبان‌ها فعال‌اند — دو فیلد داده لازم است، متن یکتا با صفحه‌های دیگر مقایسه می‌شود، و تا خودتان تأیید نکرده‌اید صفحه‌ها noindex می‌مانند.', 'hami-ai-assistant' ); ?>

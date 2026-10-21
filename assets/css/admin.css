@@ -504,6 +504,9 @@ body.haai-theme-dark .haai-wrap {
 }
 
 .haai-badge--on { background: var(--haai-ok-soft); border-color: transparent; color: var(--haai-ok); }
+/* A badge that is also the way to a screen: same pill, no link underline. */
+a.haai-badge { text-decoration: none; }
+a.haai-badge:hover, a.haai-badge:focus { border-color: var(--haai-accent); color: var(--haai-accent); }
 .haai-badge--warn { background: var(--haai-warn-soft); border-color: transparent; color: var(--haai-warn); }
 .haai-badge--accent { background: var(--haai-accent-soft); border-color: transparent; color: var(--haai-accent); }
 .haai-badge--ok { background: var(--haai-ok-soft); border-color: transparent; color: var(--haai-ok); }
