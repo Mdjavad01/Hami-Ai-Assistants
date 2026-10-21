@@ -12,7 +12,7 @@
  * "unseen", and so the audit fails if this list names something this sheet
  * stops styling.
  *
- * @built-by-concatenation: is-pass is-warn is-fail is-ok is-leaf haai-dot--danger is-open is-selected is-active is-over is-busy is-clean is-closed is-none
+ * @built-by-concatenation: is-pass is-warn is-fail is-ok is-leaf haai-dot--danger is-open is-selected is-active is-over is-busy is-clean is-closed is-none haai-conv__turn--user haai-conv__turn--bot haai-kw__cov--has haai-kw__cov--half haai-kw__cov--none
  */
 
 /* ============================================================
@@ -874,9 +874,24 @@ body.haai-theme-dark .haai-wrap {
 .haai-wrap .haai-panel--research,
 .haai-wrap .haai-panel--refresh,
 .haai-wrap .haai-panel--restore,
-.haai-wrap .haai-panel--tools { margin-block-end: var(--haai-sp-5); }
+.haai-wrap .haai-panel--tools,
+.haai-wrap .haai-panel--keywords,
+.haai-wrap .haai-conv { margin-block-end: var(--haai-sp-5); }
 
-.haai-wrap .haai-panel--keywords { margin-block-end: var(--haai-sp-5); }
+/* 2.1.43: the jump-nav anchors («پرش به») must land below the fixed admin bar. */
+.haai-panel--queue,
+.haai-panel--plan,
+.haai-panel--research,
+.haai-panel--review,
+.haai-panel--refresh { scroll-margin-top: 90px; }
+
+/* 2.1.43: hints and small notes the audit found unstyled. */
+.haai-hint { margin: 4px 0 0; color: var(--haai-muted, #5a6072); font-size: 12px; line-height: 1.8; }
+.haai-cat-hint { display: inline-block; margin-top: 4px; }
+.haai-vault-note { word-break: break-word; }
+.haai-queuetable td { vertical-align: top; }
+.haai-fb__lasterr { margin: 8px 0 0; padding: 6px 10px; border-right: 3px solid #dba617; background: #fff8e5; }
+
 .haai-wrap .haai-panel--keywords .haai-kw__input { background: var(--haai-surface); }
 
 /* The import confirmation sits inside the tools panel, so it reads as a step

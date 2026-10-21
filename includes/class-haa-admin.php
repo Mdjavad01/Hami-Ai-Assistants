@@ -1747,7 +1747,7 @@ final class Haa_Admin {
                                                 /* translators: %s: human time diff. */
                                                 $lce_time = ' (' . sprintf( __( '%s پیش', 'hami-ai-assistant' ), human_time_diff( (int) $last_chat_err['at'] ) ) . ')';
                                         }
-                                        echo '<p class="haai-fb__lasterr" style="margin:8px 0 0;padding:6px 10px;border-right:3px solid #dba617;background:#fff8e5;">'
+                                        echo '<p class="haai-fb__lasterr">'
                                                 . '<strong>' . esc_html__( 'آخرین خطای چت:', 'hami-ai-assistant' ) . '</strong> '
                                                 . '<code>' . esc_html( (string) $last_chat_err['code'] ) . '</code>'
                                                 . ( ! empty( $last_chat_err['msg'] ) ? ' — ' . esc_html( wp_html_excerpt( (string) $last_chat_err['msg'], 200, '…' ) ) : '' )

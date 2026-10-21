@@ -424,8 +424,8 @@ ok( "{$tag}: brief() now rides the shared matcher", false !== strpos( $rsp, 'sel
 ok( "{$tag}: pipeline outline pulls related headings", false !== strpos( $pipe, 'Haa_Research::related_headings(' ) );
 ok( "{$tag}: pipeline outline pulls gaps", false !== strpos( $pipe, 'Haa_Research::gaps( 6 )' ) );
 
-ok( "{$tag}: version header is 2.1.42", false !== strpos( $main, '2.1.42' ) );
-ok( "{$tag}: HAAI_VERSION constant is 2.1.42", false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.42' )" ) );
+ok( "{$tag}: version header is 2.1.43", false !== strpos( $main, '2.1.43' ) );
+ok( "{$tag}: HAAI_VERSION constant is 2.1.43", false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.43' )" ) );
 
 echo "\n--- suite 44: research has a head and a tail (2.1.42) ---\n";
 echo "passed: {$GLOBALS['passed']}, failed: {$GLOBALS['failed']}\n";
