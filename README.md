@@ -12,12 +12,12 @@
 
 ## نصب
 
-1. بسته را بسازید (یا از فایل آماده‌ی `hami-ai-assistant-2.1.43.zip` استفاده کنید — دستور ساختش در `docs.md` بخش 15.5): با پوشه‌ی میانی `hami-ai-assistant/`.
+1. بسته را بسازید (یا از فایل آماده‌ی `hami-ai-assistant-2.1.44.zip` استفاده کنید — دستور ساختش در `docs.md` بخش 15.5): با پوشه‌ی میانی `hami-ai-assistant/`.
 2. **فقط همان ZIP را آپلود کنید**: پیشخوان ← افزونه‌ها ← «افزونه‌ی جدید» ← بارگذاری افزونه ← Choose file. چیز دیگری لازم نیست: نه `dev-tests/`، نه `dev-notes/`، نه `docs.md`/`README.md`/`AGENTS.md`/`audit.txt`، نه `tools/`.
 3. اگر از FTP/SSH می‌روید، همان zip را باز کنید تا پوشه‌ی `hami-ai-assistant` در `wp-content/plugins/` ساخته شود، یا با WP-CLI:
 
 ```bash
-wp plugin install hami-ai-assistant-2.1.43.zip --force --activate
+wp plugin install hami-ai-assistant-2.1.44.zip --force --activate
 wp eval 'print_r(Haa_Settings::diagnose());'   # باید Array ( ) خالی باشد
 ```
 
@@ -357,7 +357,7 @@ wp i18n make-pot . languages/hami-ai-assistant.pot \
 
 نام کلیدها در `--headers` باید **دقیقاً همان نام canonical** هدر باشد (`Report-Msgid-Bugs-To`, `Language-Team`)؛ با حروف کوچک، مقدار به‌صورت هدر اضافیِ جدید اضافه می‌شود و `Language-Team: LANGUAGE <LL@li.org>` سرِ file می‌ماند. `Language` در .pot نمی‌آید (قالب است، نه ترجمه) و `X-Domain` خودِ ابزار ست می‌کند.
 
-خروجی باید بدون `Warning` تمام شود (هشدار یعنی رشته‌ای جای‌نما دارد ولی کامنت `translators:` ندارد، یا یک msgid دو کامنت متفاوت گرفته). آخرین تولید: **۱۲۷۴ msgid**.
+خروجی باید بدون `Warning` تمام شود (هشدار یعنی رشته‌ای جای‌نما دارد ولی کامنت `translators:` ندارد، یا یک msgid دو کامنت متفاوت گرفته). آخرین تولید: **۱۷۲۷ msgid** (شمارش خطوط `msgid` در فایل).
 
 ### افزودن ماژول سفارشی
 
