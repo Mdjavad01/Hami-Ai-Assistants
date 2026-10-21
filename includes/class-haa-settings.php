@@ -21,6 +21,16 @@ final class Haa_Settings {
         const MODULES_OPTION = 'hami_ai_assistant_modules';
 
         /**
+         * Display gate for the two hooks that run on EVERY page view.
+         *
+         * The big settings option is autoload = no on purpose, so reading it costs
+         * one query per page. The loader and the launcher only need three values,
+         * and they live here, autoloaded, so deciding "no widget on this page"
+         * costs nothing.
+         */
+        const GATE_OPTION = 'hami_ai_assistant_gate';
+
+        /**
          * Single-version safety copy taken before reset()/import(). autoload = no.
          *
          * It stores the raw settings option exactly as saved — secrets included in
@@ -42,6 +52,9 @@ final class Haa_Settings {
 
         /** @var array|null In-memory cache (one load per request). */
         private static $cache = null;
+
+        /** @var array|null Cached display gate for this request. */
+        private static $gate_cache = null;
 
         /* ------------------------------------------------------------------
          * Defaults
@@ -446,6 +459,9 @@ final class Haa_Settings {
                 if ( null === get_option( self::MODULES_OPTION, null ) ) {
                         add_option( self::MODULES_OPTION, array( 'chatbot' => 1 ), '', 'yes' );
                 }
+                if ( null === get_option( self::GATE_OPTION, null ) ) {
+                        add_option( self::GATE_OPTION, self::gate_from( self::defaults() ), '', 'yes' );
+                }
                 // Migrate legacy 'friendl' tone to 'friendly'.
                 self::migrate_tone_typo();
                 self::migrate_autopilot_status();
@@ -564,6 +580,66 @@ final class Haa_Settings {
         }
 
         /**
+         * The three values the front-end gate needs. Derived, never edited by hand:
+         * every write goes through refresh_gate(), so there is one source of truth.
+         *
+         * @param array $all Full settings (only `general` is read).
+         * @return array{on:int,dm:string,chat:int}
+         */
+        private static function gate_from( $all ) {
+                $g     = isset( $all['general'] ) && is_array( $all['general'] ) ? $all['general'] : array();
+                $dm    = (string) ( $g['display_mode'] ?? 'both' );
+                $flags = self::enabled_modules();
+                return array(
+                        'on'   => empty( $g['enabled'] ) ? 0 : 1,
+                        'dm'   => in_array( $dm, array( 'shortcode', 'floating', 'both' ), true ) ? $dm : 'both',
+                        'chat' => empty( $flags['chatbot'] ) ? 0 : 1,
+                );
+        }
+
+        /**
+         * Cheap, autoloaded answer to "may the launcher render here at all?"
+         *
+         * @return array{on:int,dm:string,chat:int}
+         */
+        public static function gate() {
+                if ( is_array( self::$gate_cache ) ) {
+                        return self::$gate_cache;
+                }
+
+                $stored = get_option( self::GATE_OPTION, null );
+                if ( ! is_array( $stored ) || ! isset( $stored['on'], $stored['dm'], $stored['chat'] ) ) {
+                        // Install that predates the gate, or one whose option was wiped:
+                        // pay the big-option read once, then heal so it never repeats.
+                        self::write_gate( self::get() );
+                } else {
+                        self::$gate_cache = $stored;
+                }
+
+                return self::$gate_cache;
+        }
+
+        /**
+         * Rebuild the display gate after anything that can change `general` or the
+         * module flags.
+         */
+        public static function refresh_gate() {
+                self::write_gate( self::get() );
+        }
+
+        /**
+         * Single writer for the gate option: stores it and refreshes the in-request
+         * copy, so a settings save and the very next gate() call agree.
+         *
+         * @param array $all Full settings.
+         * @return void
+         */
+        private static function write_gate( $all ) {
+                self::$gate_cache = self::gate_from( $all );
+                update_option( self::GATE_OPTION, self::$gate_cache, 'yes' );
+        }
+
+        /**
          * Every module slug, derived from the catalogue.
          *
          * This is the single source of truth for the `modules` section of the
@@ -622,6 +698,7 @@ final class Haa_Settings {
                         update_option( HAAI_OPTION, $stored, 'no' );
                         self::flush_cache();
                 }
+                self::refresh_gate();
         }
 
         /**
@@ -732,6 +809,7 @@ final class Haa_Settings {
                 }
                 update_option( HAAI_ACTIVE, empty( $all['general']['enabled'] ) ? 0 : 1, 'yes' );
                 self::flush_cache();
+                self::write_gate( $all );
                 return true;
         }
 

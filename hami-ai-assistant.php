@@ -328,20 +328,30 @@ function haa_public_config() {
                         'teaser'  => apply_filters( 'haai_teaser_text', __( 'سلام! سوالی دارید؟ همین‌جا بپرسید.', 'hami-ai-assistant' ) ),
                 ),
                 'history'   => array( 'max' => (int) ( $b['max_history'] ?? 6 ) ),
-                        'lead'      => array(
-                                'enabled'  => (bool) ( $b['lead_capture'] ?? 0 ),
-                                'required' => (string) ( $b['lead_requirement'] ?? 'off' ),
-                                'consent'  => (string) ( $b['lead_consent_text'] ?? '' ),
-                        ),
+                        // The lead form itself is rendered server-side by the template and
+                        // read from the DOM; nothing in the JS reads this block. Keep the
+                        // switch, drop the copy that the template prints anyway.
+                        'lead'      => (bool) ( $b['lead_capture'] ?? 0 )
+                                ? array(
+                                        'enabled'  => true,
+                                        'required' => (string) ( $b['lead_requirement'] ?? 'off' ),
+                                        'consent'  => (string) ( $b['lead_consent_text'] ?? '' ),
+                                )
+                                : array( 'enabled' => false ),
                 );
 
-        // Live human handoff, only when the chatbot asks for it. The offer text is
-        // filterable so shops can phrase it like their brand.
+        // Live human handoff. The copy is ~2.4KB of Persian text — half of this
+        // config — so it ships only when the feature is on. Disabled installs keep
+        // the two booleans the widget reads and drop the whole i18n block.
+        $handoff_on        = (bool) ( $b['handoff_enabled'] ?? 0 );
         $config['handoff'] = array(
-                'enabled' => (bool) ( $b['handoff_enabled'] ?? 0 ),
+                'enabled' => $handoff_on,
                 'after'   => (int) ( $b['handoff_after'] ?? 2 ),
-                'consent' => (string) ( $b['lead_consent_text'] ?? '' ),
-                'i18n'    => array(
+        );
+        if ( $handoff_on ) {
+                // The offer text is filterable so shops can phrase it like their brand.
+                $config['handoff']['consent'] = (string) ( $b['lead_consent_text'] ?? '' );
+                $config['handoff']['i18n']    = array(
                         'title'    => apply_filters( 'haai_handoff_title', __( 'گفتگو با پشتیبان انسانی', 'hami-ai-assistant' ) ),
                         'intro'    => apply_filters( 'haai_handoff_intro', __( 'نام و شماره‌ی خود را بگذارید؛ کارشناس ما به‌زودی با شما تماس می‌گیرد.', 'hami-ai-assistant' ) ),
                         'note'     => __( 'موضوع (اختیاری)', 'hami-ai-assistant' ),
@@ -353,8 +363,8 @@ function haa_public_config() {
                         'fail'     => __( 'ثبت درخواست ممکن نشد. لطفاً دوباره تلاش کنید.', 'hami-ai-assistant' ),
                         'offer'    => apply_filters( 'haai_handoff_offer', __( 'اگر می‌خواهید با یک کارشناس انسانی صحبت کنید، همین‌جا درخواست تماس بگذارید.', 'hami-ai-assistant' ) ),
                         'openForm' => __( 'درخواست تماس پشتیبان', 'hami-ai-assistant' ),
-                ),
-        );
+                );
+        }
 
         return $config;
 }
@@ -687,6 +697,13 @@ final class Haa_Plugin {
                         return;
                 }
 
+                // Same autoloaded gate as maybe_enqueue_loader(): no settings read on
+                // pages where the launcher cannot appear.
+                $gate = Haa_Settings::gate();
+                if ( empty( $gate['on'] ) || empty( $gate['chat'] ) || 'shortcode' === $gate['dm'] ) {
+                        return;
+                }
+
                 $s = Haa_Settings::get();
                 if ( ! self::should_display( $s ) || 'shortcode' === $s['general']['display_mode'] ) {
                         return;
@@ -713,6 +730,14 @@ final class Haa_Plugin {
          * Enqueue the floating launcher only when it is actually going to render.
          */
         public function maybe_enqueue_loader() {
+                // This runs on EVERY page view, so answer from the autoloaded gate
+                // first: a shortcode-only install (or one with the chatbot off) never
+                // reads the big settings option or hits the database here.
+                $gate = Haa_Settings::gate();
+                if ( empty( $gate['on'] ) || empty( $gate['chat'] ) || 'shortcode' === $gate['dm'] ) {
+                        return;
+                }
+
                 $s = Haa_Settings::get();
 
                 if ( ! self::should_display( $s ) ) {

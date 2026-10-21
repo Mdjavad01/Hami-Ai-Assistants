@@ -72,6 +72,12 @@ final class Haa_Module_Semantic_Search implements Haa_Module_Interface {
                         // Out of scope: the core hook already dropped the chunk rows.
                         return;
                 }
+                // The core hook (priority 9) already compared the body: an unchanged
+                // save keeps its chunks, so there is nothing new to embed — and no
+                // paid call to make for the same text.
+                if ( ! Haa_Search::save_indexed_chunks() ) {
+                        return;
+                }
                 Haa_Search::embed_post_now( $post_id );
         }
 
@@ -180,7 +186,7 @@ final class Haa_Module_Semantic_Search implements Haa_Module_Interface {
                 }
                 ?>
                 <div class="wrap haai-wrap">
-                        <?php Haa_Admin::page_header( __( 'جست‌وجوی هوشمند', 'hami-ai-assistant' ) ); ?>
+                        <?php Haa_Admin::page_header( __( 'جست‌وجوی هوشمند', 'hami-ai-assistant' ), 'search' ); ?>
 
                         <?php
                         $msg = isset( $_GET['haai_msg'] ) ? sanitize_text_field( wp_unslash( $_GET['haai_msg'] ) ) : '';

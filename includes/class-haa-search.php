@@ -23,8 +23,29 @@ final class Haa_Search {
         const CANDIDATE_CAP = 800;
         const ALLOWED_EXT   = array( 'txt', 'md', 'docx' );
 
+        /**
+         * Fingerprint of the text that was last chunked for a post.
+         *
+         * Re-saving a post without touching its body (status change, meta tweak,
+         * a plugin calling wp_update_post) used to DELETE every chunk and insert
+         * N fresh rows for the same bytes. With the fingerprint a no-op save costs
+         * one meta read and zero writes; a changed body still re-indexes at once.
+         */
+        const HASH_META = '_haai_kb_hash';
+
         /** @var array|null Cached KB config for this request. */
         private static $config = null;
+
+        /**
+         * Did the last on_save_post() actually rewrite the chunks?
+         *
+         * The semantic-search module embeds right after this hook; when the body
+         * was unchanged there is nothing new to embed, and a paid API call per
+         * no-op save is exactly the kind of bill nobody notices until the invoice.
+         *
+         * @var bool
+         */
+        private static $last_save_indexed = false;
 
         /* ==================================================================
          * Text utilities
@@ -187,7 +208,7 @@ final class Haa_Search {
          * @param int $post_id Post id.
          * @return int Chunks written.
          */
-        public static function index_post( $post_id ) {
+        public static function index_post( $post_id, $source = null ) {
                 global $wpdb;
 
                 $post_id = (int) $post_id;
@@ -197,7 +218,7 @@ final class Haa_Search {
                         return 0;
                 }
 
-                $source = self::build_source( $post_id );
+                $source = null === $source ? self::build_source( $post_id ) : $source;
                 if ( '' === trim( $source['content'] ) ) {
                         return 0;
                 }
@@ -844,9 +865,33 @@ final class Haa_Search {
                 if ( ! self::in_scope( $post_id ) ) {
                         // Out of scope (or trashed/unpublished): drop any stale rows.
                         self::remove_post( $post_id );
+                        delete_post_meta( (int) $post_id, self::HASH_META );
+                        self::$last_save_indexed = false;
                         return;
                 }
-                self::index_post( $post_id );
+
+                // Build the source once (it is the expensive part for products: price,
+                // stock, terms, attributes) and skip the write burst when the text is
+                // byte-identical to what the index already holds.
+                $source = self::build_source( (int) $post_id );
+                $hash   = md5( (string) $source['content'] . '|' . (string) $source['title'] );
+                if ( $hash === (string) get_post_meta( (int) $post_id, self::HASH_META, true ) ) {
+                        self::$last_save_indexed = false;
+                        return;
+                }
+
+                self::index_post( (int) $post_id, $source );
+                update_post_meta( (int) $post_id, self::HASH_META, $hash );
+                self::$last_save_indexed = true;
+        }
+
+        /**
+         * Whether on_save_post() rewrote this post's chunks in the current request.
+         *
+         * @return bool
+         */
+        public static function save_indexed_chunks() {
+                return self::$last_save_indexed;
         }
 
         /**
