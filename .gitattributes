@@ -1,0 +1,9 @@
+# Line-ending contract for the build products only.
+#
+# tools/build-zip.php regenerates these with tools/minify.mjs and then refuses to
+# package a tree whose tracked files changed. On Windows (core.autocrlf) the
+# checkout is CRLF while the minifier writes LF, so every build looked dirty and
+# stopped at the gate even though the bytes were identical. Pinning LF here makes
+# a minified file stable across checkouts.
+assets/js/*.min.js text eol=lf
+assets/css/*.min.css text eol=lf
