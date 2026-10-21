@@ -1095,9 +1095,30 @@
                                                 return;
                                         }
                                         setBusy(f, sub, false);
+
+                                        // A handler can ship the panel markup in THIS
+                                        // response (the competitor analysis is never stored,
+                                        // so there is nothing left to re-fetch). Swap it in,
+                                        // then drop that id from the refresh round-trip.
+                                        var inlined = (j.data && j.data.target && 'string' === typeof j.data.html && j.data.html) ? j.data : null;
+                                        if (inlined) {
+                                                var old = document.getElementById(inlined.target);
+                                                if (old) {
+                                                        old.outerHTML = inlined.html;
+                                                        var fresh = document.getElementById(inlined.target);
+                                                        if (fresh) fresh.insertBefore(noticeEl(msg, true), fresh.firstChild);
+                                                }
+                                        }
+
                                         if (refreshAttr) {
                                                 var ids = refreshAttr.split(',').map(function (s) { return s.trim(); }).filter(String);
-                                                if (!ids.length) { placeNotice(f, noticeEl(msg, true)); return; }
+                                                if (inlined) {
+                                                        ids = ids.filter(function (id) { return id !== inlined.target; });
+                                                }
+                                                if (!ids.length) {
+                                                        if (!inlined) placeNotice(f, noticeEl(msg, true));
+                                                        return;
+                                                }
                                                 var left = ids.length;
                                                 ids.forEach(function (id) {
                                                         refreshPanel(id, function () {
@@ -1135,4 +1156,59 @@
                 if ('loading' === document.readyState) document.addEventListener('DOMContentLoaded', playFlash);
                 else playFlash();
         })();
+})();
+
+/**
+ * Client-side CSV export for the competitor analysis.
+ *
+ * That analysis is deliberately never stored server-side, so the browser holds
+ * the only copy: a button reads the JSON payload printed next to the panel and
+ * writes the file itself. Escaping mirrors Haa_Util::escape_csv_field() (RFC
+ * 4180 quotes + the leading =,+,-,@ CSV-injection guard) and the BOM is what
+ * makes Excel show Persian correctly.
+ */
+(function () {
+        'use strict';
+
+        function cell(v) {
+                var s = String(v == null ? '' : v);
+                if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+                if (/[",\n\r;]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+                return s;
+        }
+
+        document.addEventListener('click', function (e) {
+                var btn = e.target && e.target.closest ? e.target.closest('[data-haai-csv-from]') : null;
+                if (!btn) return;
+                var src = document.getElementById(btn.getAttribute('data-haai-csv-from') || '');
+                if (!src) return;
+                var rows;
+                try { rows = JSON.parse(src.textContent || '[]'); } catch (err) { return; }
+                if (!rows || !rows.length) return;
+
+                var head = ['دامنه یا URL', 'صفحه', 'میانگین کلمه', 'غنای ساختار', 'نیت', 'چه چیزی کم دارد', 'عنوان‌ها', 'سرفصل‌ها', 'آدرس صفحه‌ها'];
+                var out = [head.map(cell).join(',')];
+                rows.forEach(function (r) {
+                        out.push([
+                                r.seed || r.host || '',
+                                r.pages || 0,
+                                r.avg_words || 0,
+                                r.richness || 0,
+                                r.intent || '',
+                                (r.missing || []).join(' | '),
+                                (r.titles || []).join(' | '),
+                                (r.headings || []).join(' | '),
+                                (r.urls || []).join(' | ')
+                        ].map(cell).join(','));
+                });
+
+                var blob = new Blob(['\uFEFF' + out.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'hami-research-' + new Date().toISOString().slice(0, 10) + '.csv';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+        });
 })();

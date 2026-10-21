@@ -102,6 +102,13 @@ final class Haa_Ajax_Form {
                                 'msg' => (string) Haa_Util::cut( (string) $message, 300 ),
                         ),
                 );
+
+                // A handler that produced fresh markup for one panel (the competitor
+                // analysis, which is deliberately never stored) rides back in the same
+                // envelope so the browser needs no second request to see it.
+                if ( ! empty( $GLOBALS['haai_ajax_extra'] ) && is_array( $GLOBALS['haai_ajax_extra'] ) ) {
+                        $payload['data'] = array_merge( $payload['data'], $GLOBALS['haai_ajax_extra'] );
+                }
                 $GLOBALS['haai_ajax_out'] = $payload;
                 echo wp_json_encode( $payload );
                 if ( defined( 'HAAI_NO_EXIT' ) && HAAI_NO_EXIT ) {

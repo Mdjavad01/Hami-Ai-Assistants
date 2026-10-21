@@ -26,8 +26,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class Haa_Research {
 
-        /** Compiled, structure-only snapshot of the competitor set. */
+        /** Legacy option name (2.1.43 and earlier). Only ever deleted now. */
         const SNAPSHOT = 'haai_research_snapshot';
+
+        /**
+         * The analysis built in the current request.
+         *
+         * There is deliberately NO storage: competitor structure is shown from the
+         * analyze response and dropped when the request ends. The admin's Excel/CSV
+         * export is the only artefact that survives — nothing lands in wp_options.
+         *
+         * @var array|null
+         */
+        private static $last = null;
 
         /** Per-URL / per-host cache prefix; TTL comes from the settings. */
         const CACHE_PREFIX = 'haai_rs_';
@@ -48,9 +59,9 @@ final class Haa_Research {
         public static function fields() {
                 return array(
                         array( 'key' => 'research.enabled', 'type' => 'checkbox', 'label' => __( 'تحلیل رقبا فعال باشد', 'hami-ai-assistant' ), 'hint' => __( 'اگر خاموش باشد، کل خط لوله فقط از محتوای خود سایت استفاده می‌کند.', 'hami-ai-assistant' ) ),
-                        /* 2.1.41: the URL complaint — full page addresses are accepted;
-                         * only their domain is analysed, and the hint now says so. */
-                        array( 'key' => 'research.competitors', 'type' => 'textarea', 'label' => __( 'آدرس رقبا', 'hami-ai-assistant' ), 'hint' => __( 'هر خط یک آدرس؛ هم «example.com» قبول است هم آدرس کامل (URL). از URL فقط دامنه‌اش تحلیل می‌شود و بقیه‌ی آدرس کنار گذاشته می‌شود. حداکثر ۱۰ دامنه؛ فقط ساختار صفحات خوانده می‌شود، نه متن آن‌ها.', 'hami-ai-assistant' ) ),
+                        /* A line with a path is analysed AS THAT PAGE; a bare domain is
+                         * discovered from its sitemap. The hint has to say both. */
+                        array( 'key' => 'research.competitors', 'type' => 'textarea', 'label' => __( 'آدرس رقبا', 'hami-ai-assistant' ), 'hint' => __( 'هر خط یک آدرس. «example.com» یعنی دامنه: صفحه‌ها از سایتمپ پیدا می‌شوند. «example.com/blog/post» یعنی فقط همین صفحه خوانده شود — برای سنجش غنای یک صفحه‌ی خاص. حداکثر ۱۰ آدرس؛ فقط ساختار خوانده می‌شود (عنوان، سرفصل، تعداد کلمه، نیت)، نه متن.', 'hami-ai-assistant' ) ),
                         array( 'key' => 'research.user_agent', 'type' => 'text', 'label' => __( 'شناسه‌ی کاربر (User-Agent)', 'hami-ai-assistant' ), 'hint' => __( 'محرمانه نبودن هویت درخواست لازم است؛ ربات‌های ناشناس معمولاً مسدود می‌شوند.', 'hami-ai-assistant' ) ),
                         array( 'key' => 'research.respect_robots', 'type' => 'checkbox', 'label' => __( 'پایبندی به robots.txt', 'hami-ai-assistant' ), 'hint' => __( 'توصیه‌ی اکید: با خاموش‌کردن آن، هم ادب crawling نقض می‌شود هم احتمال بن‌شدن IP سرور شما می‌رود.', 'hami-ai-assistant' ) ),
                         array( 'key' => 'research.delay_ms', 'type' => 'number', 'label' => __( 'فاصله‌ی بین درخواست‌ها (میلی‌ثانیه)', 'hami-ai-assistant' ), 'min' => 200, 'max' => 10000 ),
@@ -83,14 +94,18 @@ final class Haa_Research {
         }
 
         /**
-         * Cleaned competitor origins: absolute http(s) roots, deduped by host, max 10.
+         * Cleaned competitor seeds: absolute http(s) URLs, deduped by full URL, max 10.
          *
-         * @return array<int,array{url:string,host:string}>
+         * A line that carries a path is kept whole (`exact` = true): the admin asked
+         * for THAT page's richness, not for its domain's. A bare domain still goes
+         * through discovery. Two pages of one host are two independent seeds now.
+         *
+         * @return array<int,array{url:string,host:string,exact:bool}>
          */
         public static function competitors() {
-                $raw   = (string) ( self::config()['competitors'] ?? '' );
-                $out   = array();
-                $hosts = array();
+                $raw  = (string) ( self::config()['competitors'] ?? '' );
+                $out  = array();
+                $seen = array();
 
                 foreach ( preg_split( '/\R+/u', $raw ) as $line ) {
                         $line = trim( $line );
@@ -117,14 +132,26 @@ final class Haa_Research {
 
                         $parts = parse_url( $url );
                         $host  = isset( $parts['host'] ) ? strtolower( $parts['host'] ) : '';
-                        if ( '' === $host || isset( $hosts[ $host ] ) ) {
+                        if ( '' === $host ) {
                                 continue;
                         }
 
-                        $hosts[ $host ] = true;
-                        $out[]          = array(
-                                'url'  => $parts['scheme'] . '://' . $host,
-                                'host' => $host,
+                        $path  = trim( (string) ( $parts['path'] ?? '' ), '/' );
+                        $exact = '' !== $path;
+                        $seed  = $exact
+                                ? $parts['scheme'] . '://' . $host . '/' . $path . ( isset( $parts['query'] ) ? '?' . $parts['query'] : '' )
+                                : $parts['scheme'] . '://' . $host;
+
+                        $key = strtolower( $seed );
+                        if ( isset( $seen[ $key ] ) ) {
+                                continue;
+                        }
+                        $seen[ $key ] = true;
+
+                        $out[] = array(
+                                'url'   => $seed,
+                                'host'  => $host,
+                                'exact' => $exact,
                         );
 
                         if ( count( $out ) >= 10 ) {
@@ -277,7 +304,7 @@ final class Haa_Research {
                         'questions'   => self::all_questions( $sites ),
                         'ai_keywords' => array_slice( array_values( array_unique( $keywords ) ), 0, 24 ),
                 );
-                update_option( self::SNAPSHOT, $snapshot, 'no' );
+                self::remember( $snapshot );
                 Haa_Planner::flush_map();
 
                 return $snapshot;
@@ -569,13 +596,10 @@ final class Haa_Research {
                                 continue;
                         }
 
-                        // <loc> only. Sitemap index entries are followed one level, no deeper.
-                        if ( preg_match_all( '#<loc>\s*([^<\s]+)\s*</loc>#i', (string) $body, $m ) ) {
-                                foreach ( array_slice( $m[1], 0, $want ) as $u ) {
-                                        $u = trim( wp_unslash( $u ) );
-                                        if ( Haa_Settings::sanitize_url( $u ) !== '' ) {
-                                                $out[ $u ] = true;
-                                        }
+                        foreach ( self::sitemap_pages( (string) $body, $want, $claim ) as $u ) {
+                                $out[ $u ] = true;
+                                if ( count( $out ) >= $want ) {
+                                        break;
                                 }
                         }
                 }
@@ -612,6 +636,60 @@ final class Haa_Research {
                 }
 
                 return $pick;
+        }
+
+        /**
+         * Page URLs inside one sitemap document.
+         *
+         * A WordPress/Yoast sitemap.xml is a <sitemapindex> whose <loc> entries are
+         * OTHER SITEMAPS, not pages. Treating them as pages is how a crawl reported
+         * «۶ صفحه، ۱۱۰ کلمه» with zero headings — it was parsing five XML files. An
+         * index is expanded exactly one level and never re-expanded.
+         *
+         * @param string $body  Document.
+         * @param int    $want  Max page URLs.
+         * @param string $claim URL it came from (diagnostics only).
+         * @return array<int,string>
+         */
+        private static function sitemap_pages( $body, $want, $claim = '' ) {
+                $body = (string) $body;
+                $urls = array();
+
+                if ( ! preg_match_all( '#<loc>\s*([^<\s]+)\s*</loc>#i', $body, $m ) ) {
+                        return $urls;
+                }
+                $locs = array_map( 'trim', array_map( 'wp_unslash', $m[1] ) );
+
+                // A plain <urlset>: its locs are already pages.
+                if ( false === stripos( $body, '<sitemapindex' ) ) {
+                        return $locs;
+                }
+
+                foreach ( array_slice( $locs, 0, 8 ) as $child ) {
+                        if ( count( $urls ) >= $want ) {
+                                break;
+                        }
+                        if ( '' === Haa_Settings::sanitize_url( $child ) || is_wp_error( Haa_API::is_url_safe( $child ) ) ) {
+                                continue;
+                        }
+                        $sub = self::get( $child, array( 'accept' => 'application/xml,text/xml;q=0.9,*/*;q=0.4' ) );
+                        if ( is_wp_error( $sub ) ) {
+                                continue;
+                        }
+                        if ( false !== stripos( (string) $sub, '<sitemapindex' ) ) {
+                                continue; // Never recurse: one level is the contract.
+                        }
+                        if ( preg_match_all( '#<loc>\s*([^<\s]+)\s*</loc>#i', (string) $sub, $m2 ) ) {
+                                foreach ( $m2[1] as $u ) {
+                                        $urls[] = trim( wp_unslash( $u ) );
+                                        if ( count( $urls ) >= $want ) {
+                                                break;
+                                        }
+                                }
+                        }
+                }
+
+                return $urls;
         }
 
         /**
@@ -674,6 +752,13 @@ final class Haa_Research {
                         return $html;
                 }
 
+                // Never treat a sitemap/feed/JSON document as a page: stripping tags off
+                // XML leaves URL tokens, which is how a crawl reported «۱۱۰ کلمه، صفر
+                // سرفصل» for six pages that were really six sitemap files.
+                if ( preg_match( '#^\s*(?:<\?xml|<(?:sitemapindex|urlset|rss|feed)\b|[\{\[])#i', (string) $html ) ) {
+                        return new WP_Error( 'haai_rs_not_html', __( 'این آدرس صفحه‌ی HTML نیست (سایتمپ، فید یا JSON).', 'hami-ai-assistant' ) );
+                }
+
                 $headings = array( 'h1' => array(), 'h2' => array(), 'h3' => array() );
                 foreach ( array_keys( $headings ) as $tag ) {
                         if ( preg_match_all( '#<' . $tag . '[^>]*>(.*?)</' . $tag . '>#is', (string) $html, $m ) ) {
@@ -716,17 +801,104 @@ final class Haa_Research {
                 }
                 arsort( $terms );
 
+                $word_count = count( $words );
+
                 return array(
                         'url'        => esc_url_raw( $url ),
                         'title'      => Haa_Util::cut( $title, 180 ),
                         'h1'         => array_slice( $headings['h1'], 0, 3 ),
                         'h2'         => array_slice( $headings['h2'], 0, 12 ),
                         'h3'         => array_slice( $headings['h3'], 0, 12 ),
-                        'words'      => count( $words ),
+                        'words'      => $word_count,
                         'questions'  => array_slice( $questions, 0, 8 ),
                         'terms'      => array_slice( array_keys( $terms ), 0, 15 ),
+                        // Three readings of the SAME fetched page: what the searcher
+                        // probably wants, how complete the page is, and what it lacks.
+                        // All derived here and dropped with the body — nothing stored.
+                        'intent'     => self::guess_intent( $title . ' ' . implode( ' ', array_merge( $headings['h1'], $headings['h2'] ) ) ),
+                        'richness'   => self::richness_score( $word_count, count( $headings['h2'] ), count( $questions ), count( $headings['h1'] ) ),
+                        'missing'    => self::missing_signals( $word_count, $headings, $questions ),
                         'fetched'    => current_time( 'mysql' ),
                 );
+        }
+
+        /**
+         * Search intent from the page's own words. A heuristic, not a promise.
+         *
+         * @param string $text Title + headings.
+         * @return string transactional|commercial|informational|mixed
+         */
+        private static function guess_intent( $text ) {
+                $t = mb_strtolower( (string) $text );
+                $buckets = array(
+                        'transactional' => array( 'خرید', 'قیمت', 'سفارش', 'ارسال', 'تخفیف', 'فروش', 'سبد خرید', 'موجود', 'buy', 'price', 'order', 'shop' ),
+                        'commercial'    => array( 'بهترین', 'مقایسه', 'بررسی', 'رتبه', 'جایگزین', 'vs', 'compare', 'review', 'best', 'top' ),
+                        'informational' => array( 'چیست', 'چگونه', 'راهنما', 'دلایل', 'علت', 'تفاوت', 'آموزش', 'what is', 'how to', 'guide', 'why' ),
+                );
+                $hits = array();
+                foreach ( $buckets as $name => $needles ) {
+                        $hits[ $name ] = 0;
+                        foreach ( $needles as $needle ) {
+                                if ( false !== mb_strpos( $t, $needle ) ) {
+                                        $hits[ $name ]++;
+                                }
+                        }
+                }
+                arsort( $hits );
+                $top = key( $hits );
+                $max = (int) reset( $hits );
+                if ( 0 === $max ) {
+                        return 'mixed';
+                }
+                // A single keyword on each side is not a verdict.
+                return ( $max >= 2 ) ? $top : 'mixed';
+        }
+
+        /**
+         * 0–100 completeness of one page. The weights are deliberately simple and
+         * stated in the panel (words 45, H2 structure 25, questions 20, H1 10) so
+         * nobody reads the number as a ranking score.
+         *
+         * @param int $words     Word count.
+         * @param int $h2        H2 count.
+         * @param int $questions Question headings.
+         * @param int $h1        H1 count.
+         * @return int
+         */
+        private static function richness_score( $words, $h2, $questions, $h1 ) {
+                $score  = min( 45, (int) round( (int) $words / 40 ) );
+                $score += min( 25, (int) $h2 * 5 );
+                $score += min( 20, (int) $questions * 5 );
+                $score += $h1 > 0 ? 10 : 0;
+                return max( 0, min( 100, $score ) );
+        }
+
+        /**
+         * What this page does NOT have — the checklist for a better page.
+         *
+         * @param int   $words     Word count.
+         * @param array $headings  h1/h2/h3 lists.
+         * @param array $questions Question headings.
+         * @return array<int,string>
+         */
+        private static function missing_signals( $words, $headings, $questions ) {
+                $out = array();
+                if ( empty( $headings['h1'] ) ) {
+                        $out[] = __( 'بدون H1', 'hami-ai-assistant' );
+                }
+                if ( (int) $words < 600 ) {
+                        $out[] = __( 'متن کم‌حجم (زیر ۶۰۰ کلمه)', 'hami-ai-assistant' );
+                }
+                if ( count( (array) $headings['h2'] ) < 3 ) {
+                        $out[] = __( 'ساختار سرفصل ضعیف (کمتر از ۳ H2)', 'hami-ai-assistant' );
+                }
+                if ( empty( $headings['h3'] ) ) {
+                        $out[] = __( 'بدون زیرسرفصل', 'hami-ai-assistant' );
+                }
+                if ( ! $questions ) {
+                        $out[] = __( 'بدون بخش پرسش/FAQ', 'hami-ai-assistant' );
+                }
+                return $out;
         }
 
         /* ------------------------------------------------------------------
@@ -802,7 +974,9 @@ final class Haa_Research {
                                 $delay = max( $delay, (int) ( (float) $rules['crawl_delay'] * 1000 ) );
                         }
 
-                        $found = self::discover( $site['url'], $max_pages );
+                        $found = ! empty( $site['exact'] )
+                                ? array( (string) $site['url'] )   // An exact page: that page, nothing else.
+                                : self::discover( $site['url'], $max_pages );
                         if ( ! $found ) {
                                 $errors[] = $site['host'] . ': ' . __( 'صفحه‌ای قابل خواندن پیدا نشد.', 'hami-ai-assistant' );
                                 continue;
@@ -827,7 +1001,7 @@ final class Haa_Research {
                         }
 
                         if ( $collected ) {
-                                $sites[ $site['host'] ] = $collected;
+                                $sites[ (string) $site['url'] ] = $collected; // One seed = one row, path included.
                         }
                 }
 
@@ -856,7 +1030,11 @@ final class Haa_Research {
                         'ai_keywords' => $ai_snap ? array_slice( (array) ( $ai_snap['ai_keywords'] ?? array() ), 0, 24 ) : array(),
                 );
 
-                update_option( self::SNAPSHOT, $snapshot, 'no' );
+                // No storage, by design: the panel is rendered from this very request.
+                // A legacy row from <= 2.1.43 is deleted here so an upgrade leaves no
+                // competitor data behind in wp_options.
+                self::remember( $snapshot );
+                delete_option( self::SNAPSHOT );
 
                 if ( $partial ) {
                         $snapshot['errors'][] = __( 'زمان این اجرا تمام شد؛ «تحلیل رقبا» را دوباره بزنید تا ادامه یابد.', 'hami-ai-assistant' );
@@ -873,27 +1051,32 @@ final class Haa_Research {
         }
 
         /**
-         * @return array Compiled snapshot, empty array when never built.
+         * The analysis built earlier in THIS request, else nothing.
+         *
+         * Nothing is read from the database on purpose: a reload starts clean, so no
+         * competitor structure can outlive the screen the admin was looking at.
+         *
+         * @return array
          */
         public static function snapshot() {
-                $s = get_option( self::SNAPSHOT, null );
-                if ( ! is_array( $s ) ) {
-                        return array();
-                }
+                return is_array( self::$last ) ? self::$last : array();
+        }
 
-                // Age out a stale snapshot instead of feeding the model month-old data.
-                $hours = max( 1, (int) ( self::config()['cache_hours'] ?? 72 ) );
-                $made  = strtotime( (string) ( $s['generated'] ?? '' ) );
-                if ( ! $made || $made < time() - ( $hours * HOUR_IN_SECONDS ) ) {
-                        return array();
-                }
-
-                return $s;
+        /**
+         * Replace the in-request result (the analyze path, the AI path, and the
+         * regression suite all go through here — one place, no option write).
+         *
+         * @param array $snap Compiled snapshot.
+         * @return void
+         */
+        public static function remember( $snap ) {
+                self::$last = is_array( $snap ) ? $snap : null;
         }
 
         /** @return void */
         public static function drop_snapshot() {
-                delete_option( self::SNAPSHOT );
+                self::$last = null;
+                delete_option( self::SNAPSHOT ); // Legacy rows written before 2.1.44.
         }
 
         /** @return array<int,string> */
@@ -1092,12 +1275,16 @@ final class Haa_Research {
                 }
 
                 $rows = array();
-                foreach ( (array) ( $snap['sites'] ?? array() ) as $host => $pages ) {
+                foreach ( (array) ( $snap['sites'] ?? array() ) as $seed => $pages ) {
                         $list     = array_values( (array) $pages );
                         $words    = 0;
                         $counted  = 0;
                         $titles   = array();
                         $headings = array();
+                        $urls     = array();
+                        $richness = 0;
+                        $intents  = array();
+                        $missing  = array();
 
                         foreach ( $list as $p ) {
                                 if ( ! is_array( $p ) ) {
@@ -1117,14 +1304,29 @@ final class Haa_Research {
                                                 $headings[] = $h;
                                         }
                                 }
+                                if ( '' !== (string) ( $p['url'] ?? '' ) ) {
+                                        $urls[] = (string) $p['url'];
+                                }
+                                $richness = max( $richness, (int) ( $p['richness'] ?? 0 ) );
+                                $intent   = (string) ( $p['intent'] ?? 'mixed' );
+                                $intents[ $intent ] = ( isset( $intents[ $intent ] ) ? $intents[ $intent ] : 0 ) + 1;
+                                foreach ( (array) ( $p['missing'] ?? array() ) as $m ) {
+                                        $missing[ (string) $m ] = true;
+                                }
                         }
+                        arsort( $intents );
 
                         $rows[] = array(
                                 // AI-mode rows have words=0 (the model only reports
                                 // structure); an average of 0 renders as «—».
-                                'host'     => (string) $host,
+                                'host'     => (string) ( wp_parse_url( (string) $seed, PHP_URL_HOST ) ?: $seed ),
+                                'seed'     => (string) $seed,
                                 'pages'    => count( $list ),
                                 'avg_words' => $counted ? (int) round( $words / $counted ) : 0,
+                                'richness' => $richness,
+                                'intent'   => $intents ? (string) key( $intents ) : 'mixed',
+                                'missing'  => array_slice( array_keys( $missing ), 0, 6 ),
+                                'urls'     => array_slice( array_values( array_unique( $urls ) ), 0, 8 ),
                                 'titles'   => array_slice( array_unique( $titles ), 0, 6 ),
                                 'headings' => array_slice( array_unique( $headings ), 0, 8 ),
                         );

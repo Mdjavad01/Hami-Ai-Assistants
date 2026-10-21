@@ -199,7 +199,7 @@ function set_snapshot( $headings, $sites = null, $terms = array(), $questions = 
                         ),
                 ),
         );
-        update_option( Haa_Research::SNAPSHOT, array(
+        Haa_Research::remember( array(
                 'generated' => $generated ?? date( 'Y-m-d H:i:s' ),
                 'pages'     => array_sum( array_map( 'count', $sites ) ),
                 'partial'   => false,
@@ -223,14 +223,14 @@ $GLOBALS['opts'][ HAAI_OPTION ]['research']['competitors'] = $raw;
 $sites = Haa_Research::competitors();
 ok( "{$tag}: three hosts parsed from mixed input", 3 === count( $sites ), 'got ' . count( $sites ) );
 ok( "{$tag}: bare domain gets https origin", 'https://example.com' === $sites[0]['url'] && 'example.com' === $sites[0]['host'] );
-ok( "{$tag}: full URL accepted and reduced to its origin", 'https://rival.ir' === $sites[1]['url'] && 'rival.ir' === $sites[1]['host'] );
+ok( "{$tag}: full URL keeps its path (exact page)", 'https://rival.ir/blog/post-1' === $sites[1]['url'] && 'rival.ir' === $sites[1]['host'] && true === $sites[1]['exact'] );
 ok( "{$tag}: www host kept distinct", 'www.rival.ir' === $sites[2]['host'] );
 ok( "{$tag}: mailto dropped, not repaired", ! in_array( 'x@y.z', wp_list_pluck( $sites, 'host' ), true ) );
 
-/* Save-side contract: the settings textarea stores HOSTS ONLY (deliberate —
- * the crawl starts at the origin). The new hint text must say exactly that. */
+/* Save-side contract: the textarea keeps a path when the admin typed one, and
+ * stores a bare domain as a domain. This is what makes «exact URL» survive a save. */
 $saved = Haa_Settings::sanitize_url_list( "https://rival.ir/blog/post-1\nexample.com" );
-ok( "{$tag}: save keeps hosts only, one per line", "rival.ir\nexample.com" === $saved, var_export( $saved, true ) );
+ok( "{$tag}: save keeps the path, one per line", "https://rival.ir/blog/post-1\nhttps://example.com" === $saved, var_export( $saved, true ) );
 
 $fields = Haa_Research::fields();
 $hint   = '';
@@ -239,15 +239,15 @@ foreach ( $fields as $f ) {
                 $hint = $f['hint'];
         }
 }
-ok( "{$tag}: hint names full URLs explicitly", false !== strpos( $hint, 'URL' ) );
-ok( "{$tag}: hint explains the domain reduction", false !== strpos( $hint, 'دامنه' ) );
+ok( "{$tag}: hint shows an exact-page example", false !== strpos( $hint, 'example.com/blog/post' ) );
+ok( "{$tag}: hint explains sitemap discovery for domains", false !== strpos( $hint, 'سایتمپ' ) );
 
 /* ===================================================================== */
 /* 2. related_headings(): the extracted matcher.                           */
 /* ===================================================================== */
 $tag = 'related';
 
-delete_option( Haa_Research::SNAPSHOT );
+Haa_Research::remember( array() );
 ok( "{$tag}: no snapshot → empty", array() === Haa_Research::related_headings( 'فرش دستباف' ) );
 
 set_snapshot( array(
@@ -263,10 +263,16 @@ ok( "{$tag}: cap respected", 1 === count( Haa_Research::related_headings( 'فر�
 ok( "{$tag}: no overlap → empty", array() === Haa_Research::related_headings( 'زیورآلات طلا' ) );
 ok( "{$tag}: empty keyword → empty", array() === Haa_Research::related_headings( '' ) );
 
-update_option( Haa_Research::SNAPSHOT, array_merge( get_option( Haa_Research::SNAPSHOT ), array(
-        'generated' => date( 'Y-m-d H:i:s', time() - 10 * DAY_IN_SECONDS ),
-) ) );
-ok( "{$tag}: stale snapshot aged out → empty", array() === Haa_Research::related_headings( 'فرش دستباف' ) );
+/* A row written by an older version must NOT come back: the analysis is
+ * never read from wp_options any more. */
+$GLOBALS['opts'][ Haa_Research::SNAPSHOT ] = array(
+        'generated' => date( 'Y-m-d H:i:s' ),
+        'sites'     => array(),
+        'headings'  => array( 'قیمت فرش دستباف' ),
+);
+Haa_Research::remember( array() );
+ok( "{$tag}: a legacy option row is ignored", array() === Haa_Research::related_headings( 'فرش دستباف' ) );
+unset( $GLOBALS['opts'][ Haa_Research::SNAPSHOT ] );
 delete_option( Haa_Research::SNAPSHOT );
 
 /* ===================================================================== */
@@ -274,7 +280,7 @@ delete_option( Haa_Research::SNAPSHOT );
 /* ===================================================================== */
 $tag = 'digest';
 
-delete_option( Haa_Research::SNAPSHOT );
+Haa_Research::remember( array() );
 $empty = Haa_Research::result_digest();
 ok( "{$tag}: empty snapshot → empty shape", array() === $empty['rows'] && 0 === $empty['sites'] && '' === $empty['mode'] );
 
@@ -317,7 +323,7 @@ set_snapshot( array(
 ) );
 $gaps = Haa_Research::gaps( 10 );
 ok( "{$tag}: partial overlap surfaces as a gap", 1 === count( $gaps ) && 'فرش دستباف تبریز قیمت ارزان' === $gaps[0]['heading'], 'count=' . count( $gaps ) );
-delete_option( Haa_Research::SNAPSHOT );
+Haa_Research::remember( array() );
 ok( "{$tag}: no snapshot → no gaps", array() === Haa_Research::gaps( 10 ) );
 
 /* ===================================================================== */
@@ -374,11 +380,9 @@ ok( "{$tag}: plan prompt carries related competitor headings", null !== $outline
 ok( "{$tag}: plan prompt carries the site's content gaps", null !== $outline_call && false !== strpos( $outline_call['user'], 'شکاف‌های محتوایی سایت ما' ) && false !== strpos( $outline_call['user'], 'فرش دستباف تبریز قیمت ارزان' ) );
 ok( "{$tag}: operation tagged for the usage ledger", null !== $outline_call && 'outline' === $outline_call['operation'] );
 
-/* No fresh snapshot → neither block appears; the prompt stays honest. */
+/* No analysis in this request → neither block appears; the prompt stays honest. */
 $GLOBALS['captured'] = array();
-update_option( Haa_Research::SNAPSHOT, array_merge( get_option( Haa_Research::SNAPSHOT ), array(
-        'generated' => date( 'Y-m-d H:i:s', time() - 10 * DAY_IN_SECONDS ),
-) ) );
+Haa_Research::remember( array() );
 Haa_Pipeline::outline( array(
         'title'   => 'خرید فرش دستباف تبریز',
         'keyword' => 'فرش دستباف',
@@ -390,7 +394,7 @@ foreach ( $GLOBALS['captured'] as $c ) {
                 $outline_call2 = $c;
         }
 }
-ok( "{$tag}: stale snapshot → no competitor block, no crash", null !== $outline_call2 && false === strpos( $outline_call2['user'], 'سایت‌های رقیب' ) && false === strpos( $outline_call2['user'], 'شکاف‌های محتوایی سایت ما' ) );
+ok( "{$tag}: no analysis → no competitor block, no crash", null !== $outline_call2 && false === strpos( $outline_call2['user'], 'سایت‌های رقیب' ) && false === strpos( $outline_call2['user'], 'شکاف‌های محتوایی سایت ما' ) );
 $GLOBALS['fake_reply']   = '';
 $GLOBALS['fake_site_map'] = array( 'posts' => 0, 'intents' => array(), 'titles' => array() );
 delete_option( Haa_Research::SNAPSHOT );
@@ -411,21 +415,21 @@ ok( "{$tag}: panel shows read headings per site", false !== strpos( $awp, 'صف�
 ok( "{$tag}: panel shows shared terms", false !== strpos( $awp, 'واژه‌هایی که در سرفصل‌های رقبا بیشترین تکرار را دارند' ) );
 ok( "{$tag}: panel shows competitor questions", false !== strpos( $awp, 'سؤال که رقبا در سرفصل‌هایشان پاسخ داده‌اند' ) );
 ok( "{$tag}: the «where the result goes» map exists", false !== strpos( $awp, 'نتیجه کجا می‌رود؟' ) );
-ok( "{$tag}: map names the queue plan, the gate, the keywords panel", false !== strpos( $awp, 'صف تولید محتوا' ) && false !== strpos( $awp, 'ساختار شبیه رقیب' ) && false !== strpos( $awp, 'کلمات کلیدی' ) );
-ok( "{$tag}: empty-headings fallback hint added", false !== strpos( $awp, 'هنوز سرفصلی از رقبا خوانده نشده' ) );
+ok( "{$tag}: map names the export, the gate, and the honest limit", false !== strpos( $awp, 'تنها نسخه‌ای که می‌ماند' ) && false !== strpos( $awp, 'ساختار شبیه رقیب' ) && false !== strpos( $awp, 'خروجی CSV' ) );
+ok( "{$tag}: empty-headings fallback hint added", false !== strpos( $awp, 'از رقبا هیچ سرفصلی خوانده نشد' ) );
 ok( "{$tag}: no-sites warn now speaks URL too", false !== strpos( $awp, 'دامنه یا URL کامل' ) );
 ok( "{$tag}: research panel still refreshable via AJAX", false !== strpos( $awp, 'data-haai-refresh="haai-research-panel"' ) );
 ok( "{$tag}: panel anchor id intact", false !== strpos( $awp, 'id="haai-research-panel"' ) );
 
-ok( "{$tag}: hint text in fields() promises URL acceptance", false !== strpos( $rsp, 'آدرس کامل (URL)' ) );
+ok( "{$tag}: hint text in fields() shows an exact page", false !== strpos( $rsp, 'example.com/blog/post' ) );
 ok( "{$tag}: related_headings() exists", false !== strpos( $rsp, 'public static function related_headings(' ) );
 ok( "{$tag}: result_digest() exists", false !== strpos( $rsp, 'public static function result_digest(' ) );
 ok( "{$tag}: brief() now rides the shared matcher", false !== strpos( $rsp, 'self::related_headings(' ) );
 ok( "{$tag}: pipeline outline pulls related headings", false !== strpos( $pipe, 'Haa_Research::related_headings(' ) );
 ok( "{$tag}: pipeline outline pulls gaps", false !== strpos( $pipe, 'Haa_Research::gaps( 6 )' ) );
 
-ok( "{$tag}: version header is 2.1.44", false !== strpos( $main, '2.1.44' ) );
-ok( "{$tag}: HAAI_VERSION constant is 2.1.44", false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.44' )" ) );
+ok( "{$tag}: version header is 2.1.45", false !== strpos( $main, '2.1.45' ) );
+ok( "{$tag}: HAAI_VERSION constant is 2.1.45", false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.45' )" ) );
 
 echo "\n--- suite 44: research has a head and a tail (2.1.42) ---\n";
 echo "passed: {$GLOBALS['passed']}, failed: {$GLOBALS['failed']}\n";

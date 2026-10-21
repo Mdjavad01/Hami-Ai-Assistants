@@ -813,7 +813,7 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                         </h2>
 
                         <p class="haai-panel__note">
-                                <?php esc_html_e( 'از صفحات رقبا فقط ساختار خوانده می‌شود: عنوان صفحه، سرفصل‌ها، تعداد کلمه و واژه‌های پرکاربرد. متن صفحه جایی ذخیره یا به مدل داده نمی‌شود.', 'hami-ai-assistant' ); ?>
+                                <?php esc_html_e( 'از صفحات رقبا فقط ساختار خوانده می‌شود: عنوان، سرفصل‌ها، تعداد کلمه، واژه‌های پرکاربرد و نیت جست‌وجو. متن صفحه نه ذخیره می‌شود و نه به مدل می‌رود. نتیجه هم در دیتابیس نمی‌ماند: فقط تا وقتی همین صفحه باز است دیده می‌شود — قبل از رفتن، خروجی CSV بگیرید.', 'hami-ai-assistant' ); ?>
                         </p>
 
                         <?php if ( ! $enabled ) : ?>
@@ -849,7 +849,9 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                 <?php if ( $sites ) : ?>
                                         <div class="haai-chips">
                                                 <?php foreach ( $sites as $site ) : ?>
-                                                        <span class="haai-chip haai-chip--on"><?php echo esc_html( $site['host'] ); ?></span>
+                                                        <span class="haai-chip haai-chip--on" title="<?php echo esc_attr( $site['exact'] ? __( 'صفحه‌ی دقیق — فقط همین آدرس خوانده می‌شود', 'hami-ai-assistant' ) : __( 'دامنه — صفحه‌ها از سایتمپ پیدا می‌شوند', 'hami-ai-assistant' ) ); ?>">
+                                                                <?php echo esc_html( $site['exact'] ? $site['url'] : $site['host'] ); ?>
+                                                        </span>
                                                 <?php endforeach; ?>
                                         </div>
                                 <?php endif; ?>
@@ -886,10 +888,21 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                        * snapshot; nothing new is fetched here. */ ?>
                                 <?php if ( $digest['rows'] ) : ?>
                                         <h3 class="haai-plan__subtitle"><?php esc_html_e( 'نتیجهٔ تحلیل', 'hami-ai-assistant' ); ?></h3>
+                                        <?php
+                                        $intent_fa = array(
+                                                'transactional' => __( 'خرید/تراکنشی', 'hami-ai-assistant' ),
+                                                'commercial'    => __( 'مقایسه‌ای/تجاری', 'hami-ai-assistant' ),
+                                                'informational' => __( 'اطلاعاتی', 'hami-ai-assistant' ),
+                                                'mixed'         => __( 'ترکیبی', 'hami-ai-assistant' ),
+                                        );
+                                        ?>
                                         <div class="haai-cards">
                                                 <?php foreach ( $digest['rows'] as $row ) : ?>
                                                         <div class="haai-card">
                                                                 <div class="haai-card__value"><?php echo esc_html( $row['host'] ); ?></div>
+                                                                <?php if ( ! empty( $row['seed'] ) && false !== strpos( (string) $row['seed'], '/', 8 ) ) : ?>
+                                                                        <div class="haai-field__hint" title="<?php echo esc_attr( (string) $row['seed'] ); ?>"><?php echo esc_html( (string) $row['seed'] ); ?></div>
+                                                                <?php endif; ?>
                                                                 <div class="haai-card__label">
                                                                         <?php
                                                                         printf(
@@ -909,10 +922,33 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                                         }
                                                                         ?>
                                                                 </div>
+                                                                <?php if ( ! empty( $row['richness'] ) ) : ?>
+                                                                        <div class="haai-field__hint">
+                                                                                <?php
+                                                                                printf(
+                                                                                        /* translators: %d: 0-100 completeness score. */
+                                                                                        esc_html__( 'غنای ساختار: %d از ۱۰۰', 'hami-ai-assistant' ),
+                                                                                        (int) $row['richness']
+                                                                                );
+                                                                                echo ' · ' . esc_html( $intent_fa[ (string) $row['intent'] ] ?? $intent_fa['mixed'] );
+                                                                                ?>
+                                                                        </div>
+                                                                <?php endif; ?>
+                                                                <?php if ( ! empty( $row['missing'] ) ) : ?>
+                                                                        <div class="haai-field__hint"><?php esc_html_e( 'چه چیزی کم دارد:', 'hami-ai-assistant' ); ?></div>
+                                                                        <div class="haai-chips">
+                                                                                <?php foreach ( (array) $row['missing'] as $m ) : ?>
+                                                                                        <span class="haai-chip"><?php echo esc_html( (string) $m ); ?></span>
+                                                                                <?php endforeach; ?>
+                                                                        </div>
+                                                                <?php endif; ?>
                                                                 <?php if ( $row['titles'] || $row['headings'] ) : ?>
                                                                         <details>
                                                                                 <summary class="haai-field__hint"><?php esc_html_e( 'صفحه‌ها و سرفصل‌های خوانده‌شده', 'hami-ai-assistant' ); ?></summary>
                                                                                 <ul class="haai-diag__list">
+                                                                                        <?php foreach ( (array) $row['urls'] as $u ) : ?>
+                                                                                                <li><span class="haai-field__hint"><?php echo esc_html( (string) $u ); ?></span></li>
+                                                                                        <?php endforeach; ?>
                                                                                         <?php foreach ( $row['titles'] as $t ) : ?>
                                                                                                 <li><?php echo esc_html( $t ); ?></li>
                                                                                         <?php endforeach; ?>
@@ -925,6 +961,14 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                         </div>
                                                 <?php endforeach; ?>
                                         </div>
+
+                                        <?php /* The export is the only artefact that survives: built in the
+                                               * browser from the payload printed here. Nothing is written server-side. */ ?>
+                                        <p class="haai-plan__actions">
+                                                <button type="button" class="button" data-haai-csv-from="haai-rs-export"><?php esc_html_e( 'خروجی CSV (اکسل)', 'hami-ai-assistant' ); ?></button>
+                                                <span class="haai-field__hint"><?php esc_html_e( 'از همین صفحه ساخته می‌شود؛ روی سرور چیزی ذخیره نمی‌شود.', 'hami-ai-assistant' ); ?></span>
+                                        </p>
+                                        <script type="application/json" id="haai-rs-export"><?php echo wp_json_encode( $digest['rows'], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP ); // phpcs:ignore WordPress.Security.EscapeOutput -- JSON payload, hex-encoded tags. ?></script>
 
                                         <?php if ( $digest['terms'] ) : ?>
                                                 <p class="haai-field__hint"><?php esc_html_e( 'واژه‌هایی که در سرفصل‌های رقبا بیشترین تکرار را دارند:', 'hami-ai-assistant' ); ?></p>
@@ -951,10 +995,9 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                        * actually goes. Four real consumers, named panels, no jargon. */ ?>
                                 <h3 class="haai-plan__subtitle"><?php esc_html_e( 'نتیجه کجا می‌رود؟', 'hami-ai-assistant' ); ?></h3>
                                 <ul class="haai-diag__list">
-                                        <li><?php esc_html_e( '«شکاف‌های محتوایی» پایین همین پنل: سرفصل‌هایی که رقبا دارند و شما ندارید — با یک کلیک به برنامه‌ریز موضوع اضافه می‌شوند.', 'hami-ai-assistant' ); ?></li>
-                                        <li><?php esc_html_e( 'طرح هر مقاله در «صف تولید مقاله»: سرفصل‌های مرتبط رقبا و شکاف‌ها به‌صورت خودکار وارد پرامپت طرح می‌شوند؛ تحلیل تازه = طرح آگاهانه‌تر.', 'hami-ai-assistant' ); ?></li>
-                                        <li><?php esc_html_e( 'گیت «ساختار شبیه رقیب» هنگام ساخت مقاله: اگر طرح، کپی سرفصل‌های رقیب باشد هشدار می‌دهد.', 'hami-ai-assistant' ); ?></li>
-                                        <li><?php esc_html_e( 'پنل «کلمات کلیدی»: اگر «پژوهش هوشمند» فعال باشد، واژه‌های تحلیل به پیشنهادها اضافه می‌شود.', 'hami-ai-assistant' ); ?></li>
+                                        <li><?php esc_html_e( '«خروجی CSV (اکسل)» بالا: تنها نسخه‌ای که می‌ماند — از همین صفحه ساخته می‌شود، نه از دیتابیس.', 'hami-ai-assistant' ); ?></li>
+                                        <li><?php esc_html_e( '«شکاف‌های محتوایی» پایین همین پنل: با یک کلیک به برنامه‌ریز اضافه می‌شوند؛ سرفصل‌ها همراه همان فرم می‌روند و ذخیره‌ای لازم نیست.', 'hami-ai-assistant' ); ?></li>
+                                        <li><?php esc_html_e( 'طرح مقاله و گیت «ساختار شبیه رقیب» عمداً از این تحلیل تغذیه نمی‌شوند، چون چیزی ذخیره نمی‌شود. در گام بعد، سرفصل‌های انتخابی همراه خودِ موضوع به صف فرستاده می‌شوند.', 'hami-ai-assistant' ); ?></li>
                                 </ul>
 
                                 <?php if ( ! empty( $snap['errors'] ) ) : ?>
@@ -987,9 +1030,11 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                                                 <button type="submit" class="button"><?php esc_html_e( 'افزودن انتخاب‌ها به برنامه‌ریز', 'hami-ai-assistant' ); ?></button>
                                         </form>
                                 <?php elseif ( $snap && ! empty( $snap['headings'] ) ) : ?>
-                                        <p class="haai-empty__hint"><?php esc_html_e( 'شکاف تازه‌ای پیدا نشد؛ یا رقبا موضوعات مشابه شما را پوشش داده‌اند یا تحلیل هنوز ساخته نشده است.', 'hami-ai-assistant' ); ?></p>
+                                        <p class="haai-empty__hint"><?php esc_html_e( 'شکاف تازه‌ای پیدا نشد؛ یا رقبا موضوعات مشابه شما را پوشش داده‌اند یا همه‌ی سرفصل‌ها در سایت شما هست.', 'hami-ai-assistant' ); ?></p>
                                 <?php elseif ( $snap ) : ?>
-                                        <p class="haai-empty__hint"><?php esc_html_e( 'هنوز سرفصلی از رقبا خوانده نشده؛ «ساخت تحلیل» را بزنید.', 'hami-ai-assistant' ); ?></p>
+                                        <p class="haai-empty__hint"><?php esc_html_e( 'از رقبا هیچ سرفصلی خوانده نشد؛ علتش را در «مورد رد یا خطا» ببینید. اگر آدرس را با مسیر کامل (مثلاً یک مقاله‌ی خاص) داده‌اید، فقط همان صفحه خوانده می‌شود.', 'hami-ai-assistant' ); ?></p>
+                                <?php else : ?>
+                                        <p class="haai-empty__hint"><?php esc_html_e( 'روی این صفحه تحلیلی نیست. نتیجه عمداً ذخیره نمی‌شود؛ هر بار باید «ساخت تحلیل» را بزنید و اگر می‌خواهید نگهش دارید، خروجی CSV بگیرید.', 'hami-ai-assistant' ); ?></p>
                                 <?php endif; ?>
                         <?php endif; ?>
                 </div>
@@ -2125,6 +2170,18 @@ final class Haa_Module_Article_Writer implements Haa_Module_Interface {
                 }
                 if ( ! empty( $r['errors'] ) ) {
                         $msg .= ' ' . sprintf( /* translators: %d: count. */ __( '%d مورد رد/خطا داشت.', 'hami-ai-assistant' ), count( $r['errors'] ) );
+                }
+
+                // The analysis is not stored anywhere, so it must travel back with THIS
+                // response: the panel is rendered here (it reads the in-request result)
+                // and admin.js swaps it in. A reload starts clean, by design.
+                if ( Haa_Ajax_Form::wants() ) {
+                        ob_start();
+                        $this->render_research_panel();
+                        $GLOBALS['haai_ajax_extra'] = array(
+                                'target' => 'haai-research-panel',
+                                'html'   => (string) ob_get_clean(),
+                        );
                 }
 
                 $this->back( $msg, empty( $r['sites'] ) );

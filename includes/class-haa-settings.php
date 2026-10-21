@@ -1705,12 +1705,15 @@ final class Haa_Settings {
         }
 
         /**
-         * Newline-separated list of http(s) URLs, deduped by host, capped.
+         * Newline-separated competitor seeds, deduped by full URL, capped at 10.
          *
-         * Kept as a string (not an array) because the field is a textarea and
-         * Haa_Research::competitors() splits it again. Only the scheme/host is
-         * trusted here; the SSRF decision is made at request time in Haa_API,
-         * because a domain that is public today can point at 127.0.0.1 tomorrow.
+         * A line with a path is stored WITH the path: "how rich is this exact page"
+         * is a question the panel must be able to ask. A bare domain stays a domain
+         * (the crawl discovers its pages from the sitemap). Kept as a string because
+         * the field is a textarea and Haa_Research::competitors() splits it again.
+         * Only scheme/host/path are trusted here; the SSRF decision is made at
+         * request time in Haa_API, because a host that is public today can point at
+         * 127.0.0.1 tomorrow.
          *
          * @param mixed $raw Textarea value or array.
          * @return string
@@ -1720,8 +1723,8 @@ final class Haa_Settings {
                         $raw = preg_split( '/[,\r\n]+/u', (string) $raw );
                 }
 
-                $out   = array();
-                $hosts = array();
+                $out  = array();
+                $seen = array();
                 foreach ( (array) $raw as $line ) {
                         $line = trim( (string) $line );
                         if ( '' === $line ) {
@@ -1739,11 +1742,21 @@ final class Haa_Settings {
                                 continue;
                         }
                         $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
-                        if ( '' === $host || isset( $hosts[ $host ] ) ) {
+                        if ( '' === $host ) {
                                 continue;
                         }
-                        $hosts[ $host ] = true;
-                        $out[]          = $host;
+
+                        $path = trim( (string) wp_parse_url( $url, PHP_URL_PATH ), '/' );
+                        $seed = '' !== $path
+                                ? wp_parse_url( $url, PHP_URL_SCHEME ) . '://' . $host . '/' . $path
+                                : wp_parse_url( $url, PHP_URL_SCHEME ) . '://' . $host;
+
+                        $key = strtolower( $seed );
+                        if ( isset( $seen[ $key ] ) ) {
+                                continue;
+                        }
+                        $seen[ $key ] = true;
+                        $out[]        = $seed;
                         if ( count( $out ) >= 10 ) {
                                 break;
                         }

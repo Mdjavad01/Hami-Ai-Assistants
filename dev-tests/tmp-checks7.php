@@ -88,13 +88,13 @@ research_set(
 $list = Haa_Research::competitors();
 $hosts = wp_list_pluck( (array) $list, 'host' );
 ok( 'bare domain gets https scheme', in_array( 'example-a.com', $hosts, true ), implode( ',', $hosts ) );
-ok( 'same host twice collapses to one', 1 === substr_count( implode( ',', $hosts ), 'example-a.com' ) );
+ok( 'two pages of one host stay separate seeds', 2 === substr_count( implode( ',', $hosts ), 'example-a.com' ) );
 ok( 'scheme already present is kept', in_array( '8.8.8.8', $hosts, true ) );
 ok( 'javascript: URL dropped', ! in_array( 'javascript', $hosts, true ) && ! in_array( 'alert(1)', $hosts, true ) );
 ok( 'mailto: URL dropped', ! in_array( 'mailto', $hosts, true ) );
-ok( 'no garbage host survived', 3 === count( $list ), implode( ',', $hosts ) );
+ok( 'no garbage host survived', 4 === count( $list ), implode( ',', $hosts ) );
 ok( 'every survivor is a plain host', ! (bool) preg_grep( '/[:@\\/]/', $hosts ) );
-ok( 'url stored as origin only, no path', $A === $list[ array_search( '8.8.8.8', $hosts, true ) ]['url'] );
+ok( 'bare seed keeps the origin, exact seed keeps its path', $A === $list[ array_search( '8.8.8.8', $hosts, true ) ]['url'] && in_array( 'https://example-a.com/shop', wp_list_pluck( $list, 'url' ), true ) );
 
 research_reset();
 $many = array();
@@ -110,9 +110,9 @@ ok( 'competitor list capped at 10', 10 === count( Haa_Research::competitors() ),
 echo "=== B. sanitize_url_list ===\n";
 $clean = Haa_Settings::sanitize_url_list( "https://a.com/x\nb.com,, https://a.com\nhttp://c.com" );
 ok( 'returns a newline string', is_string( $clean ) );
-ok( 'deduped by host', 1 === substr_count( $clean, 'a.com' ) );
+ok( 'origin and exact page are two seeds', 2 === substr_count( $clean, 'a.com' ) && 1 === substr_count( $clean, 'https://a.com/x' ) );
 ok( 'comma-separated accepted', false !== strpos( $clean, 'b.com' ) );
-ok( 'path stripped to host', false === strpos( $clean, '/x' ) );
+ok( 'path kept, not stripped', false !== strpos( $clean, '/x' ) );
 $map = Haa_Settings::sanitize_map();
 ok( 'every research key has a sanitizer', count( Haa_Settings::defaults()['research'] ) === count( array_filter( array_keys( $map ), function ( $k ) { return 0 === strpos( (string) $k, 'research.' ); } ) ) );
 ok( 'research off by default', empty( Haa_Settings::defaults()['research']['enabled'] ) );
@@ -345,7 +345,7 @@ http_mock( '8.8.4.4', array( 'code' => 200, 'body' => competitor_page( 'B' ) ) )
 $res = Haa_Research::analyze( true );
 ok( 'run reported ok', ! empty( $res['ok'] ) );
 ok( 'two sites collected', 2 === (int) $res['sites'], (string) $res['sites'] );
-ok( 'snapshot option written', is_array( get_option( Haa_Research::SNAPSHOT, null ) ) );
+ok( 'nothing is written to the option', false === get_option( Haa_Research::SNAPSHOT, false ) );
 $snap = Haa_Research::snapshot();
 ok( 'snapshot has headings index', ! empty( $snap['headings'] ) );
 ok( 'snapshot has shared terms', ! empty( $snap['terms'] ) );
@@ -381,18 +381,33 @@ http_mock( '8.8.8.8', array( 'code' => 200, 'body' => competitor_page( 'A' ) ) )
 Haa_Research::analyze( true );
 $before = count( http_requests() );
 Haa_Research::analyze( false );
-ok( 'non-forced run reuses cache', $before === count( http_requests() ) );
+ok( 'non-forced run reuses the in-request result', $before === count( http_requests() ) );
 
-// Staleness: an old snapshot must not be served.
+echo "=== K. sitemap index ===\n";
+research_reset();
+research_set( array( 'enabled' => 1, 'respect_robots' => 0, 'competitors' => 'https://rival.test', 'delay_ms' => 200, 'max_pages' => 3 ) );
+http_mock( 'rival.test/robots.txt', array( 'code' => 200, 'body' => "User-agent: *\nAllow: /\nSitemap: https://rival.test/sitemap.xml\n" ) );
+http_mock( 'rival.test/sitemap.xml', array( 'code' => 200, 'body' => '<?xml version="1.0"?><sitemapindex><sitemap><loc>https://rival.test/post-sitemap.xml</loc></sitemap><sitemap><loc>https://rival.test/page-sitemap.xml</loc></sitemap></sitemapindex>' ) );
+http_mock( 'rival.test/post-sitemap.xml', array( 'code' => 200, 'body' => '<?xml version="1.0"?><urlset><url><loc>https://rival.test/blog/one</loc></url><url><loc>https://rival.test/blog/two</loc></url></urlset>' ) );
+http_mock( 'rival.test/page-sitemap.xml', array( 'code' => 200, 'body' => '<?xml version="1.0"?><urlset><url><loc>https://rival.test/about</loc></url></urlset>' ) );
+$found = Haa_Research::discover( 'https://rival.test', 3 );
+ok( 'sitemap index expanded to real pages', in_array( 'https://rival.test/blog/one', $found, true ), implode( ',', $found ) );
+ok( 'child sitemaps are never treated as pages', ! in_array( 'https://rival.test/post-sitemap.xml', $found, true ) );
+$xml_page = Haa_Research::page_structure( 'https://rival.test/sitemap.xml' );
+ok( 'an XML document is refused as a page', is_wp_error( $xml_page ) && 'haai_rs_not_html' === $xml_page->get_error_code() );
+
+/* Nothing persists: a legacy option row written by an older version must be
+ * ignored completely (the analysis only lives inside the request). */
 research_reset();
 research_set( array( 'enabled' => 1, 'cache_hours' => 2 ) );
 update_option(
 	Haa_Research::SNAPSHOT,
-	array( 'generated' => gmdate( 'Y-m-d H:i:s', time() - 30 * HOUR_IN_SECONDS ), 'sites' => array( 'x' => array() ), 'pages' => 1, 'headings' => array( 'قدیمی' ) ),
+	array( 'generated' => gmdate( 'Y-m-d H:i:s' ), 'sites' => array( 'x' => array() ), 'pages' => 1, 'headings' => array( 'قدیمی' ) ),
 	'no'
 );
-ok( 'stale snapshot ages out', empty( Haa_Research::snapshot() ) );
-ok( 'stale snapshot reported as not built', false !== strpos( Haa_Research::status_line(), 'تحلیلی' ) );
+Haa_Research::drop_snapshot();
+ok( 'legacy option row is ignored', array() === Haa_Research::snapshot() );
+ok( 'no analysis reported as not built', false !== strpos( Haa_Research::status_line(), 'تحلیلی' ) );
 
 /* =====================================================================
  * I. Gaps
