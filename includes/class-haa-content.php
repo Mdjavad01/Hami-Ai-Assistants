@@ -127,6 +127,8 @@ final class Haa_Content {
 
                 $out .= __( 'نثر (ویرایش حرفه‌ای):', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'مستقیم به مسئلهٔ خرید برو؛ مقدمه‌های عمومی مثل «در دنیای امروز»، «انتخابی بی‌نظیر» و «همراه همیشگی شما» ممنوع است.', 'hami-ai-assistant' ) . "\n"
+                        . '- ' . __( 'سه‌نقطه و فهرست ناتمام («و …»، «مانند …») در متن ممنوع است: هر فهرست را کامل بنویس یا ننویس، و جمله را با نقطه تمام کن.', 'hami-ai-assistant' ) . "\n"
+                        . '- ' . __( 'مخاطب را یکدست خطاب کن (یا «شما» یا «تو») و هر جمله را کامل بنویس؛ عبارت نیمه‌کاره‌ای مثل «شما و ...» در متن نمی‌آید.', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'هر ویژگی را به کاربرد واقعی‌اش وصل کن و محدودیت‌ها را کنار مزایا بیاور.', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'طول جمله و پاراگراف را بر اساس معنا و ریتم خواندن تغییر بده؛ همهٔ بخش‌ها را با یک قالب و طول یکسان نساز.', 'hami-ai-assistant' ) . "\n"
                         . '- ' . __( 'اصطلاح تخصصی را در اولین کاربرد، کوتاه و دقیق توضیح بده و نام‌گذاری را تا پایان متن ثابت نگه دار.', 'hami-ai-assistant' ) . "\n"
@@ -1092,6 +1094,16 @@ final class Haa_Content {
         }
 
         /**
+         * Allowed link destinations, in priority order.
+         *
+         * @return array<int,string>
+         */
+        public static function link_types() {
+                $raw = (array) Haa_Settings::get( 'content.link_types', array( 'product_cat', 'product', 'post', 'page' ) );
+                return array_values( array_intersect( array( 'product_cat', 'product', 'post', 'page' ), array_map( 'strval', $raw ) ) );
+        }
+
+        /**
          * Suggest a few internal links from the site itself so the article is not
          * an island. Only the real index answers, and only when it is actually
          * related: the old `orderby=rand` fetch put theme demo pages and shop
@@ -1114,81 +1126,115 @@ final class Haa_Content {
                         return array();
                 }
 
-                // The index's own relevance floor (existing «کمینه امتیاز» field). On this
-                // BM25 a two-keyword match on a real article scores around 0.4.
-                $floor = (float) Haa_Settings::get( 'search.min_score', 0.3 );
+                // Destination policy, strongest hub first. A type the admin did not tick
+                // never appears — that is how a buying guide stops linking to a repair
+                // tutorial when the shop wants its own catalogue instead.
+                $types = self::link_types();
+                if ( ! $types ) {
+                        return array();
+                }
 
                 $out = array();
-                foreach ( Haa_Search::search( $hint, $count * 3, 4000 ) as $hit ) {
+                $ids = array();
+
+                // 1) Product categories lead (at most half the budget): the strongest
+                // hubs a shop owns, and they need no index row to be found.
+                if ( in_array( 'product_cat', $types, true ) ) {
+                        $cat_cap = max( 1, (int) ceil( $count / 2 ) );
+                        foreach ( self::category_link_hints( $hint, $cat_cap ) as $cat ) {
+                                $out[]                   = $cat;
+                                $ids[ (int) $cat['id'] ] = true;
+                        }
+                }
+
+                // 2) Index hits, bucketed by post type and consumed in policy order, so
+                // a product can never be outranked by a post just because BM25 liked it.
+                $floor   = (float) Haa_Settings::get( 'search.min_score', 0.3 );
+                $buckets = array();
+                $indexed = false;
+                foreach ( Haa_Search::search( $hint, max( 12, $count * 6 ), 4000 ) as $hit ) {
                         $post_id = (int) ( $hit['post_id'] ?? 0 );
-                        if ( ! $post_id || $post_id === (int) $exclude_id ) {
+                        if ( ! $post_id || $post_id === (int) $exclude_id || isset( $ids[ $post_id ] ) ) {
                                 continue;
                         }
-                        if ( (float) ( $hit['score'] ?? 0 ) < $floor || ! self::is_linkable( $post_id ) ) {
+                        if ( (float) ( $hit['score'] ?? 0 ) < $floor ) {
                                 continue;
                         }
-                        $out[] = array(
+                        // The index DID answer; a type it cannot give us must not be
+                        // back-filled from get_posts(), or the tick-boxes would lie.
+                        $indexed = true;
+                        $ptype   = (string) get_post_type( $post_id );
+                        if ( '' === $ptype || ! in_array( $ptype, $types, true ) || ! self::is_linkable( $post_id ) ) {
+                                continue;
+                        }
+                        $buckets[ $ptype ][] = array(
                                 'id'    => $post_id,
                                 'title' => (string) get_the_title( $post_id ),
                                 'url'   => (string) get_permalink( $post_id ),
                         );
-                        if ( count( $out ) >= $count ) {
-                                break;
+                }
+                foreach ( $types as $ptype ) {
+                        if ( 'product_cat' === $ptype ) {
+                                continue;
+                        }
+                        foreach ( (array) ( $buckets[ $ptype ] ?? array() ) as $row ) {
+                                if ( count( $out ) >= $count ) {
+                                        break 2;
+                                }
+                                $out[]                   = $row;
+                                $ids[ (int) $row['id'] ] = true;
                         }
                 }
 
-                if ( ! $out ) {
-                        // Fresh install or the index switched off (Haa_Pipeline::link_targets
-                        // reaches this as its documented fallback). Still keyed to the
-                        // keyword and ordered by relevance — never `rand`, never without a
-                        // hint, and the same blacklist applies. Products join the pool too:
-                        // on a shop, the article's own catalogue is the best link target.
-                        $types = array( 'post', 'page' );
-                        if ( haa_is_woo() ) {
-                                $types[] = 'product';
-                        }
-                        $found = get_posts(
-                                array(
-                                        'post_type'           => $types,
-                                        'post_status'         => 'publish',
-                                        'posts_per_page'      => $count * 3,
-                                        'post__not_in'        => array( (int) $exclude_id ),
-                                        's'                   => Haa_Util::cut( $hint, 80 ),
-                                        'orderby'             => 'relevance',
-                                        'ignore_sticky_posts' => true,
-                                        'no_found_rows'       => true,
-                                )
-                        );
-                        // A theme-demo page can match the keyword in its *body* while being about
-                        // nothing related. In this path no BM25 score vets it, so the title or slug
-                        // must share at least one real word with the keyword — measured on a real
-                        // site where «صفحه اصلی - دمو اصلی» slipped in (BL-16).
-                        $hint_words = (array) Haa_Search::tokenize( Haa_Util::cut( $hint, 80 ) );
-                        foreach ( (array) $found as $p ) {
-                                if ( ! self::is_linkable( (int) $p->ID ) ) {
-                                        continue;
-                                }
-                                if ( $hint_words && ! array_intersect( $hint_words, (array) Haa_Search::tokenize( $p->post_title . ' ' . $p->post_name ) ) ) {
-                                        continue;
-                                }
-                                $out[] = array(
-                                        'id'    => (int) $p->ID,
-                                        'title' => (string) $p->post_title,
-                                        'url'   => (string) get_permalink( $p->ID ),
+                // 3) Empty index (fresh install, semantic search off): the same policy
+                // over get_posts(), with the title-word guard that keeps a theme demo out.
+                if ( ! $indexed && count( $out ) < $count ) {
+                        $allowed = array_values( array_intersect( array( 'post', 'page', 'product' ), $types ) );
+                        if ( $allowed ) {
+                                $found = get_posts(
+                                        array(
+                                                'post_type'           => $allowed,
+                                                'post_status'         => 'publish',
+                                                'posts_per_page'      => $count * 3,
+                                                'post__not_in'        => array( (int) $exclude_id ),
+                                                's'                   => Haa_Util::cut( $hint, 80 ),
+                                                'orderby'             => 'relevance',
+                                                'ignore_sticky_posts' => true,
+                                                'no_found_rows'       => true,
+                                        )
                                 );
+                                // A theme-demo page can match the keyword in its *body* while
+                                // being about nothing related (BL-16): the title or slug must
+                                // share at least one real word with the keyword.
+                                $hint_words = (array) Haa_Search::tokenize( Haa_Util::cut( $hint, 80 ) );
+                                $by_type    = array();
+                                foreach ( (array) $found as $p ) {
+                                        $pid = (int) $p->ID;
+                                        if ( isset( $ids[ $pid ] ) || ! self::is_linkable( $pid ) ) {
+                                                continue;
+                                        }
+                                        if ( $hint_words && ! array_intersect( $hint_words, (array) Haa_Search::tokenize( $p->post_title . ' ' . $p->post_name ) ) ) {
+                                                continue;
+                                        }
+                                        $by_type[ $p->post_type ][] = array(
+                                                'id'    => $pid,
+                                                'title' => (string) $p->post_title,
+                                                'url'   => (string) get_permalink( $pid ),
+                                        );
+                                }
+                                foreach ( $types as $ptype ) {
+                                        foreach ( (array) ( $by_type[ $ptype ] ?? array() ) as $row ) {
+                                                if ( count( $out ) >= $count ) {
+                                                        break 2;
+                                                }
+                                                $out[]                   = $row;
+                                                $ids[ (int) $row['id'] ] = true;
+                                        }
+                                }
                         }
                 }
 
-                // Category hubs close the list: on a shop they are the strongest
-                // archives the site owns, and the topic words decide which ones fit.
-                $missing = $count - count( $out );
-                if ( $missing > 0 ) {
-                        foreach ( self::category_link_hints( $hint, $missing ) as $cat ) {
-                                $out[] = $cat;
-                        }
-                }
-
-                return $out;
+                return array_slice( $out, 0, $count );
         }
 
         /**

@@ -375,6 +375,22 @@ ok( 'targets are real posts only', ! (bool) array_diff( array_map( 'intval', $lm
 ok( 'no link to the article itself', false === strpos( Haa_Pipeline::apply_internal_links( $body, array( 'title' => 'کفش چرم مردانه', 'keyword' => 'کفش چرم', 'post_id' => 500, 'id' => 1 ), (array) Haa_Settings::get( 'article', array() ) ), 'post=500' ) );
 ok( 'same target not linked twice', count( $lm[1] ) === count( array_unique( $lm[1] ) ) );
 
+/* 2.1.46: the admin ticks which destinations may be linked. A type that is
+ * not ticked never appears; an empty list means no link at all. (The stub's
+ * get_post_type() reports every fixture as «page», so the behavioural check
+ * stays on the deterministic branch.) */
+ok( 'link_types() keeps the category → product → post order', array( 'product_cat', 'product', 'post' ) === array_slice( Haa_Content::link_types(), 0, 3 ) );
+
+$s = Haa_Settings::get();
+$s['content']['link_types'] = array();
+update_option( HAAI_OPTION, $s, 'no' );
+Haa_Settings::flush_cache();
+ok( 'no ticked type means no link at all', array() === Haa_Content::internal_links( 0, 'کفش چرم' ) );
+
+$s['content']['link_types'] = array( 'product_cat', 'product', 'post', 'page' );
+update_option( HAAI_OPTION, $s, 'no' );
+Haa_Settings::flush_cache();
+
 $anch = Haa_Pipeline::pick_anchor( 'راهنمای خرید کفش کوهنوردی', 'کفش چرم', array() );
 $anch2 = Haa_Pipeline::pick_anchor( 'راهنمای خرید کفش کوهنوردی', 'کفش چرم', array( $anch => true ) );
 ok( 'anchor varies when first is used', $anch !== $anch2 && '' !== $anch2 );

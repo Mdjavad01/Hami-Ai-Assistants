@@ -205,6 +205,10 @@ final class Haa_Settings {
                                 'image_quality'    => 'standard',
                                 'internal_links'   => 1,
                                 'link_count'       => 3,
+                                // Which targets an article may link to, strongest hub first.
+                                // Default: category → product → post → page. On a shop the first
+                                // two win the budget; on a blog the last two do.
+                                'link_types'       => array( 'product_cat', 'product', 'post', 'page' ),
                                 // Price and stock go stale the moment the shop changes them, so a
                                 // generated page must not repeat them unless the admin asks.
                                 'include_price'    => 0,
@@ -1236,6 +1240,7 @@ final class Haa_Settings {
                         'content.image_quality'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_choice' ), 'choices' => array( 'standard', 'hd' ) ),
                         'content.internal_links'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'content.link_count'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 0, 'max' => 10 ),
+                        'content.link_types'       => array( 'cb' => array( 'Haa_Settings', 'sanitize_key_list' ) ),
                         'content.include_price'    => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
 
                         // Article writer.
@@ -2514,7 +2519,7 @@ final class Haa_Settings {
                         'video-article'    => array( 'video.enabled', 'video.min_chars', 'video.max_words', 'video.default_status', 'video.default_category', 'video.fetch_captions' ),
                         'programmatic'     => array( 'programmatic.enabled', 'programmatic.source', 'programmatic.attribute', 'programmatic.template', 'programmatic.title_template', 'programmatic.min_words', 'programmatic.similar_threshold', 'programmatic.daily_cap', 'programmatic.hub_page', 'programmatic.noindex', 'programmatic.default_status' ),
                         'comments'         => array( 'comments.enabled', 'comments.author_name', 'comments.author_email', 'comments.default_status', 'comments.generate_questions', 'comments.generate_answers', 'comments.max_per_run' ),
-                        'product-content'  => array( 'content.default_language', 'content.default_tone', 'content.default_length', 'content.default_audience', 'content.enable_images', 'content.image_size', 'content.image_style', 'content.image_quality', 'content.internal_links', 'content.link_count', 'content.include_price' ),
+                        'product-content'  => array( 'content.default_language', 'content.default_tone', 'content.default_length', 'content.default_audience', 'content.enable_images', 'content.image_size', 'content.image_style', 'content.image_quality', 'content.internal_links', 'content.link_count', 'content.link_types', 'content.include_price' ),
                         'article-writer'   => array( 'article.default_status', 'article.default_author', 'article.batch_size', 'article.daily_token_cap', 'article.daily_article_cap', 'article.dup_threshold', 'article.plan_count', 'article.publish_mode', 'article.target_words', 'article.max_sections', 'article.inline_images', 'article.faq_schema', 'article.link_cap', 'article.gate_word_ratio', 'article.flag_claims', 'article.retry_backoff_minutes', 'article.auto_retry_hours', 'article.refresh_enabled', 'article.refresh_days', 'article.refresh_mode', 'profile.enabled', 'profile.domain', 'profile.audience', 'profile.voice', 'profile.offerings', 'profile.glossary', 'profile.forbidden', 'profile.examples', 'profile.key_pages', 'profile.max_chars', 'research.enabled', 'research.competitors', 'research.user_agent', 'research.respect_robots', 'research.delay_ms', 'research.timeout', 'research.max_pages', 'research.max_kb', 'research.cache_hours', 'research.serp_enabled', 'research.serp_kind', 'research.serp_base_url', 'research.serp_key', 'research.fallback_ai', 'research.suggest_enabled' ),
                         'autopilot'        => array( 'autopilot.daily_token_cap', 'autopilot.daily_post_cap', 'autopilot.retry_limit', 'autopilot.default_status', 'autopilot.default_tone', 'autopilot.default_length', 'autopilot.enable_images', 'autopilot.default_category' ),
                         'leads'            => array( 'leads.retention_days', 'leads.stages', 'leads.csv_enabled', 'leads.ai_summary', 'leads.score_phone', 'leads.score_message', 'leads.score_buying', 'leads.auto_create' ),

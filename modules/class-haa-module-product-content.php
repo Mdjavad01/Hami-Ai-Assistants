@@ -162,6 +162,18 @@ final class Haa_Module_Product_Content implements Haa_Module_Interface {
                 $fields[] = array( 'key' => 'content.internal_links', 'type' => 'checkbox', 'label' => __( 'درج لینک داخلی', 'hami-ai-assistant' ) );
                 $fields[] = array( 'key' => 'content.link_count', 'type' => 'number', 'label' => __( 'تعداد لینک داخلی', 'hami-ai-assistant' ), 'min' => 0, 'max' => 6 );
                 $fields[] = array(
+                        'key'     => 'content.link_types',
+                        'type'    => 'chipbox',
+                        'label'   => __( 'لینک به کدام مقصدها', 'hami-ai-assistant' ),
+                        'choices' => array(
+                                'product_cat' => __( 'دسته‌بندی محصولات', 'hami-ai-assistant' ),
+                                'product'     => __( 'محصولات', 'hami-ai-assistant' ),
+                                'post'        => __( 'نوشته‌ها (مقاله‌ها)', 'hami-ai-assistant' ),
+                                'page'        => __( 'برگه‌ها', 'hami-ai-assistant' ),
+                        ),
+                        'hint'    => __( 'دسته‌ها اول انتخاب می‌شوند، بعد محصول و در آخر نوشته/برگه؛ هر چه تیک نزنید هرگز لینک نمی‌شود. برای فروشگاه، «دسته‌بندی + محصولات» معمولاً بهترین نتیجه را می‌دهد.', 'hami-ai-assistant' ),
+                );
+                $fields[] = array(
                         'key'     => 'content.include_price',
                         'type'    => 'checkbox',
                         'label'   => __( 'درج قیمت و موجودی در متن', 'hami-ai-assistant' ),

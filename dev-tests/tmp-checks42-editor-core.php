@@ -289,7 +289,8 @@ ok( 'H: the outline prompt carries the page type', false !== mb_strpos( $pipe, '
 ok( 'H: buying-guide structure line exists', false !== mb_strpos( $pipe, 'راهنمای خرید: بخش‌ها به تصمیم خرید می‌رسند' ), '' );
 ok( 'H: the outline bans intro/conclusion sections', false !== mb_strpos( $pipe, '«مقدمه» و «نتیجه‌گیری» در طرح نمی' ), '' );
 ok( 'H: the meta prompt demands honest meta', false !== mb_strpos( $pipe, 'ادعای تأییدنشده نمی‌آید؛ دقیق و هماهنگ با متن بنویس' ), '' );
-ok( 'H: the index path vets targets through can_link', false !== mb_strpos( $pipe, 'Haa_Content::can_link( $id )' ), '' );
+ok( 'H: the index path vets targets through internal_links()', false !== mb_strpos( $pipe, 'Haa_Content::internal_links(' ), '' );
+ok( 'H: internal_links() owns the blacklist and the destination order', false !== mb_strpos( $cont, 'self::is_linkable(' ) && false !== mb_strpos( $cont, 'self::link_types()' ), '' );
 ok( 'H: the section prompt ends sentences cleanly', false !== mb_strpos( $pipe, 'جمله‌ی آخر را کامل تمام کن' ), '' );
 ok( 'H: the module scrubs the single-call output too', false !== mb_strpos( $mod, 'Haa_Content::strip_meta_markers( (string) $raw )' ), '' );
 ok( 'H: editor_core is wired into style_suffix', false !== mb_strpos( $cont, '$out .= "\\n" . self::editor_core();' ), '' );
@@ -300,8 +301,8 @@ ok( 'H: editor_core is wired into style_suffix', false !== mb_strpos( $cont, '$o
 echo "\n=== I. version ===\n";
 
 $main = file_get_contents( __DIR__ . '/../hami-ai-assistant.php' );
-ok( 'I: header says 2.1.45', false !== mb_strpos( $main, ' * Version:           2.1.45' ), '' );
-ok( 'I: HAAI_VERSION is 2.1.45', false !== mb_strpos( $main, "define( 'HAAI_VERSION', '2.1.45' );" ), '' );
+ok( 'I: header says 2.1.46', false !== mb_strpos( $main, ' * Version:           2.1.46' ), '' );
+ok( 'I: HAAI_VERSION is 2.1.46', false !== mb_strpos( $main, "define( 'HAAI_VERSION', '2.1.46' );" ), '' );
 
 echo "\n";
 if ( $fail ) {

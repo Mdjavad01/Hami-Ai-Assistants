@@ -868,52 +868,13 @@ final class Haa_Pipeline {
          * @return array
          */
         public static function link_targets( $topic ) {
-                $queries = array_filter(
-                        array(
-                                (string) ( $topic['keyword'] ?? '' ),
-                                (string) ( $topic['title'] ?? '' ),
-                        )
-                );
-
-                $seen  = array();
-                $found = array();
-                foreach ( $queries as $q ) {
-                        foreach ( Haa_Search::search( $q, self::LINK_POOL, 400 ) as $hit ) {
-                                $id = (int) ( $hit['post_id'] ?? 0 );
-                                if ( ! $id || isset( $seen[ $id ] ) ) {
-                                        continue;
-                                }
-                                // 2.1.39: the index bypasses the linkable blacklist that
-                                // internal_links() applies — a «تماس با ما» page must not become
-                                // the first reading suggestion of a buying guide. Categories
-                                // (negative ids) have their own vetting.
-                                if ( $id > 0 && ! Haa_Content::can_link( $id ) ) {
-                                        $seen[ $id ] = true;
-                                        continue;
-                                }
-                                $seen[ $id ] = true;
-                                $found[]     = $hit;
-                        }
-                }
-
-                if ( ! $found ) {
-                        // Index empty (semantic-search off, or a fresh install): fall back to
-                        // the real-permalink suggestion helper.
-                        $found = Haa_Content::internal_links( (int) ( $topic['post_id'] ?? 0 ), (string) ( $topic['keyword'] ?? '' ) );
-                }
-
-                // Category archives join the pool right after the two strongest hits:
-                // an article about a product family should link to that family's hub
-                // even when the index is full of single posts. Topic words decide.
-                $cats = Haa_Content::category_link_hints(
-                        trim( (string) ( $topic['keyword'] ?? '' ) . ' ' . (string) ( $topic['title'] ?? '' ) ),
-                        2
-                );
-                if ( $cats ) {
-                        array_splice( $found, min( 2, count( $found ) ), 0, $cats );
-                }
-
-                return $found;
+                // One policy, one implementation (2.1.46): Haa_Content::internal_links()
+                // now owns BOTH the destination order (category → product → post/page)
+                // and the blacklist. The pipeline used to take raw BM25 hits, so a
+                // «آموزش ترمیم فرش دستباف» post could beat the «فرش دستباف» category
+                // for the keyword «فرش دستباف» — the reported bad link.
+                $hint = trim( (string) ( $topic['keyword'] ?? '' ) . ' ' . (string) ( $topic['title'] ?? '' ) );
+                return Haa_Content::internal_links( (int) ( $topic['post_id'] ?? 0 ), $hint );
         }
 
         /**
