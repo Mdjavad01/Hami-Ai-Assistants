@@ -549,6 +549,13 @@ final class Haa_API {
 
                 $opts = self::chat_opts( $this->cfg, $opts );
 
+                // The walk below rebinds $this->cfg to the source being tried, while
+                // source_list() derives the whole candidate list from $this->cfg. Left
+                // in place, a single failover would make that backup the "primary" for
+                // every later call on this instance (image(), the next section, the next
+                // article) and the real primary would never be tried again.
+                $origin = $this->cfg;
+
                 $started = microtime( true );
                 $fresh_only = false;
                 $candidates = $this->candidates( $fresh_only, ! empty( $opts['ignore_fresh_bench'] ) );
@@ -608,6 +615,7 @@ final class Haa_API {
                                 }
                                 self::clear_chat_error(); // a healthy answer invalidates the diagnostic.
                                 $this->log_chat( $opts, $messages, $result, $started, 1, '' );
+                                $this->cfg = $origin;
                                 return $result;
                         }
 
@@ -621,6 +629,7 @@ final class Haa_API {
                 }
 
                 $this->log_chat( $opts, $messages, '', $started, 0, $last ? $last->get_error_code() : 'unknown' );
+                $this->cfg = $origin;
                 if ( $last ) {
                         self::remember_chat_error( $last->get_error_code(), $last->get_error_message(), (string) $opts['model'] );
                 }
@@ -999,6 +1008,8 @@ final class Haa_API {
                         return new WP_Error( 'haai_no_key', __( 'کلید API برای تولید تصویر تنظیم نشده است.', 'hami-ai-assistant' ) );
                 }
 
+                // Same reason as chat(): the loop rebinds $this->cfg to each source.
+                $origin  = $this->cfg;
                 $started = microtime( true );
                 $res     = null;
 
@@ -1024,6 +1035,8 @@ final class Haa_API {
                                 self::cool( $cfg ); // a failing probe must not restart the bench clock.
                         }
                 }
+
+                $this->cfg = $origin;
 
                 if ( null === $res ) {
                         // Nothing was even attempted (everything freshly benched or

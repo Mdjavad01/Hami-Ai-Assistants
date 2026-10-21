@@ -149,6 +149,12 @@ $h5 = new Haa_API( $mk( array( 'failovers' => array(
 ) ) ) );
 $reply = $h5->chat( array( array( 'role' => 'user', 'content' => 'ping' ) ), array( 'retries' => 3 ) );
 ok( 'dead primary hands over to fallback', is_string( $reply ) && 'پاسخ از منبع یدکی' === $reply );
+// The walk rebinds $this->cfg while it tries each source. It must put the
+// original primary back: source_list() reads that same property, so a leaked
+// backup would silently become the "primary" for image() and every later call
+// on this instance.
+$after = $h5->config();
+ok( 'primary restored after the failover', 'https://primary.example/v1' === (string) ( $after['base_url'] ?? '' ) && 'm-main' === (string) ( $after['model'] ?? '' ) );
 // The failed primary is now benched…
 $left = Haa_API::cooldown_left( $mk() );
 ok( 'failed primary benched for 5 minutes', $left > 200 && $left <= 300 );
