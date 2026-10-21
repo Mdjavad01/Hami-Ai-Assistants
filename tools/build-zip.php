@@ -189,7 +189,11 @@ $base = $tmp . '/hami-ai-assistant';
 $zip_files = array();
 foreach ( new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $base, FilesystemIterator::SKIP_DOTS ) ) as $f ) {
         if ( $f->isFile() ) {
-                $zip_files[ ltrim( substr( (string) $f->getPathname(), strlen( $base ) ), '/' ) ] = true;
+                // Windows returns backslashes from getPathname() while git ls-files and
+                // ZIP entries always use forward slashes: without normalising, every
+                // shipped file looked "missing" and the gate refused a correct package.
+                $rel = str_replace( '\\', '/', ltrim( substr( (string) $f->getPathname(), strlen( $base ) ), '/\\' ) );
+                $zip_files[ $rel ] = true;
         }
 }
 $missing = array_diff_key( $expected, $zip_files ); // tracked but not shipped — THE 2.1.23 bug.
