@@ -1,6 +1,6 @@
 <?php
 /**
- * Regression suite: rewrite of existing content (2.1.49).
+ * Regression suite: rewrite of existing content (2.1.50).
  *
  * User's request: «قابلیت بازنویسی… انتقال بدیم بخش ویرایشگر خودشون… یه بخش
  * دیگه هم داخل صفحه AI… بررسی کنه، بازنویسی کنه و تایید شد آپدیت بشه».
@@ -76,6 +76,9 @@ ok( 'the last failure is remembered for the panel', false !== strpos( $mod, 'rem
 ok( 'long bodies are chunked per section', false !== strpos( $mod, 'split_chunks(' ) && false !== strpos( $mod, 'CHUNK_WORDS' ) );
 ok( 'one chunk is rewritten per request', false !== strpos( $mod, 'rewrite_chunk(' ) );
 ok( 'progress rides back for the auto-chain', false !== strpos( $mod, "'finished' => false" ) && false !== strpos( $mod, "'progress'" ) );
+ok( 'tiny fragments skip the model call', false !== strpos( $mod, '< 15 )' ) );
+ok( 'the length floor scales with the chunk', false !== strpos( $mod, 'floor( $chunk_words / 3 )' ) );
+ok( 'a rejected chunk shows the raw reply', false !== strpos( $mod, 'پاسخ خام' ) );
 
 echo "\n=== E. helpers (reflection) ===\n";
 $rc = new ReflectionClass( 'Haa_Module_Rewrite' );

@@ -516,17 +516,28 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 		}
 
 		$total = count( $state['chunks'] );
-		$piece = self::rewrite_chunk( $post, (string) $state['chunks'][ $state['index'] ], (string) $state['instructions'] );
 
-		if ( is_wp_error( $piece ) ) {
-			$this->remember_failure( $piece->get_error_message() );
-			set_transient( self::state_key( (int) $post->ID ), $state, 2 * HOUR_IN_SECONDS );
-			$this->respond_with_panel( $post, array( 'finished' => false, 'error' => true ) );
-			$this->back( $piece->get_error_message(), true, (int) $post->ID );
+		// A chunk that is only a heading, a caption or a table row is not worth a
+		// model call — passing it through costs nothing and removes the «پاسخ خالی»
+		// failure those fragments used to cause.
+		while ( $state['index'] < $total && self::words( (string) $state['chunks'][ $state['index'] ] ) < 15 ) {
+			$state['done'][] = (string) $state['chunks'][ $state['index'] ];
+			$state['index']++;
 		}
 
-		$state['done'][] = $piece;
-		$state['index']++;
+		if ( $state['index'] < $total ) {
+			$piece = self::rewrite_chunk( $post, (string) $state['chunks'][ $state['index'] ], (string) $state['instructions'] );
+
+			if ( is_wp_error( $piece ) ) {
+				$this->remember_failure( $piece->get_error_message() );
+				set_transient( self::state_key( (int) $post->ID ), $state, 2 * HOUR_IN_SECONDS );
+				$this->respond_with_panel( $post, array( 'finished' => false, 'error' => true ) );
+				$this->back( $piece->get_error_message(), true, (int) $post->ID );
+			}
+
+			$state['done'][] = $piece;
+			$state['index']++;
+		}
 
 		if ( $state['index'] < $total ) {
 			set_transient( self::state_key( (int) $post->ID ), $state, 2 * HOUR_IN_SECONDS );
@@ -806,7 +817,8 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 			return new WP_Error( 'haai_rw_empty_chunk', __( 'یک بخش خالی بود؛ دوباره بزنید.', 'hami-ai-assistant' ) );
 		}
 
-		$target = max( 120, self::words( $chunk ) );
+		$chunk_words = max( 1, self::words( $chunk ) );
+		$target      = max( 120, $chunk_words );
 		$system = self::system_prompt( $target, $instructions );
 		$user   = sprintf(
 			/* translators: 1: title, 2: chunk. */
@@ -824,7 +836,7 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 			array(
 				'module'     => 'rewrite',
 				'operation'  => 'rewrite',
-				'max_tokens' => (int) min( 3000, max( 700, $target * 3 ) ),
+				'max_tokens' => (int) min( 4000, max( 1200, $target * 4 ) ),
 				// Bounded on purpose: see CALL_TIMEOUT.
 				'timeout'    => self::CALL_TIMEOUT,
 				'retries'    => 0,
@@ -835,12 +847,35 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 			return $out;
 		}
 
-		$html = trim( (string) $out );
-		$html = preg_replace( '/^```[a-z]*\s*|\s*```$/i', '', $html );
-		$html = Haa_Content::strip_meta_markers( (string) $html );
-		$html = trim( (string) $html );
-		if ( '' === $html || self::words( $html ) < 20 ) {
-			return new WP_Error( 'haai_rw_empty', __( 'پاسخ مدل برای این بخش متن قابل‌استفاده نداشت؛ دوباره بزنید.', 'hami-ai-assistant' ) );
+		$raw  = trim( (string) $out );
+		$html = trim( (string) preg_replace( '/^```[a-z]*\s*|\s*```$/i', '', $raw ) );
+		$html = trim( (string) Haa_Content::strip_meta_markers( $html ) );
+
+		// The floor scales with the chunk: a 200-word section may legitimately come
+		// back shorter, while a 700-word one may not. A fixed 20-word floor rejected
+		// small sections and reported it as «پاسخ قابل‌استفاده نداشت».
+		$min = max( 8, (int) floor( $chunk_words / 3 ) );
+		if ( '' === $html ) {
+			return new WP_Error(
+				'haai_rw_empty',
+				sprintf(
+					/* translators: %s: what the model actually returned. */
+					__( 'پاسخ مدل خالی بود%1$s — دوباره بزنید؛ اگر تکرار شد مدل دیگری را در تب «ارائه‌دهنده AI» انتخاب کنید.', 'hami-ai-assistant' ),
+					'' !== $raw ? ' (پاسخ خام: «' . Haa_Util::cut( wp_strip_all_tags( $raw ), 160 ) . '»)' : ''
+				)
+			);
+		}
+		if ( self::words( $html ) < $min ) {
+			return new WP_Error(
+				'haai_rw_short',
+				sprintf(
+					/* translators: 1: returned words, 2: expected words, 3: raw reply. */
+					__( 'پاسخ مدل برای این بخش کوتاه بود (%1$d کلمه؛ انتظار حدود %2$d). پاسخ خام: «%3$s»', 'hami-ai-assistant' ),
+					(int) self::words( $html ),
+					(int) $min,
+					Haa_Util::cut( wp_strip_all_tags( $raw ), 160 )
+				)
+			);
 		}
 
 		return $html;
