@@ -99,7 +99,8 @@ final class Haa_Admin_Dashboard {
                                                * rewrite rule can block them for visitors while wp-admin looks fine. */ ?>
                                         <button type="button" class="button"
                                                 data-haai-token="<?php echo esc_attr( rest_url( HAAI_REST_NS . '/token' ) ); ?>"
-                                                data-haai-widget="<?php echo esc_attr( rest_url( HAAI_REST_NS . '/widget' ) ); ?>">
+                                                data-haai-widget="<?php echo esc_attr( rest_url( HAAI_REST_NS . '/widget' ) ); ?>"
+                                                data-haai-script="<?php echo esc_attr( HAAI_URL . 'assets/js/chatbot.min.js?ver=' . HAAI_VERSION ); ?>">
                                                 <?php esc_html_e( 'تست اتصال چت (از همین مرورگر)', 'hami-ai-assistant' ); ?>
                                         </button>
                                 </p>

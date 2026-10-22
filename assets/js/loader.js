@@ -88,10 +88,24 @@
 		script.src = c.js;
 		script.defer = true;
 		script.onerror = function () {
-			// 404, a WAF block or an ad-blocker filter that matches the file name:
-			// the panel is already on screen, so say it instead of a dead button.
+			// A stale .min.js (a partial FTP upload) or a WAF rule: try the source
+			// file once before giving up — a working widget beats a tidy message.
+			var plain = String(script.src || '').replace(/\.min\.js/, '.js');
+			if (plain && plain !== script.src) {
+				if (window.console && console.warn) console.warn('[HAAI] min asset failed, retrying the source file:', plain);
+				var alt = document.createElement('script');
+				alt.src = plain;
+				alt.defer = true;
+				alt.onerror = function () {
+					window.HAAI_CONFIG = window.HAAI_CONFIG || c;
+					toast('فایل اسکریپت چت بارگذاری نشد (مسدود یا ۴۰۴). صفحه را بدون مسدودکننده تست کنید.');
+					if (window.console && console.error) console.error('[HAAI] chatbot.js failed to load:', alt.src);
+				};
+				document.body.appendChild(alt);
+				return;
+			}
 			window.HAAI_CONFIG = window.HAAI_CONFIG || c;
-			toast('فایل اسکریپت چت بارگذاری نشد (مسدود یا 404). صفحه را بدون مسدودکننده تست کنید.');
+			toast('فایل اسکریپت چت بارگذاری نشد (مسدود یا ۴۰۴). صفحه را بدون مسدودکننده تست کنید.');
 			if (window.console && console.error) console.error('[HAAI] chatbot.js failed to load:', script.src);
 		};
 		if (c.js) document.body.appendChild(script);
@@ -137,7 +151,16 @@
 
 	/** One short, self-dismissing bubble above the button (reuses .haai-teaser). */
 	function toast(text) {
-		if (teaser) return;
+		// The engagement teaser may already own this bubble. Returning early (the
+		// old behaviour) swallowed every error message in exactly the moment the
+		// visitor needed it, so take the bubble over instead.
+		if (teaser) {
+			teaser.textContent = text;
+			teaser.classList.add('is-in');
+			if (teaserTimer) clearTimeout(teaserTimer);
+			teaserTimer = setTimeout(function () { hideTeaser(false); }, 10000);
+			return;
+		}
 		teaser = document.createElement('button');
 		teaser.type = 'button';
 		teaser.className = 'haai-teaser is-in' + (c.fab && c.fab.side === 'left' ? ' is-left' : '');
@@ -145,7 +168,7 @@
 		teaser.textContent = text;
 		teaser.addEventListener('click', function () { hideTeaser(false); });
 		(document.body || document.documentElement).appendChild(teaser);
-		teaserTimer = setTimeout(function () { hideTeaser(false); }, 8000);
+		teaserTimer = setTimeout(function () { hideTeaser(false); }, 10000);
 	}
 
 	function open() {

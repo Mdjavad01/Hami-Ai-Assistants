@@ -15,6 +15,21 @@
         var STORE_CAP = 12000; // characters of serialised history.
 
         var root = document.querySelector('.haai-widget:not(.haai-widget--preview)');
+
+        // Any runtime error inside the widget is reported with a stable prefix so a
+        // single line in the browser console is enough to place it.
+        window.addEventListener('error', function (ev) {
+                if (!ev || !ev.message) return;
+                if (window.console && console.error) {
+                        console.error('[HAAI] runtime error:', ev.message, (ev.filename || '') + ':' + (ev.lineno || 0));
+                }
+        });
+        window.addEventListener('unhandledrejection', function (ev) {
+                var r = ev && ev.reason ? ev.reason : '';
+                if (window.console && console.error) {
+                        console.error('[HAAI] unhandled rejection:', (r && r.message) ? r.message : r);
+                }
+        });
         if (!root || '1' === root.getAttribute('data-init')) {
                 return;
         }
@@ -212,6 +227,12 @@
 
         function ensureToken() {
                 if (token) return Promise.resolve(token);
+                // Reject instead of throwing: a synchronous TypeError here used to
+                // escape send() before its promise existed, leave `pending` stuck on
+                // true and turn the whole widget into a dead button.
+                if (!C.tokenUrl) {
+                        return Promise.reject(new Error('token url missing'));
+                }
                 return fetch(C.tokenUrl + (C.tokenUrl.indexOf('?') === -1 ? '?' : '&') + 'url=' + encodeURIComponent(location.href), { credentials: 'same-origin' })
                         .then(function (r) { return r.json(); })
                         .then(function (d) {
@@ -230,6 +251,9 @@
          * @param {boolean} retry  True on the first attempt only.
          */
         function post(path, payload, retry) {
+                if (!C.rest) {
+                        return Promise.reject(new Error('rest url missing'));
+                }
                 return ensureToken()
                         .then(function (t) {
                                 payload.token = t;
@@ -295,7 +319,14 @@
 
         function send(text) {
                 text = (text || '').trim();
-                if (!text || pending) return;
+                if (!text) return;
+                if (pending) {
+                        // Self-heal a stuck flag: if the button is not actually busy, a
+                        // previous attempt abandoned the request. Staying dead forever
+                        // was the worst part of the old failure.
+                        if (sendBtn && sendBtn.classList.contains('is-busy')) return;
+                        pending = false;
+                }
                 if (!configured) {
                         showError('پیکربندی چت دریافت نشد. صفحه را یک‌بار تازه کنید؛ اگر تکرار شد کش صفحه/بهینه‌ساز جاوااسکریپت را خاموش کنید.');
                         return;
