@@ -1,6 +1,6 @@
 <?php
 /**
- * Regression suite: rewrite of existing content (2.1.47).
+ * Regression suite: rewrite of existing content (2.1.48).
  *
  * User's request: «قابلیت بازنویسی… انتقال بدیم بخش ویرایشگر خودشون… یه بخش
  * دیگه هم داخل صفحه AI… بررسی کنه، بازنویسی کنه و تایید شد آپدیت بشه».
@@ -70,6 +70,9 @@ ok( 'apply writes through wp_update_post', false !== strpos( $app, 'wp_update_po
 ok( 'apply sanitizes the submitted html', false !== strpos( $app, 'wp_kses_post(' ) );
 ok( 'apply refuses a collapsed rewrite', false !== strpos( $app, '0.5' ) && false !== strpos( $app, 'ذخیره نشد' ) );
 ok( 'revision marker meta is written', false !== strpos( $app, 'update_post_meta(' ) );
+ok( 'the model call is bounded (45s, no retry)', false !== strpos( $mod, 'CALL_TIMEOUT' ) && false !== strpos( $mod, "'retries'    => 0" ) );
+ok( 'a fatal still answers with JSON', false !== strpos( $mod, 'register_shutdown_function(' ) );
+ok( 'the last failure is remembered for the panel', false !== strpos( $mod, 'remember_failure(' ) && false !== strpos( $mod, 'FAIL_KEY' ) );
 
 echo "\n=== E. helpers (reflection) ===\n";
 $rc = new ReflectionClass( 'Haa_Module_Rewrite' );

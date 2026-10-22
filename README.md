@@ -12,12 +12,12 @@
 
 ## نصب
 
-1. بسته را بسازید (یا از فایل آماده‌ی `hami-ai-assistant-2.1.47.zip` استفاده کنید — دستور ساختش در `docs.md` بخش 15.5): با پوشه‌ی میانی `hami-ai-assistant/`.
+1. بسته را بسازید (یا از فایل آماده‌ی `hami-ai-assistant-2.1.48.zip` استفاده کنید — دستور ساختش در `docs.md` بخش 15.5): با پوشه‌ی میانی `hami-ai-assistant/`.
 2. **فقط همان ZIP را آپلود کنید**: پیشخوان ← افزونه‌ها ← «افزونه‌ی جدید» ← بارگذاری افزونه ← Choose file. چیز دیگری لازم نیست: نه `dev-tests/`، نه `dev-notes/`، نه `docs.md`/`README.md`/`AGENTS.md`/`audit.txt`، نه `tools/`.
 3. اگر از FTP/SSH می‌روید، همان zip را باز کنید تا پوشه‌ی `hami-ai-assistant` در `wp-content/plugins/` ساخته شود، یا با WP-CLI:
 
 ```bash
-wp plugin install hami-ai-assistant-2.1.47.zip --force --activate
+wp plugin install hami-ai-assistant-2.1.48.zip --force --activate
 wp eval 'print_r(Haa_Settings::diagnose());'   # باید Array ( ) خالی باشد
 ```
 

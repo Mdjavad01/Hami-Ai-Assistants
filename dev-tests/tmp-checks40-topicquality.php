@@ -274,7 +274,7 @@ ok( 'I: the v10 migration exists and dispatches on old_version < 10',
 ok( 'I: the migration purges through Haa_Planner::purge_junk_topics()',
         false !== strpos( $db_src, 'Haa_Planner::purge_junk_topics()' ), '' );
 ok( 'I: the schema constant is bumped to 10', false !== strpos( $main, "define( 'HAAI_DB_VERSION', '10' )" ), '' );
-ok( 'I: HAAI_VERSION constant is 2.1.47', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.47' )" ), '' );
+ok( 'I: HAAI_VERSION constant is 2.1.48', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.48' )" ), '' );
 ok( 'I: the planner carries the junk-cluster const', false !== strpos( $plan_src, 'JUNK_CLUSTERS' ), '' );
 ok( 'I: the map-cache key was bumped (old caches cannot leak chrome terms)',
         false !== strpos( $plan_src, "MAP_CACHE = 'haai_planner_map_v2'" ), '' );

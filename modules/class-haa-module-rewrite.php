@@ -21,6 +21,16 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 	/** Marker written on the post after an approved rewrite. */
 	const META_AT = '_haai_rewrite_at';
 
+	/** Last failure, per user (shown in the panel so the message is never generic). */
+	const FAIL_KEY = 'haai_rw_fail_';
+
+	/**
+	 * One rewrite is a single long call. Cap it well under the host's PHP limit:
+	 * 45s and no retry, because two timeouts in a row is what turned a slow
+	 * provider into «پاسخ نامعتبر» (the request died before printing JSON).
+	 */
+	const CALL_TIMEOUT = 45;
+
 	/** Longest body sent to the model, in characters. */
 	const MAX_INPUT = 24000;
 
@@ -331,11 +341,17 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 		$html    = (string) $post->post_content;
 		$words   = self::words( $html );
 		$draft   = get_transient( self::draft_key( (int) $post->ID ) );
+		$fail    = get_transient( self::FAIL_KEY . (int) get_current_user_id() );
 		$edit    = get_edit_post_link( (int) $post->ID, 'raw' );
 		$view    = get_permalink( (int) $post->ID );
 		$types   = self::types();
 		?>
 		<div id="haai-rewrite-panel">
+		<?php if ( is_string( $fail ) && '' !== $fail ) : ?>
+			<div class="haai-alert haai-alert--warn">
+				<?php echo esc_html( $fail ); ?>
+			</div>
+		<?php endif; ?>
 		<p class="haai-plan__meta">
 			<span><?php echo esc_html( get_the_title( $post ) ); ?></span>
 			<span><?php echo esc_html( (string) $post->post_type ); ?></span>
@@ -438,6 +454,7 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 
 	/** @return void */
 	public function handle_generate() {
+		$this->arm_fatal_guard();
 		Haa_Util::guard_admin_post( 'haai_rw' );
 
 		$post = $this->posted_post();
@@ -458,9 +475,12 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 		$extra = isset( $_POST['instructions'] ) ? sanitize_textarea_field( wp_unslash( $_POST['instructions'] ) ) : '';
 		$draft = self::rewrite( $post, $extra );
 		if ( is_wp_error( $draft ) ) {
+			$this->remember_failure( $draft->get_error_message() );
+			$this->respond_with_panel( $post );
 			$this->back( $draft->get_error_message(), true, (int) $post->ID );
 		}
 
+		delete_transient( self::FAIL_KEY . (int) get_current_user_id() );
 		set_transient( self::draft_key( (int) $post->ID ), $draft, 2 * HOUR_IN_SECONDS );
 		$this->respond_with_panel( $post );
 		$this->back( __( 'پیش‌نمایش آماده است؛ بررسی و ویرایش کنید و بعد اعمال بزنید.', 'hami-ai-assistant' ), false, (int) $post->ID );
@@ -468,6 +488,7 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 
 	/** @return void */
 	public function handle_apply() {
+		$this->arm_fatal_guard();
 		Haa_Util::guard_admin_post( 'haai_rw' );
 
 		$post = $this->posted_post();
@@ -672,6 +693,9 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 				'module'     => 'rewrite',
 				'operation'  => 'rewrite',
 				'max_tokens' => (int) min( 6000, max( 1200, $target * 3 ) ),
+				// Bounded on purpose: see CALL_TIMEOUT.
+				'timeout'    => self::CALL_TIMEOUT,
+				'retries'    => 0,
 			)
 		);
 
@@ -719,6 +743,73 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 		);
 	}
 
+	/** @var bool One shutdown guard per request. */
+	private static $armed = false;
+
+	/** @var bool True once a real JSON answer was emitted. */
+	private static $answered = false;
+
+	/**
+	 * A rewrite is one long blocking call. If PHP dies mid-flight (max execution
+	 * time, memory, a fatal in a hook) the browser used to get an HTML error page
+	 * and admin.js could only say «پاسخ نامعتبر بود». This turns that death into a
+	 * parseable JSON error with the real reason, and remembers it for the panel.
+	 *
+	 * @return void
+	 */
+	private function arm_fatal_guard() {
+		if ( self::$armed ) {
+			return;
+		}
+		self::$armed = true;
+
+		register_shutdown_function(
+			static function () {
+				if ( self::$answered ) {
+					return;
+				}
+				$e = error_get_last();
+				if ( ! is_array( $e ) || ! in_array( (int) $e['type'], array( E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR ), true ) ) {
+					return;
+				}
+
+				$msg = sprintf(
+					/* translators: %s: PHP error message. */
+					__( 'سرور وسط بازنویسی متوقف شد: %s — معمولاً مهلت اجرای PHP تمام شده است؛ متن کوتاه‌تر یا «مهلت پاسخ» ارائه‌دهنده را کم کنید.', 'hami-ai-assistant' ),
+					(string) $e['message']
+				);
+				set_transient( self::FAIL_KEY . (int) get_current_user_id(), $msg, HOUR_IN_SECONDS );
+
+				if ( ! Haa_Ajax_Form::wants() ) {
+					return;
+				}
+				while ( ob_get_level() > 0 ) {
+					ob_end_clean();
+				}
+				if ( ! headers_sent() ) {
+					status_header( 200 );
+					header( 'Content-Type: application/json; charset=utf-8' );
+				}
+				echo wp_json_encode(
+					array(
+						'success' => false,
+						'data'    => array( 'ok' => false, 'msg' => $msg ),
+					)
+				);
+			}
+		);
+	}
+
+	/**
+	 * Keep the last failure for this admin so the panel can explain it.
+	 *
+	 * @param string $message Message.
+	 * @return void
+	 */
+	private function remember_failure( $message ) {
+		set_transient( self::FAIL_KEY . (int) get_current_user_id(), Haa_Util::cut( (string) $message, 300 ), HOUR_IN_SECONDS );
+	}
+
 	/**
 	 * One funnel for both worlds: JSON under the AJAX transport, a redirect
 	 * otherwise (the no-JS fallback still works).
@@ -729,6 +820,7 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 	 * @return void
 	 */
 	private function back( $message, $error = false, $post_id = 0 ) {
+		self::$answered = Haa_Ajax_Form::wants();
 		if ( Haa_Ajax_Form::respond( (string) $message, (bool) $error ) ) {
 			return;
 		}

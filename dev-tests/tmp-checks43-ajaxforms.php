@@ -585,8 +585,8 @@ $admin = file_get_contents( __DIR__ . '/../includes/class-haa-admin.php' );
 $js    = file_get_contents( __DIR__ . '/../assets/js/admin.js' );
 $jsmin = file_get_contents( __DIR__ . '/../assets/js/admin.min.js' );
 
-ok( 'version header is 2.1.47', false !== strpos( $main, '* Version:           2.1.47' ) );
-ok( 'HAAI_VERSION is 2.1.47', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.47' )" ) );
+ok( 'version header is 2.1.48', false !== strpos( $main, '* Version:           2.1.48' ) );
+ok( 'HAAI_VERSION is 2.1.48', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.48' )" ) );
 ok( 'boot registers the transport', false !== strpos( $main, 'Haa_Ajax_Form::hooks()' ) );
 ok( 'wp_ajax_haai_form_submit registered in the class', false !== strpos( $cls, "add_action( 'wp_ajax_haai_form_submit'" ) );
 ok( 'wp_ajax_haai_panel registered in the module', false !== strpos( $awp, "add_action( 'wp_ajax_haai_panel'" ) );

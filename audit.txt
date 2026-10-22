@@ -3,5 +3,5 @@ widget: 58 classes used | 57 defined
 
 PROBLEMS: 0 | unused: 0
 
-Snapshot of `php dev-tests/tmp-css-audit.php --quiet-unused` — regenerated 2026-10-22 (2.1.47).
+Snapshot of `php dev-tests/tmp-css-audit.php --quiet-unused` — regenerated 2026-10-22 (2.1.48).
 The previous snapshot still said "248 | 229" from 2.1.0; the audit had not been re-run since.

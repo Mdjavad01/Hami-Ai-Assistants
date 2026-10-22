@@ -1081,9 +1081,10 @@
                         fd.append('action', 'haai_form_submit');
 
                         var refreshAttr = (sub && sub.getAttribute('data-haai-refresh')) || f.getAttribute('data-haai-refresh') || '';
+                        var httpStatus = 0;
 
                         fetch(A, { method: 'POST', credentials: 'same-origin', body: fd })
-                                .then(function (r) { return r.text(); })
+                                .then(function (r) { httpStatus = r.status; return r.text(); })
                                 .then(function (txt) {
                                         var j = null;
                                         try { j = JSON.parse(txt); } catch (err) { j = null; }
@@ -1134,7 +1135,12 @@
                                 })
                                 .catch(function () {
                                         setBusy(f, sub, false);
-                                        placeNotice(f, noticeEl('ارتباط با سرور برقرار نشد (پاسخ نامعتبر بود). دوباره تلاش کنید.', false));
+                                        // Say what actually came back: a killed request (PHP time
+                                        // limit) answers with an HTML error page, and the old
+                                        // generic sentence hid which one it was.
+                                        placeNotice(f, noticeEl(httpStatus
+                                                ? 'پاسخ سرور خوانا نبود (HTTP ' + httpStatus + '). اگر تکرار شد، مهلت اجرای PHP یا لاگ سرور را ببینید.'
+                                                : 'ارتباط با سرور برقرار نشد (پاسخ نامعتبر بود). دوباره تلاش کنید.', false));
                                 });
                 });
 
