@@ -20,6 +20,13 @@
         }
         root.setAttribute('data-init', '1');
 
+        /* A cache/JS optimiser that drops the config used to leave a widget that
+         * opened and then did nothing at all on send. Say it outright instead. */
+        var configured = !!(C.rest && C.tokenUrl);
+        if (!configured && window.console && console.warn) {
+                console.warn('[HAAI] HAAI_CONFIG is missing rest/tokenUrl; the chat cannot send.', C);
+        }
+
         var messages = root.querySelector('.haai-messages');
         var form = root.querySelector('.haai-form');
         var input = root.querySelector('.haai-form__input');
@@ -289,6 +296,10 @@
         function send(text) {
                 text = (text || '').trim();
                 if (!text || pending) return;
+                if (!configured) {
+                        showError('پیکربندی چت دریافت نشد. صفحه را یک‌بار تازه کنید؛ اگر تکرار شد کش صفحه/بهینه‌ساز جاوااسکریپت را خاموش کنید.');
+                        return;
+                }
 
                 var requirement = (C.lead && C.lead.required) || 'off';
                 var lead = 'off' === requirement || leadSent ? null : validateLead(requirement);

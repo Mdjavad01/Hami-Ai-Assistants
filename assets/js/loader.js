@@ -69,6 +69,21 @@
 		panel.setAttribute('hidden', '');
 		document.body.appendChild(panel);
 
+		/* chatbot.js reads window.HAAI_CONFIG itself. When the inline script was
+		 * stripped we only rebuilt the launcher's half of it; the REST response now
+		 * carries the full config, so merge it in BEFORE the script runs. Without
+		 * this the panel opened and every send/token call hit `undefined`. */
+		var server = d.config || null;
+		if (server) {
+			var merged = {};
+			var k;
+			for (k in c) { if (Object.prototype.hasOwnProperty.call(c, k)) merged[k] = c[k]; }
+			for (k in server) { if (Object.prototype.hasOwnProperty.call(server, k)) merged[k] = server[k]; }
+			window.HAAI_CONFIG = merged;
+		} else {
+			window.HAAI_CONFIG = c;
+		}
+
 		var script = document.createElement('script');
 		script.src = c.js;
 		script.defer = true;

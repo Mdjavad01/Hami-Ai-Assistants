@@ -243,9 +243,15 @@ final class Haa_REST {
 
 		$res = rest_ensure_response(
 			array(
-				'ok'   => true,
-				'html' => $html,
-				'css'  => haa_inline_css( Haa_Settings::get() ),
+				'ok'     => true,
+				'html'   => $html,
+				'css'    => haa_inline_css( Haa_Settings::get() ),
+				// The launcher builds its config from the button's data-* attributes
+				// when a cache/JS optimiser dropped the inline script. chatbot.js needs
+				// the SAME values (rest + tokenUrl) a moment later, so the full config
+				// travels with the widget too — otherwise the panel opens and every
+				// send dies with «undefined.indexOf» in the console.
+				'config' => haa_public_config(),
 			)
 		);
 		// The widget HTML follows live settings and must never sit in a page
