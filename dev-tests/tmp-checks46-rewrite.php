@@ -1,6 +1,6 @@
 <?php
 /**
- * Regression suite: rewrite of existing content (2.1.48).
+ * Regression suite: rewrite of existing content (2.1.49).
  *
  * User's request: «قابلیت بازنویسی… انتقال بدیم بخش ویرایشگر خودشون… یه بخش
  * دیگه هم داخل صفحه AI… بررسی کنه، بازنویسی کنه و تایید شد آپدیت بشه».
@@ -62,7 +62,7 @@ ok( 'generate is an admin_post route', false !== strpos( $mod, "admin_post_haai_
 ok( 'apply is an admin_post route', false !== strpos( $mod, "admin_post_haai_rw_apply" ) );
 
 echo "\n=== D. safety contract ===\n";
-$gen = substr( $mod, (int) strpos( $mod, 'public function handle_generate' ), 2000 );
+$gen = substr( $mod, (int) strpos( $mod, 'public function handle_generate' ), 6000 );
 $app = substr( $mod, (int) strpos( $mod, 'public function handle_apply' ), 2600 );
 ok( 'generate never writes the post', false === strpos( $gen, 'wp_update_post' ) );
 ok( 'generate stores a transient preview', false !== strpos( $gen, 'set_transient(' ) );
@@ -73,6 +73,9 @@ ok( 'revision marker meta is written', false !== strpos( $app, 'update_post_meta
 ok( 'the model call is bounded (45s, no retry)', false !== strpos( $mod, 'CALL_TIMEOUT' ) && false !== strpos( $mod, "'retries'    => 0" ) );
 ok( 'a fatal still answers with JSON', false !== strpos( $mod, 'register_shutdown_function(' ) );
 ok( 'the last failure is remembered for the panel', false !== strpos( $mod, 'remember_failure(' ) && false !== strpos( $mod, 'FAIL_KEY' ) );
+ok( 'long bodies are chunked per section', false !== strpos( $mod, 'split_chunks(' ) && false !== strpos( $mod, 'CHUNK_WORDS' ) );
+ok( 'one chunk is rewritten per request', false !== strpos( $mod, 'rewrite_chunk(' ) );
+ok( 'progress rides back for the auto-chain', false !== strpos( $mod, "'finished' => false" ) && false !== strpos( $mod, "'progress'" ) );
 
 echo "\n=== E. helpers (reflection) ===\n";
 $rc = new ReflectionClass( 'Haa_Module_Rewrite' );

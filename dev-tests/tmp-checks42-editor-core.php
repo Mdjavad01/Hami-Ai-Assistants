@@ -301,8 +301,8 @@ ok( 'H: editor_core is wired into style_suffix', false !== mb_strpos( $cont, '$o
 echo "\n=== I. version ===\n";
 
 $main = file_get_contents( __DIR__ . '/../hami-ai-assistant.php' );
-ok( 'I: header says 2.1.48', false !== mb_strpos( $main, ' * Version:           2.1.48' ), '' );
-ok( 'I: HAAI_VERSION is 2.1.48', false !== mb_strpos( $main, "define( 'HAAI_VERSION', '2.1.48' );" ), '' );
+ok( 'I: header says 2.1.49', false !== mb_strpos( $main, ' * Version:           2.1.49' ), '' );
+ok( 'I: HAAI_VERSION is 2.1.49', false !== mb_strpos( $main, "define( 'HAAI_VERSION', '2.1.49' );" ), '' );
 
 echo "\n";
 if ( $fail ) {

@@ -31,6 +31,9 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 	 */
 	const CALL_TIMEOUT = 45;
 
+	/** Words per chunk: one chunk must finish inside CALL_TIMEOUT. */
+	const CHUNK_WORDS = 700;
+
 	/** Longest body sent to the model, in characters. */
 	const MAX_INPUT = 24000;
 
@@ -342,6 +345,7 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 		$words   = self::words( $html );
 		$draft   = get_transient( self::draft_key( (int) $post->ID ) );
 		$fail    = get_transient( self::FAIL_KEY . (int) get_current_user_id() );
+		$state   = get_transient( self::state_key( (int) $post->ID ) );
 		$edit    = get_edit_post_link( (int) $post->ID, 'raw' );
 		$view    = get_permalink( (int) $post->ID );
 		$types   = self::types();
@@ -350,6 +354,18 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 		<?php if ( is_string( $fail ) && '' !== $fail ) : ?>
 			<div class="haai-alert haai-alert--warn">
 				<?php echo esc_html( $fail ); ?>
+			</div>
+		<?php endif; ?>
+		<?php if ( is_array( $state ) && ! empty( $state['chunks'] ) ) : ?>
+			<div class="haai-alert haai-alert--info">
+				<?php
+				printf(
+					/* translators: 1: done, 2: total. */
+					esc_html__( 'بازنویسی بخش‌به‌بخش: %1$d از %2$d بخش تمام شده. هر بخش یک درخواست کوتاه است تا از مهلت PHP رد نشود.', 'hami-ai-assistant' ),
+					(int) $state['index'],
+					count( (array) $state['chunks'] )
+				);
+				?>
 			</div>
 		<?php endif; ?>
 		<p class="haai-plan__meta">
@@ -377,7 +393,7 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 				<?php esc_html_e( 'این نوشته متن ندارد؛ چیزی برای بازنویسی نیست.', 'hami-ai-assistant' ); ?>
 			</div>
 		<?php else : ?>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-panel" data-haai-busy="در حال بازنویسی… این پنجره را نبندید.">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="haai-panel" data-haai-rw-run="1" data-haai-busy="در حال بازنویسی… این پنجره را نبندید.">
 				<?php wp_nonce_field( 'haai_rw' ); ?>
 				<input type="hidden" name="action" value="haai_rw_generate" />
 				<input type="hidden" name="post_id" value="<?php echo (int) $post->ID; ?>" />
@@ -395,7 +411,9 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 				</p>
 				<textarea name="instructions" rows="2" class="large-text" placeholder="<?php esc_attr_e( 'دستور این نوبت (اختیاری): مثلاً «مقدمه را کوتاه‌تر کن».', 'hami-ai-assistant' ); ?>"></textarea>
 				<p class="haai-plan__actions">
-					<button type="submit" class="button button-primary"><?php esc_html_e( 'ساخت پیش‌نمایش', 'hami-ai-assistant' ); ?></button>
+					<button type="submit" class="button button-primary">
+						<?php echo ( is_array( $state ) && ! empty( $state['chunks'] ) ) ? esc_html__( 'ادامه‌ی بازنویسی', 'hami-ai-assistant' ) : esc_html__( 'ساخت پیش‌نمایش', 'hami-ai-assistant' ); ?>
+					</button>
 				</p>
 			</form>
 		<?php endif; ?>
@@ -473,17 +491,76 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 		}
 
 		$extra = isset( $_POST['instructions'] ) ? sanitize_textarea_field( wp_unslash( $_POST['instructions'] ) ) : '';
-		$draft = self::rewrite( $post, $extra );
-		if ( is_wp_error( $draft ) ) {
-			$this->remember_failure( $draft->get_error_message() );
-			$this->respond_with_panel( $post );
-			$this->back( $draft->get_error_message(), true, (int) $post->ID );
+
+		/*
+		 * A 2400-word article cannot be rewritten inside one request: the output alone
+		 * is thousands of tokens, and the host kills PHP long before the provider
+		 * answers (that is what «پاسخ نامعتبر» was). So the body is split into chunks
+		 * and ONE chunk is rewritten per request; admin.js resubmits until the panel
+		 * says it is finished. Every request stays well under the PHP limit.
+		 */
+		$state = get_transient( self::state_key( (int) $post->ID ) );
+		if ( ! is_array( $state ) || empty( $state['chunks'] ) ) {
+			$chunks = self::split_chunks( (string) $post->post_content );
+			if ( ! $chunks ) {
+				$this->back( __( 'متنی برای بازنویسی پیدا نشد.', 'hami-ai-assistant' ), true, (int) $post->ID );
+			}
+			$state = array(
+				'chunks'       => $chunks,
+				'index'        => 0,
+				'done'         => array(),
+				'instructions' => $extra,
+				'before'       => self::words( (string) $post->post_content ),
+				'made'         => time(),
+			);
 		}
 
+		$total = count( $state['chunks'] );
+		$piece = self::rewrite_chunk( $post, (string) $state['chunks'][ $state['index'] ], (string) $state['instructions'] );
+
+		if ( is_wp_error( $piece ) ) {
+			$this->remember_failure( $piece->get_error_message() );
+			set_transient( self::state_key( (int) $post->ID ), $state, 2 * HOUR_IN_SECONDS );
+			$this->respond_with_panel( $post, array( 'finished' => false, 'error' => true ) );
+			$this->back( $piece->get_error_message(), true, (int) $post->ID );
+		}
+
+		$state['done'][] = $piece;
+		$state['index']++;
+
+		if ( $state['index'] < $total ) {
+			set_transient( self::state_key( (int) $post->ID ), $state, 2 * HOUR_IN_SECONDS );
+			$this->respond_with_panel(
+				$post,
+				array( 'done' => (int) $state['index'], 'total' => (int) $total, 'finished' => false )
+			);
+			$this->back(
+				sprintf(
+					/* translators: 1: done, 2: total. */
+					__( 'بخش %1$d از %2$d بازنویسی شد؛ ادامه می‌دهد…', 'hami-ai-assistant' ),
+					(int) $state['index'],
+					(int) $total
+				),
+				false,
+				(int) $post->ID
+			);
+		}
+
+		$html  = trim( implode( "\n", array_map( 'strval', (array) $state['done'] ) ) );
+		$draft = array(
+			'html'         => $html,
+			'title'        => (string) get_the_title( $post ),
+			'words_before' => (int) $state['before'],
+			'words_after'  => self::words( $html ),
+			'made'         => time(),
+			'notes'        => '',
+		);
+
+		delete_transient( self::state_key( (int) $post->ID ) );
 		delete_transient( self::FAIL_KEY . (int) get_current_user_id() );
 		set_transient( self::draft_key( (int) $post->ID ), $draft, 2 * HOUR_IN_SECONDS );
-		$this->respond_with_panel( $post );
-		$this->back( __( 'پیش‌نمایش آماده است؛ بررسی و ویرایش کنید و بعد اعمال بزنید.', 'hami-ai-assistant' ), false, (int) $post->ID );
+		$this->respond_with_panel( $post, array( 'finished' => true ) );
+		$this->back( __( 'پیش‌نمایش کامل شد؛ بررسی و ویرایش کنید و بعد اعمال بزنید.', 'hami-ai-assistant' ), false, (int) $post->ID );
 	}
 
 	/** @return void */
@@ -569,8 +646,9 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 			$this->back( $post->get_error_message(), true, 0 );
 		}
 		delete_transient( self::draft_key( (int) $post->ID ) );
+		delete_transient( self::state_key( (int) $post->ID ) );
 		$this->respond_with_panel( $post );
-		$this->back( __( 'پیش‌نمایش دور انداخته شد.', 'hami-ai-assistant' ), false, (int) $post->ID );
+		$this->back( __( 'پیش‌نمایش/اجرای نیمه‌کاره دور انداخته شد.', 'hami-ai-assistant' ), false, (int) $post->ID );
 	}
 
 	/* ------------------------------------------------------------------
@@ -606,6 +684,16 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 	}
 
 	/**
+	 * Progress of a run that is still being chunked.
+	 *
+	 * @param int $post_id Post id.
+	 * @return string
+	 */
+	private static function state_key( $post_id ) {
+		return self::draft_key( $post_id ) . '_state';
+	}
+
+	/**
 	 * @param string $html Body.
 	 * @return int Word count of the visible text.
 	 */
@@ -636,51 +724,95 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 	}
 
 	/**
-	 * Ask the model for the rewrite. Nothing is written here.
+	 * Split the body into rewrite-sized chunks.
 	 *
-	 * @param WP_Post $post  Post.
-	 * @param string  $extra Per-run instruction.
-	 * @return array|WP_Error
+	 * Boundaries are H2 headings (the natural section), and any section longer
+	 * than CHUNK_WORDS is cut again at paragraph ends. Every chunk is small enough
+	 * for a single call to finish in seconds, which is what keeps the request
+	 * inside PHP's execution limit.
+	 *
+	 * @param string $html Body HTML.
+	 * @return array<int,string>
 	 */
-	private static function rewrite( $post, $extra = '' ) {
-		$before = self::words( (string) $post->post_content );
-		$target = self::target_words( $before );
-		$body   = (string) $post->post_content;
-		if ( mb_strlen( $body ) > self::MAX_INPUT ) {
-			$body = mb_substr( $body, 0, self::MAX_INPUT );
+	private static function split_chunks( $html ) {
+		$html = trim( (string) $html );
+		if ( '' === $html ) {
+			return array();
 		}
 
-		$system = Haa_Content::editor_core() . "\n"
-			. __( 'این کار بازنویسی است، نه نوشتن تازه:', 'hami-ai-assistant' ) . "\n"
-			. '- ' . __( 'همه‌ی داده‌های واقعی متن (نام، عدد، ویژگی، لینک، FAQ) باید بمانند؛ چیزی که در متن نیست نساز.', 'hami-ai-assistant' ) . "\n"
-			. '- ' . __( 'ساختار سرفصل‌ها را نگه دار؛ فقط تیتر تکراری یا بی‌ربط را ادغام کن.', 'hami-ai-assistant' ) . "\n"
-			. '- ' . __( 'لینک‌های موجود را حذف نکن و لینک تازه نساز.', 'hami-ai-assistant' ) . "\n"
-			. '- ' . sprintf(
-				/* translators: 1: tone, 2: words. */
-				__( 'لحن: %1$s. طول تقریبی: %2$d کلمه (کمتر از ۷۰٪ آن نرو).', 'hami-ai-assistant' ),
-				self::tone_label(),
-				(int) $target
-			) . "\n"
-			. '- ' . __( 'خروجی فقط HTML بدنه است (h2/h3/p/ul/li/table و همان لینک‌ها)؛ بدون <html>، بدون توضیح، بدون ```.', 'hami-ai-assistant' ) . "\n";
-
-		$profile = Haa_Site_Profile::block( '' );
-		if ( '' !== $profile ) {
-			$system .= "\n" . __( 'حافظه‌ی سایت (برای هماهنگی لحن و واژه‌ها):', 'hami-ai-assistant' ) . "\n" . $profile . "\n";
+		$parts = preg_split( '/(?=<h2\b)/i', $html, -1, PREG_SPLIT_NO_EMPTY );
+		if ( ! is_array( $parts ) || ! $parts ) {
+			$parts = array( $html );
 		}
 
-		$settings_hint = trim( (string) Haa_Settings::get( 'rewrite.instructions', '' ) );
-		if ( '' !== $settings_hint ) {
-			$system .= "\n" . __( 'دستور ثابت مدیر:', 'hami-ai-assistant' ) . ' ' . $settings_hint . "\n";
-		}
-		if ( '' !== trim( (string) $extra ) ) {
-			$system .= "\n" . __( 'دستور این نوبت:', 'hami-ai-assistant' ) . ' ' . $extra . "\n";
+		$out = array();
+		foreach ( $parts as $part ) {
+			foreach ( self::split_by_words( (string) $part, self::CHUNK_WORDS ) as $chunk ) {
+				$out[] = $chunk;
+			}
 		}
 
-		$user = sprintf(
-			/* translators: 1: title, 2: body. */
-			__( "عنوان فعلی: %1\$s\n\nمتن فعلی:\n%2\$s", 'hami-ai-assistant' ),
+		return $out;
+	}
+
+	/**
+	 * Cut one block at paragraph ends once it passes the word budget.
+	 *
+	 * @param string $html  Block.
+	 * @param int    $limit Max words per piece.
+	 * @return array<int,string>
+	 */
+	private static function split_by_words( $html, $limit ) {
+		if ( self::words( $html ) <= (int) $limit ) {
+			return array( $html );
+		}
+
+		$blocks = preg_split( '/(?<=<\/p>)/i', $html, -1, PREG_SPLIT_NO_EMPTY );
+		if ( ! is_array( $blocks ) || ! $blocks ) {
+			return array( $html );
+		}
+
+		$out = array();
+		$buf = '';
+		$n   = 0;
+		foreach ( $blocks as $block ) {
+			$bw = self::words( (string) $block );
+			if ( $n > 0 && ( $n + $bw ) > (int) $limit ) {
+				$out[] = $buf;
+				$buf   = '';
+				$n     = 0;
+			}
+			$buf .= (string) $block;
+			$n   += $bw;
+		}
+		if ( '' !== trim( $buf ) ) {
+			$out[] = $buf;
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Rewrite ONE chunk. Nothing is written here.
+	 *
+	 * @param WP_Post $post         Post (for the title and the site memory).
+	 * @param string  $chunk        Body chunk.
+	 * @param string  $instructions Per-run instruction.
+	 * @return string|WP_Error
+	 */
+	private static function rewrite_chunk( $post, $chunk, $instructions = '' ) {
+		$chunk = trim( (string) $chunk );
+		if ( '' === $chunk ) {
+			return new WP_Error( 'haai_rw_empty_chunk', __( 'یک بخش خالی بود؛ دوباره بزنید.', 'hami-ai-assistant' ) );
+		}
+
+		$target = max( 120, self::words( $chunk ) );
+		$system = self::system_prompt( $target, $instructions );
+		$user   = sprintf(
+			/* translators: 1: title, 2: chunk. */
+			__( "عنوان مقاله: %1\$s\n\nاین بخش را بازنویسی کن و فقط همان را برگردان:\n%2\$s", 'hami-ai-assistant' ),
 			(string) get_the_title( $post ),
-			$body
+			$chunk
 		);
 
 		$api = new Haa_API();
@@ -692,7 +824,7 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 			array(
 				'module'     => 'rewrite',
 				'operation'  => 'rewrite',
-				'max_tokens' => (int) min( 6000, max( 1200, $target * 3 ) ),
+				'max_tokens' => (int) min( 3000, max( 700, $target * 3 ) ),
 				// Bounded on purpose: see CALL_TIMEOUT.
 				'timeout'    => self::CALL_TIMEOUT,
 				'retries'    => 0,
@@ -707,18 +839,48 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 		$html = preg_replace( '/^```[a-z]*\s*|\s*```$/i', '', $html );
 		$html = Haa_Content::strip_meta_markers( (string) $html );
 		$html = trim( (string) $html );
-		if ( '' === $html || self::words( $html ) < 40 ) {
-			return new WP_Error( 'haai_rw_empty', __( 'پاسخ مدل متن قابل‌استفاده نداشت؛ دوباره بزنید.', 'hami-ai-assistant' ) );
+		if ( '' === $html || self::words( $html ) < 20 ) {
+			return new WP_Error( 'haai_rw_empty', __( 'پاسخ مدل برای این بخش متن قابل‌استفاده نداشت؛ دوباره بزنید.', 'hami-ai-assistant' ) );
 		}
 
-		return array(
-			'html'         => $html,
-			'title'        => (string) get_the_title( $post ),
-			'words_before' => $before,
-			'words_after'  => self::words( $html ),
-			'made'         => time(),
-			'notes'        => '',
-		);
+		return $html;
+	}
+
+	/**
+	 * Rules shared by every chunk: honesty, structure, links, tone, output shape.
+	 *
+	 * @param int    $target       Target words for this chunk.
+	 * @param string $instructions Per-run instruction.
+	 * @return string
+	 */
+	private static function system_prompt( $target, $instructions = '' ) {
+		$system = Haa_Content::editor_core() . "\n"
+			. __( 'این کار بازنویسی یک بخش است، نه نوشتن تازه:', 'hami-ai-assistant' ) . "\n"
+			. '- ' . __( 'فقط همین بخش را بنویس؛ مقدمه یا نتیجه‌گیری تازه اضافه نکن و بخش دیگری از مقاله را تکرار نکن.', 'hami-ai-assistant' ) . "\n"
+			. '- ' . __( 'همه‌ی داده‌های واقعی متن (نام، عدد، ویژگی، لینک) باید بمانند؛ چیزی که در متن نیست نساز.', 'hami-ai-assistant' ) . "\n"
+			. '- ' . __( 'سرفصل‌های همین بخش را نگه دار و لینک‌های موجود را حذف نکن.', 'hami-ai-assistant' ) . "\n"
+			. '- ' . sprintf(
+				/* translators: 1: tone, 2: words. */
+				__( 'لحن: %1$s. طول تقریبی: %2$d کلمه (کمتر از ۷۰٪ آن نرو).', 'hami-ai-assistant' ),
+				self::tone_label(),
+				(int) $target
+			) . "\n"
+			. '- ' . __( 'خروجی فقط HTML همین بخش است (h2/h3/p/ul/li/table و همان لینک‌ها)؛ بدون <html>، بدون توضیح، بدون ```.', 'hami-ai-assistant' ) . "\n";
+
+		$profile = Haa_Site_Profile::block( '' );
+		if ( '' !== $profile ) {
+			$system .= "\n" . __( 'حافظه‌ی سایت (برای هماهنگی لحن و واژه‌ها):', 'hami-ai-assistant' ) . "\n" . $profile . "\n";
+		}
+
+		$settings_hint = trim( (string) Haa_Settings::get( 'rewrite.instructions', '' ) );
+		if ( '' !== $settings_hint ) {
+			$system .= "\n" . __( 'دستور ثابت مدیر:', 'hami-ai-assistant' ) . ' ' . $settings_hint . "\n";
+		}
+		if ( '' !== trim( (string) $instructions ) ) {
+			$system .= "\n" . __( 'دستور این نوبت:', 'hami-ai-assistant' ) . ' ' . $instructions . "\n";
+		}
+
+		return $system;
 	}
 
 	/**
@@ -728,10 +890,11 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 	 * has no wp_ajax panel endpoint, and the preview only exists for the request
 	 * that just wrote the transient.
 	 *
-	 * @param WP_Post $post Post being edited.
+	 * @param WP_Post    $post     Post being edited.
+	 * @param array|null $progress Chunk progress for the auto-chain.
 	 * @return void
 	 */
-	private function respond_with_panel( $post ) {
+	private function respond_with_panel( $post, $progress = null ) {
 		if ( ! Haa_Ajax_Form::wants() ) {
 			return;
 		}
@@ -741,6 +904,9 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 			'target' => 'haai-rewrite-panel',
 			'html'   => (string) ob_get_clean(),
 		);
+		if ( is_array( $progress ) ) {
+			$GLOBALS['haai_ajax_extra']['progress'] = $progress;
+		}
 	}
 
 	/** @var bool One shutdown guard per request. */

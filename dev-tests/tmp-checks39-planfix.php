@@ -244,8 +244,8 @@ ok( 'H: the migration heals through Haa_Planner::repair_statuses()',
 ok( 'H: the migration guards a missing topics table / class',
         false !== strpos( $db_src, 'SHOW TABLES LIKE %s' ), '' );
 ok( 'H: the schema constant is bumped to 10', false !== strpos( $main, "define( 'HAAI_DB_VERSION', '10' )" ), '' );
-ok( 'H: version header is 2.1.48', false !== strpos( $main, '2.1.48' ), '' );
-ok( 'H: HAAI_VERSION constant is 2.1.48', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.48' )" ), '' );
+ok( 'H: version header is 2.1.49', false !== strpos( $main, '2.1.49' ), '' );
+ok( 'H: HAAI_VERSION constant is 2.1.49', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.49' )" ), '' );
 ok( 'H: hydrate() carries the normalization guard',
         false !== strpos( $plan_src, "! in_array( \$status, self::STATUSES, true )" ), '' );
 ok( 'H: counts() folds unknown buckets into suggested',

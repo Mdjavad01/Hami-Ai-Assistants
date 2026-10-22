@@ -1111,22 +1111,42 @@
                                                 }
                                         }
 
-                                        if (refreshAttr) {
-                                                var ids = refreshAttr.split(',').map(function (s) { return s.trim(); }).filter(String);
+                                        // Chunked work (the rewrite module) reports progress and asks
+                                        // for the next slice: resubmit the form that the swap just
+                                        // installed. One short request per chunk is what keeps a
+                                        // long job alive on a host with a 30-60s PHP limit.
+                                        function continueChain() {
+                                                var prog = (inlined && j.data && j.data.progress) ? j.data.progress : null;
+                                                if (!prog || prog.finished || prog.error) return;
+                                                var again = document.querySelector('[data-haai-rw-run]');
+                                                if (!again) return;
+                                                window.setTimeout(function () {
+                                                        if (again.requestSubmit) again.requestSubmit();
+                                                        else again.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                                                }, 350);
+                                        }
+
+                                        if (refreshAttr || inlined) {
+                                                var ids = refreshAttr ? refreshAttr.split(',').map(function (s) { return s.trim(); }).filter(String) : [];
                                                 if (inlined) {
                                                         ids = ids.filter(function (id) { return id !== inlined.target; });
                                                 }
                                                 if (!ids.length) {
                                                         if (!inlined) placeNotice(f, noticeEl(msg, true));
+                                                        continueChain();
                                                         return;
                                                 }
                                                 var left = ids.length;
                                                 ids.forEach(function (id) {
                                                         refreshPanel(id, function () {
                                                                 left -= 1;
-                                                                if (!left) placeNotice(f, noticeEl(msg, true));
+                                                                if (!left) {
+                                                                        placeNotice(f, noticeEl(msg, true));
+                                                                        continueChain();
+                                                                }
                                                         });
                                                 });
+                                                return;
                                         } else {
                                                 flashStore(msg, true);
                                                 placeNotice(f, noticeEl(msg, true));
