@@ -1,6 +1,6 @@
 <?php
 /**
- * Regression suite: rewrite of existing content (2.1.50).
+ * Regression suite: rewrite of existing content (2.1.51).
  *
  * User's request: «قابلیت بازنویسی… انتقال بدیم بخش ویرایشگر خودشون… یه بخش
  * دیگه هم داخل صفحه AI… بررسی کنه، بازنویسی کنه و تایید شد آپدیت بشه».
@@ -79,6 +79,7 @@ ok( 'progress rides back for the auto-chain', false !== strpos( $mod, "'finished
 ok( 'tiny fragments skip the model call', false !== strpos( $mod, '< 15 )' ) );
 ok( 'the length floor scales with the chunk', false !== strpos( $mod, 'floor( $chunk_words / 3 )' ) );
 ok( 'a rejected chunk shows the raw reply', false !== strpos( $mod, 'پاسخ خام' ) );
+ok( 'strip_meta_markers array is unwrapped, never cast', false !== strpos( $mod, 'is_array( $stripped )' ) && false === strpos( $mod, '(string) Haa_Content::strip_meta_markers(' ) );
 
 echo "\n=== E. helpers (reflection) ===\n";
 $rc = new ReflectionClass( 'Haa_Module_Rewrite' );
@@ -86,6 +87,7 @@ $words = $rc->getMethod( 'words' );
 $words->setAccessible( true );
 ok( 'word counter ignores markup', 3 === $words->invoke( null, '<p>یک دو سه</p>' ) );
 ok( 'word counter on empty html is zero', 0 === $words->invoke( null, '   ' ) );
+ok( 'NBSP separates words, not glues them', 3 === $words->invoke( null, "یک\u{00A0}دو\u{00A0}سه" ) );
 $target = $rc->getMethod( 'target_words' );
 $target->setAccessible( true );
 ok( 'target length keeps the current size', 1200 === $target->invoke( null, 1200 ) );

@@ -580,8 +580,8 @@ ok( 'F: the jump-nav + subtitle classes exist in BOTH css builds',
 echo "=== G. version pins ===\n";
 
 $main = file_get_contents( dirname( __DIR__ ) . '/hami-ai-assistant.php' );
-ok( 'G: version header is 2.1.50', false !== strpos( $main, '2.1.50' ), '' );
-ok( 'G: HAAI_VERSION constant is 2.1.50', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.50' )" ), '' );
+ok( 'G: version header is 2.1.51', false !== strpos( $main, '2.1.51' ), '' );
+ok( 'G: HAAI_VERSION constant is 2.1.51', false !== strpos( $main, "define( 'HAAI_VERSION', '2.1.51' )" ), '' );
 
 /* ===================================================================
  * H. behavioral: the whole loop — fail, wait, revive, succeed

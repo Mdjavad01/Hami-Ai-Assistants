@@ -709,11 +709,13 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 	 * @return int Word count of the visible text.
 	 */
 	private static function words( $html ) {
-		$text = trim( preg_replace( '/\s+/u', ' ', wp_strip_all_tags( (string) $html ) ) );
+		// \p{Z} covers the non-ASCII spaces models like to emit (NBSP, thin, …):
+		// without it a paragraph separated by U+00A0 counts as ONE word.
+		$text = trim( (string) preg_replace( '/[\s\p{Z}\x{200B}]+/u', ' ', wp_strip_all_tags( (string) $html ) ) );
 		if ( '' === $text ) {
 			return 0;
 		}
-		return count( preg_split( '/\s+/u', $text, -1, PREG_SPLIT_NO_EMPTY ) );
+		return count( preg_split( '/[\s\p{Z}]+/u', $text, -1, PREG_SPLIT_NO_EMPTY ) );
 	}
 
 	/** @return string Tone label from the content settings. */
@@ -849,7 +851,13 @@ final class Haa_Module_Rewrite implements Haa_Module_Interface {
 
 		$raw  = trim( (string) $out );
 		$html = trim( (string) preg_replace( '/^```[a-z]*\s*|\s*```$/i', '', $raw ) );
-		$html = trim( (string) Haa_Content::strip_meta_markers( $html ) );
+
+		// strip_meta_markers() returns [clean text, captured meta] — casting the
+		// ARRAY to string yields the literal word «Array», which is how a perfectly
+		// good reply was measured as «۱ کلمه» and rejected. Take element 0.
+		$stripped = Haa_Content::strip_meta_markers( $html );
+		$html     = is_array( $stripped ) ? (string) ( $stripped[0] ?? '' ) : (string) $stripped;
+		$html     = trim( $html );
 
 		// The floor scales with the chunk: a 200-word section may legitimately come
 		// back shorter, while a 700-word one may not. A fixed 20-word floor rejected
