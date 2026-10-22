@@ -128,7 +128,7 @@ Haa_Settings::save_all( array( 'provider' => array( 'model' => 'first-model' ) )
 $live = Haa_Settings::get();
 ok( 'option created without an existing one', is_array( get_option( HAAI_OPTION, null ) ) );
 ok( 'the override landed', 'first-model' === $live['provider']['model'] );
-ok( 'the rest of the structure is complete', 11 === count( (array) $live['modules'] ), (string) count( (array) $live['modules'] ) );
+ok( 'the rest of the structure is complete', 12 === count( (array) $live['modules'] ), (string) count( (array) $live['modules'] ) );
 
 echo "\nFAILURES: $fail\n";
 exit( $fail ? 1 : 0 );

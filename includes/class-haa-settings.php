@@ -382,6 +382,12 @@ final class Haa_Settings {
                                 'max_per_run'        => 5,
                         ),
 
+                        // Owned by rewrite: reworking content that already exists.
+                        'rewrite'   => array(
+                                'post_types'   => array( 'post', 'page' ),
+                                'instructions' => '',
+                        ),
+
                         // Owned by semantic-search (embeddings are opt-in).
                         'search'    => array(
                                 'enabled'           => 0,
@@ -1375,6 +1381,10 @@ final class Haa_Settings {
                         'comments.generate_questions' => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'comments.generate_answers'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
                         'comments.max_per_run'        => array( 'cb' => array( 'Haa_Settings', 'sanitize_int' ), 'min' => 1, 'max' => 20 ),
+
+                        // Rewrite (existing content).
+                        'rewrite.post_types'   => array( 'cb' => array( 'Haa_Settings', 'sanitize_key_list' ) ),
+                        'rewrite.instructions' => array( 'cb' => array( 'Haa_Settings', 'sanitize_textarea' ) ),
 
                         // Semantic search.
                         'search.enabled'          => array( 'cb' => array( 'Haa_Settings', 'sanitize_bool' ) ),
@@ -2473,6 +2483,7 @@ final class Haa_Settings {
                         'discount'  => array( 'discount' ),
                         'comments'  => array( 'comments' ),
                         'search'    => array( 'semantic-search' ),
+                        'rewrite'   => array( 'rewrite' ),
                 );
         }
 
@@ -2524,6 +2535,7 @@ final class Haa_Settings {
                         'autopilot'        => array( 'autopilot.daily_token_cap', 'autopilot.daily_post_cap', 'autopilot.retry_limit', 'autopilot.default_status', 'autopilot.default_tone', 'autopilot.default_length', 'autopilot.enable_images', 'autopilot.default_category' ),
                         'leads'            => array( 'leads.retention_days', 'leads.stages', 'leads.csv_enabled', 'leads.ai_summary', 'leads.score_phone', 'leads.score_message', 'leads.score_buying', 'leads.auto_create' ),
                         'discount'         => array( 'discount.enabled', 'discount.max_rounds', 'discount.global_max_percent', 'discount.default_max_percent', 'discount.per_visitor', 'discount.rate_minutes', 'discount.coupon_expiry_days', 'discount.min_cart', 'discount.max_uses' ),
+                        'rewrite'          => array( 'rewrite.post_types', 'rewrite.instructions' ),
                 );
                 $enabled = self::enabled_modules();
                 foreach ( $module_fields as $slug => $module_keys ) {

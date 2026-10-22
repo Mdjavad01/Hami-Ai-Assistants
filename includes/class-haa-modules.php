@@ -51,6 +51,8 @@ final class Haa_Modules {
 			'news'            => 'Haa_Module_News',
 			'video-article'   => 'Haa_Module_Video_Article',
 			'programmatic'    => 'Haa_Module_Programmatic',
+			// Reworks content that already exists (post/page/product).
+			'rewrite'         => 'Haa_Module_Rewrite',
 		);
 	}
 
@@ -117,6 +119,11 @@ final class Haa_Modules {
 			'programmatic'      => array(
 				'label'       => __( 'صفحه‌سازی برنامه‌ریزی‌شده', 'hami-ai-assistant' ),
 				'description' => __( 'از CSV یا ویژگی‌های ووکامرس، صفحه‌های سئوشده می‌سازد — با نگهبان «محتوای نازک» و صفحه‌ی hub برای لینک‌دهی.', 'hami-ai-assistant' ),
+				'woo'         => false,
+			),
+			'rewrite'           => array(
+				'label'       => __( 'بازنویسی با AI', 'hami-ai-assistant' ),
+				'description' => __( 'نوشته، برگه یا محصول موجود را بازنویسی می‌کند: پیش‌نمایش قابل ویرایش، و به‌روزرسانی فقط بعد از تأیید — با دکمه‌ای در فهرست و ویرایشگر خودشان.', 'hami-ai-assistant' ),
 				'woo'         => false,
 			),
 		);

@@ -43,6 +43,7 @@ final class Haa_Util {
                         'news'            => 'haai-news',
                         'video-article'   => 'haai-video-article',
                         'programmatic'    => 'haai-programmatic',
+                        'rewrite'         => 'haai-rewrite',
                 );
         }
 
