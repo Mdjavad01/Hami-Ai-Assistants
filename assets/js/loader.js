@@ -87,7 +87,32 @@
 		var script = document.createElement('script');
 		script.src = c.js;
 		script.defer = true;
+		script.onerror = function () {
+			// 404, a WAF block or an ad-blocker filter that matches the file name:
+			// the panel is already on screen, so say it instead of a dead button.
+			window.HAAI_CONFIG = window.HAAI_CONFIG || c;
+			toast('فایل اسکریپت چت بارگذاری نشد (مسدود یا 404). صفحه را بدون مسدودکننده تست کنید.');
+			if (window.console && console.error) console.error('[HAAI] chatbot.js failed to load:', script.src);
+		};
 		if (c.js) document.body.appendChild(script);
+
+		// Watchdog: if chatbot.js loaded but never reached its own init, no handler
+		// is bound and every click is silently ignored. Name the reason on screen.
+		window.setTimeout(function () {
+			if (window.HAAI_CHAT) return;
+			if (window.console && console.error) {
+				console.error('[HAAI] chatbot.js did not initialise', {
+					src: c.js,
+					hasConfig: !!window.HAAI_CONFIG,
+					widget: !!document.querySelector('.haai-widget:not(.haai-widget--preview)')
+				});
+			}
+			if (!document.querySelector('.haai-widget:not(.haai-widget--preview)')) {
+				toast('قالب ویجت از سرور نیامد؛ صفحه را دوباره بارگذاری کنید.');
+			} else {
+				toast('چت آماده نشد: اسکریپت اجرا نشد یا خطا داد (کنسول را ببینید).');
+			}
+		}, 4000);
 	}
 
 	// Everything the panel needs, exactly once. Resolves when it is in the DOM.

@@ -12,12 +12,12 @@
 
 ## نصب
 
-1. بسته را بسازید (یا از فایل آماده‌ی `hami-ai-assistant-2.1.54.zip` استفاده کنید — دستور ساختش در `docs.md` بخش 15.5): با پوشه‌ی میانی `hami-ai-assistant/`.
+1. بسته را بسازید (یا از فایل آماده‌ی `hami-ai-assistant-2.1.55.zip` استفاده کنید — دستور ساختش در `docs.md` بخش 15.5): با پوشه‌ی میانی `hami-ai-assistant/`.
 2. **فقط همان ZIP را آپلود کنید**: پیشخوان ← افزونه‌ها ← «افزونه‌ی جدید» ← بارگذاری افزونه ← Choose file. چیز دیگری لازم نیست: نه `dev-tests/`، نه `dev-notes/`، نه `docs.md`/`guide.md`/`README.md`/`AGENTS.md`/`audit.txt`، نه `tools/`.
 3. اگر از FTP/SSH می‌روید، همان zip را باز کنید تا پوشه‌ی `hami-ai-assistant` در `wp-content/plugins/` ساخته شود، یا با WP-CLI:
 
 ```bash
-wp plugin install hami-ai-assistant-2.1.54.zip --force --activate
+wp plugin install hami-ai-assistant-2.1.55.zip --force --activate
 wp eval 'print_r(Haa_Settings::diagnose());'   # باید Array ( ) خالی باشد
 ```
 
@@ -271,7 +271,7 @@ hami-ai-assistant/
 |---|---|---|
 | `assets/js/chatbot.js` | ۱۵ کیلوبایت | ~۴KB (min+gzip) |
 | `assets/css/chatbot.css` | ۸ کیلوبایت | ~۲.۶KB (min+gzip) |
-| `assets/js/loader.js` | ~۱–۲KB | ~۰.۹KB (min+gzip) |
+| `assets/js/loader.js` | ~۲.۵KB | ~۲.۱KB (min+gzip) |
 | `assets/css/admin.css` | ۶۴ کیلوبایت خام | ~۵۷KB خام |
 
 - در صفحاتی که چت ندارند: **صفر** فایل و **صفر** کوئری اضافه.

@@ -95,7 +95,15 @@ final class Haa_Admin_Dashboard {
                                 <p class="haai-plan__actions">
                                         <a class="button" href="<?php echo esc_url( home_url( '/' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'باز کردن صفحه اصلی سایت', 'hami-ai-assistant' ); ?></a>
                                         <a class="button" href="<?php echo esc_url( Haa_Util::screen_url( 'settings', array( 'tab' => 'general' ) ) ); ?>"><?php esc_html_e( 'تنظیمات نمایش', 'hami-ai-assistant' ); ?></a>
+                                        <?php /* Tests the two endpoints from THIS browser: a firewall or a
+                                               * rewrite rule can block them for visitors while wp-admin looks fine. */ ?>
+                                        <button type="button" class="button"
+                                                data-haai-token="<?php echo esc_attr( rest_url( HAAI_REST_NS . '/token' ) ); ?>"
+                                                data-haai-widget="<?php echo esc_attr( rest_url( HAAI_REST_NS . '/widget' ) ); ?>">
+                                                <?php esc_html_e( 'تست اتصال چت (از همین مرورگر)', 'hami-ai-assistant' ); ?>
+                                        </button>
                                 </p>
+                                <p id="haai-selftest-out" class="haai-field__hint" role="status" aria-live="polite"></p>
                         </div>
 
                         <h2 class="haai-sec-title"><?php esc_html_e( 'مصرف و کارها', 'hami-ai-assistant' ); ?></h2>

@@ -1243,3 +1243,43 @@
                 setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
         });
 })();
+
+/**
+ * Dashboard self-test: call the two chat endpoints from THIS browser.
+ *
+ * A firewall, a rewrite rule or a security plugin can block /wp-json for
+ * visitors while wp-admin works fine; doing the probe here removes the guess.
+ */
+(function () {
+        'use strict';
+
+        document.addEventListener('click', function (e) {
+                var btn = e.target && e.target.closest ? e.target.closest('[data-haai-token]') : null;
+                if (!btn) return;
+
+                var out = document.getElementById('haai-selftest-out');
+                var tokenUrl = btn.getAttribute('data-haai-token') || '';
+                var widgetUrl = btn.getAttribute('data-haai-widget') || '';
+                var stamp = (tokenUrl.indexOf('?') === -1 ? '?' : '&') + 't=' + Date.now();
+
+                if (out) out.textContent = 'در حال تست…';
+
+                fetch(tokenUrl + stamp, { credentials: 'same-origin' })
+                        .then(function (r) { return r.text().then(function (t) { return { status: r.status, body: t }; }); })
+                        .then(function (tok) {
+                                return fetch(widgetUrl + '?url=' + encodeURIComponent(location.origin + '/'), { credentials: 'same-origin' })
+                                        .then(function (r) { return r.text().then(function (t) { return { tok: tok, status: r.status, body: t }; }); });
+                        })
+                        .then(function (res) {
+                                var hasHtml = res.body.indexOf('"html"') !== -1;
+                                var hasConf = res.body.indexOf('"config"') !== -1;
+                                if (out) {
+                                        out.textContent = 'token: HTTP ' + res.tok.status + (res.tok.body.indexOf('"token"') !== -1 ? ' (توکن دارد)' : ' (' + res.tok.body.slice(0, 80) + ')')
+                                                + ' | widget: HTTP ' + res.status + (hasHtml ? ' (HTML دارد)' : ' (HTML ندارد)') + (hasConf ? ' + کانفیگ' : '');
+                                }
+                        })
+                        .catch(function (err) {
+                                if (out) out.textContent = 'خطای شبکه: ' + (err && err.message ? err.message : 'نامشخص');
+                        });
+        });
+})();
