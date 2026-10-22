@@ -10,7 +10,27 @@
 	'use strict';
 
 	var c = window.HAAI_CONFIG;
-	if (!c) return;
+
+	/* A page cache or a JS optimiser (delay / combine / defer) can drop the inline
+	 * HAAI_CONFIG script while leaving the button in the cached HTML. Rebuild the
+	 * few values the launcher needs from the button's own data-* attributes —
+	 * otherwise the click handler used to return silently and the visitor got no
+	 * reaction at all. */
+	if (!c || !c.widgetUrl) {
+		var seed = document.querySelector('.haai-fab');
+		var d = (seed && seed.dataset) || {};
+		if (d.haaiWidget) {
+			c = {
+				rest: d.haaiRest || '',
+				tokenUrl: d.haaiToken || '',
+				widgetUrl: d.haaiWidget,
+				css: d.haaiCss || '',
+				js: d.haaiJs || '',
+				fab: { side: d.haaiSide || 'right', teaser: d.haaiTeaser || '' }
+			};
+		}
+	}
+	if (!c || !c.widgetUrl) return;
 
 	var fab = document.querySelector('.haai-fab');
 	if (!fab) {
@@ -31,6 +51,7 @@
 	function css() {
 		if (styled) return;
 		styled = true;
+		if (!c.css) return;
 		var link = document.createElement('link');
 		link.rel = 'stylesheet';
 		link.href = c.css;
@@ -51,7 +72,7 @@
 		var script = document.createElement('script');
 		script.src = c.js;
 		script.defer = true;
-		document.body.appendChild(script);
+		if (c.js) document.body.appendChild(script);
 	}
 
 	// Everything the panel needs, exactly once. Resolves when it is in the DOM.
@@ -59,10 +80,32 @@
 		if (ready) return ready;
 		css();
 		ready = fetch(c.widgetUrl + (c.widgetUrl.indexOf('?') === -1 ? '?' : '&') + 'url=' + encodeURIComponent(location.href), { credentials: 'same-origin' })
-			.then(function (r) { return r.json(); })
+			.then(function (r) {
+				if (!r.ok) throw new Error('HTTP ' + r.status);
+				return r.json();
+			})
 			.then(build)
-			.catch(function () { ready = null; });
+			.catch(function (err) {
+				ready = null;
+				// Silence here was the user's complaint: the button looked alive and
+				// did nothing. Say it out loud and let the next click retry.
+				toast('ارتباط با دستیار برقرار نشد. یک‌بار دیگر تلاش کنید.');
+				if (window.console && console.warn) console.warn('[HAAI] widget failed:', err);
+			});
 		return ready;
+	}
+
+	/** One short, self-dismissing bubble above the button (reuses .haai-teaser). */
+	function toast(text) {
+		if (teaser) return;
+		teaser = document.createElement('button');
+		teaser.type = 'button';
+		teaser.className = 'haai-teaser is-in' + (c.fab && c.fab.side === 'left' ? ' is-left' : '');
+		teaser.setAttribute('dir', 'rtl');
+		teaser.textContent = text;
+		teaser.addEventListener('click', function () { hideTeaser(false); });
+		(document.body || document.documentElement).appendChild(teaser);
+		teaserTimer = setTimeout(function () { hideTeaser(false); }, 8000);
 	}
 
 	function open() {

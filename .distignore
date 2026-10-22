@@ -11,6 +11,7 @@ node_modules/
 # Repo-only documents.
 README.md
 docs.md
+guide.md
 audit.txt
 AGENTS.md
 *.distignore

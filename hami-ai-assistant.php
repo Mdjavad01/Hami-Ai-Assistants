@@ -3,7 +3,7 @@
  * Plugin Name:       Hami AI Assistant
  * Plugin URI:        https://hami-ai.local/hami-ai-assistant
  * Description:       دستیار هوشمند ماژولار برای وردپرس و ووکامرس: چت‌بات فروش، تولید محتوای سئو، مقاله‌نویس، اتوپایلوت، باشگاه لید، مذاکره‌گر تخفیف، کامنت‌گذار هوشمند و جستجوی معنایی.
- * Version:           2.1.51
+ * Version:           2.1.52
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Hami
@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Constants
  * ---------------------------------------------------------------------- */
 
-define( 'HAAI_VERSION', '2.1.51' );
+define( 'HAAI_VERSION', '2.1.52' );
 define( 'HAAI_DB_VERSION', '10' );
 define( 'HAAI_FILE', __FILE__ );
 define( 'HAAI_PATH', plugin_dir_path( __FILE__ ) );
@@ -709,9 +709,32 @@ final class Haa_Plugin {
                         return;
                 }
 
+                $cfg = haa_public_config();
+
+                // The same endpoints ride on the BUTTON as data-* attributes. Page
+                // caches and JS optimisers (delay/combine/defer) often drop or defer
+                // the inline HAAI_CONFIG script while the button itself survives;
+                // loader.js rebuilds its config from these when the global is gone.
+                $attrs = array(
+                        'data-haai-widget' => (string) $cfg['widgetUrl'],
+                        'data-haai-token'  => (string) $cfg['tokenUrl'],
+                        'data-haai-rest'   => (string) $cfg['rest'],
+                        'data-haai-css'    => (string) $cfg['css'],
+                        'data-haai-js'     => (string) $cfg['js'],
+                        'data-haai-side'   => (string) $cfg['fab']['side'],
+                        'data-haai-teaser' => (string) $cfg['fab']['teaser'],
+                );
+                $extra = '';
+                foreach ( $attrs as $name => $value ) {
+                        if ( '' !== $value ) {
+                                $extra .= ' ' . $name . '="' . esc_attr( $value ) . '"';
+                        }
+                }
+
                 printf(
-                        '<button type="button" class="haai-fab" aria-expanded="false" aria-label="%1$s">%2$s</button>',
+                        '<button type="button" class="haai-fab" aria-expanded="false" aria-label="%1$s"%2$s>%3$s</button>',
                         esc_attr__( 'گفتگو با پشتیبانی', 'hami-ai-assistant' ),
+                        $extra, // phpcs:ignore WordPress.Security.EscapeOutput -- every value went through esc_attr().
                         haa_fab_icon( $s ) // phpcs:ignore WordPress.Security.EscapeOutput
                 );
         }

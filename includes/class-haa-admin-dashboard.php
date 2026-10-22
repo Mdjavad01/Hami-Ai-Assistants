@@ -54,6 +54,50 @@ final class Haa_Admin_Dashboard {
                                 <?php endforeach; ?>
                         </div>
 
+                        <?php /* The question every new owner asks first: «چرا دکمه‌ی چت روی سایت کاری نمی‌کند؟»
+                               * Three switches decide it, and a cache can fake a fourth. Show them. */ ?>
+                        <h2 class="haai-sec-title"><?php esc_html_e( 'چت روی صفحات سایت', 'hami-ai-assistant' ); ?></h2>
+                        <div class="haai-panel">
+                                <?php
+                                $gate  = Haa_Settings::gate();
+                                $modes = array(
+                                        'shortcode' => __( 'فقط شورتکد', 'hami-ai-assistant' ),
+                                        'floating'  => __( 'فقط دکمه‌ی شناور', 'hami-ai-assistant' ),
+                                        'both'      => __( 'شورتکد + دکمه‌ی شناور', 'hami-ai-assistant' ),
+                                );
+                                $rows = array(
+                                        array( __( 'افزونه روشن است', 'hami-ai-assistant' ), ! empty( $gate['on'] ), __( 'تنظیمات ← عمومی ← فعال', 'hami-ai-assistant' ) ),
+                                        array( __( 'ماژول چت‌بات روشن است', 'hami-ai-assistant' ), ! empty( $gate['chat'] ), __( 'ماژول‌ها ← چت‌بات', 'hami-ai-assistant' ) ),
+                                        array(
+                                                sprintf( /* translators: %s: display mode. */ __( 'حالت نمایش: %s', 'hami-ai-assistant' ), (string) ( $modes[ $gate['dm'] ] ?? $gate['dm'] ) ),
+                                                'shortcode' !== $gate['dm'],
+                                                __( 'برای دکمه‌ی شناور، حالت را «شناور» یا «هر دو» بگذارید.', 'hami-ai-assistant' ),
+                                        ),
+                                );
+                                ?>
+                                <ul class="haai-diag__list">
+                                        <?php foreach ( $rows as $row ) : ?>
+                                                <li>
+                                                        <span class="haai-badge <?php echo $row[1] ? 'haai-badge--ok' : 'haai-badge--warn'; ?>">
+                                                                <?php echo $row[1] ? esc_html__( 'درست', 'hami-ai-assistant' ) : esc_html__( 'باید درست شود', 'hami-ai-assistant' ); ?>
+                                                        </span>
+                                                        <?php echo esc_html( $row[0] ); ?>
+                                                        <?php if ( ! $row[1] ) : ?>
+                                                                <span class="haai-field__hint"><?php echo esc_html( $row[2] ); ?></span>
+                                                        <?php endif; ?>
+                                                </li>
+                                        <?php endforeach; ?>
+                                </ul>
+                                <p class="haai-field__hint">
+                                        <?php esc_html_e( 'دکمه دیده می‌شود ولی کلیک کاری نمی‌کند؟ ۱) کش صفحه و کش جاوااسکریپت را پاک کنید. ۲) افزونه‌های «ادغام/تعویق/بهینه‌سازی جاوااسکریپت» را یک‌بار خاموش کنید و صفحه را تست کنید — لودر این افزونه حالا حتی بدون اسکریپت اینلاین هم از داده‌های خود دکمه بالا می‌آید. ۳) اگر صفحه‌ای را در «صفحات ممنوع» گذاشته‌اید، چت همان‌جا نمایش داده نمی‌شود.', 'hami-ai-assistant' );
+                                        ?>
+                                </p>
+                                <p class="haai-plan__actions">
+                                        <a class="button" href="<?php echo esc_url( home_url( '/' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'باز کردن صفحه اصلی سایت', 'hami-ai-assistant' ); ?></a>
+                                        <a class="button" href="<?php echo esc_url( Haa_Util::screen_url( 'settings', array( 'tab' => 'general' ) ) ); ?>"><?php esc_html_e( 'تنظیمات نمایش', 'hami-ai-assistant' ); ?></a>
+                                </p>
+                        </div>
+
                         <h2 class="haai-sec-title"><?php esc_html_e( 'مصرف و کارها', 'hami-ai-assistant' ); ?></h2>
                         <div class="haai-cards">
                                 <div class="haai-card">
