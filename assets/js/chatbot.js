@@ -306,9 +306,20 @@
                         pending = false;
                 }
 
-                var requirement = (C.lead && C.lead.required) || 'off';
-                var lead = 'off' === requirement || leadSent ? null : validateLead(requirement);
-                if (lead === null) return;
+                // `enabled` decides whether the form is used at all; the config ships
+                // {enabled:false} without `required` when lead capture is off.
+                var requirement = (C.lead && C.lead.enabled && C.lead.required) ? C.lead.required : 'off';
+                /* `lead` is null for TWO different reasons: no lead form needed (fine, keep
+                 * going) and an invalid phone (stop, the field already shows the error).
+                 * The old one-liner checked both with `lead === null` and returned before
+                 * addBubble() — so on an install with lead capture OFF every click (send
+                 * button, Enter and the suggestion chips) died without a bubble, an error
+                 * or a single network request. */
+                var lead = null;
+                if ('off' !== requirement && !leadSent) {
+                	lead = validateLead(requirement);
+                	if (!lead) return;
+                }
                 if (lead && lead.lead_phone) leadSent = true;
 
                 pending = true;

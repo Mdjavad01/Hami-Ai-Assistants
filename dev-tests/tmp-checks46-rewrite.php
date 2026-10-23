@@ -1,6 +1,6 @@
 <?php
 /**
- * Regression suite: rewrite of existing content (2.1.58).
+ * Regression suite: rewrite of existing content (2.1.59).
  *
  * User's request: «قابلیت بازنویسی… انتقال بدیم بخش ویرایشگر خودشون… یه بخش
  * دیگه هم داخل صفحه AI… بررسی کنه، بازنویسی کنه و تایید شد آپدیت بشه».
