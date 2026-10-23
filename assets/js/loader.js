@@ -9,6 +9,13 @@
 (function () {
 	'use strict';
 
+	/* CSP: a site with a nonce-based script-src allows this file (WordPress prints
+	 * it with the nonce) but BLOCKS anything injected later without one. That is
+	 * the panel-opens-but-nothing-works case: markup and inline CSS arrive, the
+	 * widget script is refused, and the browser only says so in the console. Take
+	 * the nonce from our own tag and hand it to every element we create. */
+	var NONCE = (document.currentScript && document.currentScript.nonce) || '';
+
 	var c = window.HAAI_CONFIG;
 
 	/* A page cache or a JS optimiser (delay / combine / defer) can drop the inline
@@ -48,18 +55,28 @@
 	var ready = null;
 	var styled = false;
 
-	function css() {
+	/**
+	 * Load chatbot.css once. The URL can come from either half of the config:
+	 * the button (data-haai-css) or the REST response. A button printed before
+	 * 2.1.53 carries no data-* at all — marking `styled` before checking the URL
+	 * then dropped the stylesheet for good, which is why the send arrow was an
+	 * invisible icon on a red circle and the layout looked half-finished.
+	 */
+	function css(href) {
 		if (styled) return;
+		var url = href || c.css || '';
+		if (!url) return;
 		styled = true;
-		if (!c.css) return;
 		var link = document.createElement('link');
 		link.rel = 'stylesheet';
-		link.href = c.css;
+		link.href = url;
+		if (NONCE) link.nonce = NONCE;
 		document.head.appendChild(link);
 	}
 
 	function build(d) {
 		var style = document.createElement('style');
+		if (NONCE) style.nonce = NONCE;
 		style.textContent = d.css || '';
 		document.head.appendChild(style);
 
@@ -84,9 +101,16 @@
 			window.HAAI_CONFIG = c;
 		}
 
+		/* Take the script URL from the MERGED config: a button whose HTML was
+		 * cached before 2.1.53 carries no data-haai-js, so the local copy is empty
+		 * and the old code injected nothing at all — panel open, every click dead. */
+		var js = (window.HAAI_CONFIG && window.HAAI_CONFIG.js) || c.js || '';
+		css( window.HAAI_CONFIG && window.HAAI_CONFIG.css );
+
 		var script = document.createElement('script');
-		script.src = c.js;
+		script.src = js;
 		script.defer = true;
+		if (NONCE) script.nonce = NONCE;
 		script.onerror = function () {
 			// A stale .min.js (a partial FTP upload) or a WAF rule: try the source
 			// file once before giving up — a working widget beats a tidy message.
@@ -96,6 +120,7 @@
 				var alt = document.createElement('script');
 				alt.src = plain;
 				alt.defer = true;
+				if (NONCE) alt.nonce = NONCE;
 				alt.onerror = function () {
 					window.HAAI_CONFIG = window.HAAI_CONFIG || c;
 					toast('فایل اسکریپت چت بارگذاری نشد (مسدود یا ۴۰۴). صفحه را بدون مسدودکننده تست کنید.');
@@ -108,7 +133,23 @@
 			toast('فایل اسکریپت چت بارگذاری نشد (مسدود یا ۴۰۴). صفحه را بدون مسدودکننده تست کنید.');
 			if (window.console && console.error) console.error('[HAAI] chatbot.js failed to load:', script.src);
 		};
-		if (c.js) document.body.appendChild(script);
+		// A refused script fires `error`; one that runs but bails out fires `load`
+		// and leaves HAAI_CHAT unset. Naming those two apart is the whole diagnosis.
+		script.onload = function () {
+			window.setTimeout(function () {
+				if (window.HAAI_CHAT) return;
+				if (window.console && console.error) console.error('[HAAI] chatbot.js ran but did not initialise (root missing or an exception above)', { src: js });
+				toast('اسکریپت چت اجرا نشد — کنسول مرورگر خط [HAAI] را نشان می‌دهد.');
+			}, 1200);
+		};
+		if (js) {
+			document.body.appendChild(script);
+		} else {
+			// The server config and the button both lacked a script URL; without one
+			// the widget can never answer a click.
+			toast('آدرس فایل چت از سرور نیامد؛ صفحه را یک‌بار تازه کنید.');
+			if (window.console && console.error) console.error('[HAAI] no chatbot script URL in config', window.HAAI_CONFIG);
+		}
 
 		// Watchdog: if chatbot.js loaded but never reached its own init, no handler
 		// is bound and every click is silently ignored. Name the reason on screen.
@@ -116,7 +157,7 @@
 			if (window.HAAI_CHAT) return;
 			if (window.console && console.error) {
 				console.error('[HAAI] chatbot.js did not initialise', {
-					src: c.js,
+					src: js,
 					hasConfig: !!window.HAAI_CONFIG,
 					widget: !!document.querySelector('.haai-widget:not(.haai-widget--preview)')
 				});
