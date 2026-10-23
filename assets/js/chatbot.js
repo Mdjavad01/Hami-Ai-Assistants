@@ -15,32 +15,10 @@
         var STORE_CAP = 12000; // characters of serialised history.
 
         var root = document.querySelector('.haai-widget:not(.haai-widget--preview)');
-
-        // Any runtime error inside the widget is reported with a stable prefix so a
-        // single line in the browser console is enough to place it.
-        window.addEventListener('error', function (ev) {
-                if (!ev || !ev.message) return;
-                if (window.console && console.error) {
-                        console.error('[HAAI] runtime error:', ev.message, (ev.filename || '') + ':' + (ev.lineno || 0));
-                }
-        });
-        window.addEventListener('unhandledrejection', function (ev) {
-                var r = ev && ev.reason ? ev.reason : '';
-                if (window.console && console.error) {
-                        console.error('[HAAI] unhandled rejection:', (r && r.message) ? r.message : r);
-                }
-        });
         if (!root || '1' === root.getAttribute('data-init')) {
                 return;
         }
         root.setAttribute('data-init', '1');
-
-        /* A cache/JS optimiser that drops the config used to leave a widget that
-         * opened and then did nothing at all on send. Say it outright instead. */
-        var configured = !!(C.rest && C.tokenUrl);
-        if (!configured && window.console && console.warn) {
-                console.warn('[HAAI] HAAI_CONFIG is missing rest/tokenUrl; the chat cannot send.', C);
-        }
 
         var messages = root.querySelector('.haai-messages');
         var form = root.querySelector('.haai-form');
@@ -227,9 +205,9 @@
 
         function ensureToken() {
                 if (token) return Promise.resolve(token);
-                // Reject instead of throwing: a synchronous TypeError here used to
-                // escape send() before its promise existed, leave `pending` stuck on
-                // true and turn the whole widget into a dead button.
+                // Reject instead of throwing: a synchronous TypeError here escapes
+                // send() before it has a promise, leaves `pending` stuck on true and
+                // turns every later click into a silent no-op.
                 if (!C.tokenUrl) {
                         return Promise.reject(new Error('token url missing'));
                 }
@@ -321,15 +299,11 @@
                 text = (text || '').trim();
                 if (!text) return;
                 if (pending) {
-                        // Self-heal a stuck flag: if the button is not actually busy, a
-                        // previous attempt abandoned the request. Staying dead forever
-                        // was the worst part of the old failure.
+                        // Self-heal a stuck flag: if the button is not actually busy a
+                        // previous attempt abandoned the request. Staying dead for the
+                        // rest of the page was the worst part of that failure.
                         if (sendBtn && sendBtn.classList.contains('is-busy')) return;
                         pending = false;
-                }
-                if (!configured) {
-                        showError('پیکربندی چت دریافت نشد. صفحه را یک‌بار تازه کنید؛ اگر تکرار شد کش صفحه/بهینه‌ساز جاوااسکریپت را خاموش کنید.');
-                        return;
                 }
 
                 var requirement = (C.lead && C.lead.required) || 'off';
@@ -432,7 +406,7 @@
                 offered = true;
 
                 var wrap = document.createElement('div');
-                wrap.className = 'haai-msg haai-msg--bot';
+                wrap.className = 'haai-msg haai-msg--bot haai-handoff';
                 if (AVATAR_HTML) wrap.insertAdjacentHTML('beforeend', AVATAR_HTML);
 
                 var bubble = document.createElement('div');
@@ -463,16 +437,16 @@
                         '<div class="haai-handoff__title">' + esc(HI.title || '') + '</div>' +
                         '<p class="haai-handoff__intro">' + esc(HI.intro || '') + '</p>' +
                         '<div class="haai-lead__row">' +
-                        '<input type="text" class="haai-lead__name" name="handoff_name" placeholder="' + esc(I.name || 'نام') + '" autocomplete="name" maxlength="120">' +
-                        '<input type="tel" class="haai-lead__phone" name="handoff_phone" inputmode="numeric" placeholder="' + esc(I.phone || 'شماره موبایل') + '" autocomplete="tel" maxlength="20">' +
+                        '<input type="text" class="haai-lead__name haai-handoff__name" name="handoff_name" placeholder="' + esc(I.name || 'نام') + '" autocomplete="name" maxlength="120">' +
+                        '<input type="tel" class="haai-lead__phone haai-handoff__phone" name="handoff_phone" inputmode="numeric" placeholder="' + esc(I.phone || 'شماره موبایل') + '" autocomplete="tel" maxlength="20">' +
                         '</div>' +
                         '<input type="text" class="haai-handoff__note" name="handoff_note" placeholder="' + esc(HI.note || '') + '" maxlength="300">' +
                         (HO.consent ? '<p class="haai-lead__consent">' + esc(HO.consent) + '</p>' : '') +
                         '<p class="haai-handoff__err" hidden></p>' +
                         '<button type="button" class="haai-handoff__send">' + esc(HI.send || '') + '</button>';
 
-                var nameEl = bubble.querySelector('.haai-lead__name');
-                var phoneEl = bubble.querySelector('.haai-lead__phone');
+                var nameEl = bubble.querySelector('.haai-handoff__name');
+                var phoneEl = bubble.querySelector('.haai-handoff__phone');
                 var noteEl = bubble.querySelector('.haai-handoff__note');
                 var errEl = bubble.querySelector('.haai-handoff__err');
                 var sendEl = bubble.querySelector('.haai-handoff__send');
